@@ -186,3 +186,20 @@ id = "hud-painter"
 file = "crates/horizon-client/src/game.rs"
 name = "vape_hud"
 source = "hud_painter.rs"
+
+[[module]]
+id = "camera"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_camera"
+source = "camera.rs"
+
+[[injection]]
+id = "no-hurt-camera"
+target = "horizon_client::game::fov::Game<'_>::bob_matrix"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/no_hurt_camera.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "partial", ty = "f32", value = "partial" },
+]

@@ -19,6 +19,7 @@ pub enum ModuleId {
     Coordinates,
     Fps,
     Compass,
+    NoHurtCamera,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -26,6 +27,7 @@ impl ModuleId {
             Self::Coordinates => "hud.coordinates",
             Self::Fps => "hud.fps",
             Self::Compass => "hud.compass",
+            Self::NoHurtCamera => "render.no-hurt-camera",
         }
     }
     pub fn name(self) -> &'static str {
@@ -33,9 +35,18 @@ impl ModuleId {
             Self::Coordinates => "Coords",
             Self::Fps => "FPS",
             Self::Compass => "Compass",
+            Self::NoHurtCamera => "NoHurtCam",
         }
     }
-    pub const ALL: [Self; 3] = [Self::Coordinates, Self::Fps, Self::Compass];
+    pub const ALL: [Self; 4] = [
+        Self::Coordinates,
+        Self::Fps,
+        Self::Compass,
+        Self::NoHurtCamera,
+    ];
+    pub fn is_panel(self) -> bool {
+        matches!(self, Self::Coordinates | Self::Fps | Self::Compass)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -78,7 +89,7 @@ impl Default for Runtime {
                     json!(match module {
                         ModuleId::Coordinates => vec!["F8"],
                         ModuleId::Fps => vec!["F9"],
-                        ModuleId::Compass => vec![],
+                        ModuleId::Compass | ModuleId::NoHurtCamera => vec![],
                     }),
                 ),
                 Definition::choice(
@@ -87,6 +98,15 @@ impl Default for Runtime {
                     &["toggle", "hold"],
                     "toggle",
                 ),
+            ] {
+                settings
+                    .define(definition)
+                    .expect("static module definition");
+            }
+            if !module.is_panel() {
+                continue;
+            }
+            for definition in [
                 Definition::boolean(&format!("{prefix}.background"), "Render background", true),
                 Definition::number(
                     &format!("{prefix}.x"),
@@ -753,6 +773,9 @@ impl Runtime {
         }
         let mut panels = Vec::new();
         for module in ModuleId::ALL {
+            if !module.is_panel() {
+                continue;
+            }
             if !preview && !self.enabled(module) {
                 continue;
             }
@@ -803,6 +826,7 @@ impl Runtime {
                 },
                 ModuleId::Compass => super::ui::hud::Content::Compass { yaw: snapshot.yaw },
                 ModuleId::Fps => super::ui::hud::Content::Lines,
+                ModuleId::NoHurtCamera => continue,
             };
             panels.push(HudPanel {
                 content,
