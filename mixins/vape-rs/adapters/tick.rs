@@ -1,8 +1,9 @@
 fn tick(game: &mut crate::game::Game<'_>) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
     if game.serving.is_some() || game.options.dedicated.is_some() {
         return;
     }
-    crate::game::vape_rs::core::with_client(|runtime| {
+    crate::game::vape_rs::core::with_client(&client, |runtime| {
         if !runtime.initialized() {
             let home = horizon_client::logging::game_home();
             runtime.attach_storage(

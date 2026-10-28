@@ -1,4 +1,5 @@
 fn hud(game: &mut crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBatch) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
     use crate::game::vape_rs::{core::with_client, ui::Snapshot};
     use horizon_client::hud::HudBatch;
     if game.serving.is_some() || game.options.dedicated.is_some() {
@@ -7,7 +8,7 @@ fn hud(game: &mut crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBat
     let Some(player) = game.player.as_ref() else {
         return;
     };
-    let panels = with_client(|runtime| {
+    let panels = with_client(&client, |runtime| {
         runtime.panels(Snapshot {
             position: [player.position.x, player.position.y, player.position.z],
             fps: game.fps,

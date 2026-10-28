@@ -1,6 +1,6 @@
 # vape-rs (development)
 
-Independent Rust-native Horizon mod rewrite. The full scope and completion gates are in [plan.md](plan.md). The rewrite is incomplete: the current executable slice provides a client tick diagnostic and keyboard-controlled coordinates/FPS text. The complete reference UI, gameplay modules, persistence and release validation are still pending. No distribution-ready parity claim is made.
+Independent Rust-native Horizon mod rewrite. The full scope and completion gates are in [plan.md](plan.md). The rewrite is incomplete. Current native foundations include coordinates/FPS HUDs, local settings/profiles/friends, binding capture, HUD placement and a custom GUI with text editing. The remaining gameplay modules, complete reference parity and release validation are still pending. No distribution-ready parity claim is made.
 
 References are read-only. No Java, JNI, process injection, account service or remote backend is part of this runtime. The adjacent reconstructed Java repository is used only for static behavioral inspection.
 
@@ -17,7 +17,7 @@ cargo run -p xtask --locked --offline -- payload-test
 
 The AST packer reads conventional Rust module files under src and emits one source-only payload plus a content-hash source map under target. The emitted payload's tests compile in an isolated Cargo fixture with its committed lockfile. The runtime uses serde_json 1.0.151, already declared and locked in the pinned host; staging verifies that contract and never injects a dependency.
 
-The mixin pin currently uses [upstream PR #2](https://github.com/horizon-rust/horizon-mixins/pull/2), authorized for development before merge. The exact commit remains fixed in compatibility.json; merging the PR does not automatically change this pin.
+The mixin pin currently uses [upstream PR #2](https://github.com/horizon-rust/horizon-mixins/pull/2), authorized for development before merge. The exact base commit remains fixed in compatibility.json; merging the PR does not automatically change this pin. Staging also applies the reviewed, SHA-256 pinned patch under tools/mixin-patches for lifetime-owned state and preserved constructors. These patches are exported from local development commit e83e49f4ceca0dbb3156617d6d86f3996c2341cc. `xtask stage` reconstructs them from the clean base; it never builds a dirty development checkout. Distribution is gated until a published tool pin contains this support: the launcher cannot apply tool patches from a mod bundle. `tools/bundle.py` rejects that incompatible package.
 
 For native staging, review the pinned mixin sources before building them:
 
@@ -45,7 +45,7 @@ python3 tools/scenario.py /absolute/path/to/prepared/26.3 --in-frame
 
 It uses a fresh working directory and isolated homes for each run, then captures input/HUD states and quits the test game. Screenshots require visual inspection; successful commands alone do not establish rendering parity.
 
-`python3 tools/bundle.py` produces a deterministic development `.hnmod` and SHA-256 in dist. The source-only archive includes no upstream game source or resources. It is an experimental source bundle, not a completed public release. Installation through the launcher's native-mod build route and cross-platform support remain unvalidated. Native mods run with full OS privileges; installation uses the launcher's explicit native-code trust step.
+`python3 tools/bundle.py` is gated while development tool patches are required. Once a published compatible tool pin is recorded, it produces a deterministic source-only `.hnmod` and SHA-256 in dist without upstream game source or resources. Current development uses `xtask stage`; no compatible distributable is claimed. Installation through the launcher's native-mod build route and cross-platform support remain unvalidated. Native mods run with full OS privileges; installation uses the launcher's explicit native-code trust step.
 
 ## Tracking work
 

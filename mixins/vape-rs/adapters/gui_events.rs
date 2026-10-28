@@ -3,6 +3,7 @@ fn gui_events(
     id: winit::window::WindowId,
     event: &winit::event::WindowEvent,
 ) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
     use crate::game::vape_rs::{core::with_client, input::KeyAction};
     use winit::event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
     if game.serving.is_some()
@@ -11,7 +12,7 @@ fn gui_events(
     {
         return;
     }
-    with_client(|runtime| {
+    with_client(&client, |runtime| {
         if let WindowEvent::Focused(false) = event {
             runtime.release_input();
             runtime.gui.key("", KeyAction::FocusLost);

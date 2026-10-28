@@ -1,4 +1,5 @@
 fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBatch) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
     use crate::game::vape_rs::{
         core::with_client,
         ui::{
@@ -10,7 +11,7 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
     if game.serving.is_some() || game.options.dedicated.is_some() {
         return;
     }
-    let frame = with_client(|runtime| runtime.gui_frame((batch.width, batch.height), game.cursor));
+    let frame = with_client(&client, |runtime| runtime.gui_frame((batch.width, batch.height), game.cursor));
     let Some(frame) = frame else {
         return;
     };
@@ -37,7 +38,7 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
             .player
             .as_ref()
             .map(|player| {
-                with_client(|runtime| {
+                with_client(&client, |runtime| {
                     runtime.preview_panels(Snapshot {
                         position: [player.position.x, player.position.y, player.position.z],
                         fps: game.fps,
@@ -145,7 +146,7 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
                 enabled: panel.enabled,
             });
         }
-        with_client(|runtime| runtime.gui.hud_regions = regions);
+        with_client(&client, |runtime| runtime.gui.hud_regions = regions);
     }
     let start = batch.vertices.len();
     for draw in frame.draw {

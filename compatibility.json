@@ -20,9 +20,16 @@
   "horizon_mixins_source": {
     "repository": "https://github.com/horizon-rust/horizon-mixins",
     "pull_request": "https://github.com/horizon-rust/horizon-mixins/pull/2",
-    "note": "User-authorized development pin to PR head; preserve exact revision after merge."
+    "note": "PR #2 base plus checked-in development patch for lifetime-owned state; launcher packaging gated until tool pin is published upstream."
   },
   "runtime_dependencies": {
     "serde_json": "1.0.151 (already declared and locked in horizon-client)"
-  }
+  },
+  "horizon_mixins_patches": [
+    {
+      "path": "tools/mixin-patches/0001-lifetime-state.patch",
+      "sha256": "daad889706fa6b363cae2ef1e478ecddb2b7c05175483f5938c93bca65d6cf60",
+      "development_commit": "e83e49f4ceca0dbb3156617d6d86f3996c2341cc"
+    }
+  ]
 }

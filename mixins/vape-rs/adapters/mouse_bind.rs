@@ -3,6 +3,7 @@ fn mouse_bind(
     button: winit::event::MouseButton,
     pressed: bool,
 ) -> core::ops::ControlFlow<Result<()>> {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
     use crate::game::vape_rs::{core::with_client, input::KeyAction};
     use winit::event::MouseButton;
     if game.serving.is_some() || game.options.dedicated.is_some() {
@@ -16,7 +17,7 @@ fn mouse_bind(
         MouseButton::Forward => "MouseForward".into(),
         MouseButton::Other(n) => format!("Mouse{n}"),
     };
-    let suppressed = with_client(|runtime| {
+    let suppressed = with_client(&client, |runtime| {
         runtime.input(
             &name,
             if pressed {

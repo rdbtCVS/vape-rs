@@ -3,6 +3,7 @@ fn input(
     key: winit::keyboard::KeyCode,
     action: horizon_client::debug_keys::KeyAction,
 ) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
     use crate::game::vape_rs::{core::with_client, input::KeyAction};
     if game.serving.is_some() || game.options.dedicated.is_some() {
         return;
@@ -16,7 +17,7 @@ fn input(
         horizon_client::debug_keys::KeyAction::Press => KeyAction::Press,
         horizon_client::debug_keys::KeyAction::Repeat => KeyAction::Repeat,
     };
-    let (before, after) = with_client(|runtime| {
+    let (before, after) = with_client(&client, |runtime| {
         let before = runtime.gui.open;
         runtime.input(
             &format!("{key:?}"),

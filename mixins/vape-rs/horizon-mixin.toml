@@ -77,6 +77,7 @@ target = "horizon_client::game::Game<'_>::mapped_key"
 kind = "HEAD"
 cancellable = true
 helper = "adapters/key_capture.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
 
 [[injection]]
 id = "control-key-capture"
@@ -84,6 +85,7 @@ target = "horizon_client::game::control::Game<'_>::control_key_down"
 kind = "HEAD"
 cancellable = true
 helper = "adapters/key_capture.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
 
 [[injection]]
 id = "mouse-bind"
@@ -103,3 +105,15 @@ target = "horizon_client::game::Game<'_>::hud"
 kind = "HEAD"
 helper = "adapters/frame.rs"
 bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+
+[[state]]
+id = "client"
+target = "horizon_client::game::Game"
+ty = "crate::game::vape_rs::core::Client"
+initial = "::core::default::Default::default()"
+
+[[state.constructor]]
+target = "horizon_client::game::Game<'_>::new"
+selector = "Game"
+require = 1

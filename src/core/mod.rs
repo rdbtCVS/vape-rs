@@ -779,17 +779,31 @@ impl Runtime {
             .collect()
     }
 }
-std::thread_local! {
-    // Adapters reject integrated/dedicated server Game instances before access.
-    static CLIENT:std::cell::RefCell<Runtime>=std::cell::RefCell::new(Runtime::default());
-}
-pub fn with_client<T>(action: impl FnOnce(&mut Runtime) -> T) -> T {
-    CLIENT.with_borrow_mut(action)
+/// Owned by one host Game. A temporary handle clone lets adapters release the
+/// field borrow before applying host effects; no process/thread singleton exists.
+pub type Client = std::sync::Arc<std::sync::Mutex<Runtime>>;
+pub fn with_client<T>(client: &Client, action: impl FnOnce(&mut Runtime) -> T) -> T {
+    action(&mut client.lock().expect("vape-rs client runtime poisoned"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_ownership_is_independent_and_temporary_handles_preserve_it() {
+        let a = Client::default();
+        let b = Client::default();
+        with_client(&a, |runtime| {
+            runtime.set_enabled(ModuleId::Coordinates, true)
+        });
+        assert!(!with_client(&b, |runtime| runtime.enabled(ModuleId::Coordinates)));
+        let moved = a.clone();
+        drop(a);
+        assert!(with_client(&moved, |runtime| runtime.enabled(ModuleId::Coordinates)));
+        with_client(&moved, |runtime| runtime.panic());
+        assert!(!with_client(&moved, |runtime| runtime.enabled(ModuleId::Coordinates)));
+    }
 
     fn snapshot() -> Snapshot {
         Snapshot {

@@ -10,6 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def bundle():
+    compatibility = json.loads((ROOT / 'compatibility.json').read_text())
+    if compatibility.get('horizon_mixins_patches'):
+        raise ValueError('Distribution needs a published mixin tool pin containing the development patches. Use xtask stage for local development; a base-tool .hnmod would be incompatible.')
     subprocess.run(['cargo', 'run', '-p', 'xtask', '--locked', '--offline', '--', 'pack'], cwd=ROOT, check=True)
     base = ROOT / 'target/bundle'
     native = json.loads((base / 'horizon-native.json').read_text())
