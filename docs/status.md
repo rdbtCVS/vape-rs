@@ -76,8 +76,8 @@ cleanup and these documentation updates; Git history records its exact SHA.
 4. **Validation after implementation:** run the new batch in fresh isolated
    worlds on integrated-server and in-frame paths, then independent remote/LAN
    cases, visual comparisons, interruption/cleanup checks and performance.
-   The latest game executable was not rebuilt for this close-out; check is
-   compilation evidence, not a newly validated playable build.
+   The later manual-testing preparation rebuilds the native executable; a
+   successful build still does not constitute new gameplay/visual evidence.
 5. **Distribution:** launcher/public packaging is gated until a published mixin
    pin includes the required lifetime-state patch. Cross-platform builds,
    installation/provenance and release gates remain open.
@@ -100,3 +100,23 @@ working directories for every game execution. No assets, player worlds,
 credentials or backend data are committed. Neither reference is built/executed
 as Java. Horizon exports/builds stay under target; unrelated changes now present
 in the adjacent Horizon checkout are not used or overwritten.
+
+## Trying the development build
+
+The current client was rebuilt successfully for manual testing; evidence:
+[manual-playtest-build.json](evidence/manual-playtest-build.json). No game was
+launched as part of that build. This development build disables audio/controllers.
+
+Run `python3 tools/play.py` from the project root; rebuild after source changes with
+`cargo run -p xtask --locked --offline -- build`. It opens the visible native
+client in a fresh disposable survival instance under target/scenarios/manual-*.
+The default prepared resources are the read-only path above; a positional path
+overrides them. `--in-frame` selects the second host path; `--creative` starts
+creative (inventory automation requires survival). Quit the window normally;
+the test instance and game.log are retained. No normal player worlds/settings
+are used. Right Shift opens the GUI, F8/F9 toggle coordinates/FPS and F10 is panic.
+
+GUI/profile/HUD editing and AutoTool have earlier real host evidence. Treat the
+newer inventory, macro, fishing and render features as experimental until their
+resource-backed validation pass. BlockOverlay and the rest of the unfinished
+plan are not available by enabling hidden options.

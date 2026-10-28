@@ -42,7 +42,25 @@ The compatible prepared resource directory located for this workspace is:
 <launcher-dir>/versions/nightly-2026-10-28-9b772b2/.local/horizon-client/26.3
 ```
 
-Use it read-only; every executable game run must use fresh isolated homes and working directory through tools/native_session.py. No new gameplay/visual test round was run for the latest implementation batches, following the user's implementation-first preference. The development scenario driver accepts a prepared resource directory:
+Use it read-only; every executable game run must use fresh isolated homes and working directory through tools/native_session.py. No new gameplay/visual test round was run for the latest implementation batches, following the user's implementation-first preference. For a visible manual test in a new disposable survival world:
+
+```sh
+python3 tools/play.py
+# Optional alternative execution path or creative starting mode:
+python3 tools/play.py --in-frame
+python3 tools/play.py --creative
+```
+
+The launcher uses the resource directory above by default; supply another as a
+positional argument if needed. Each run gets fresh homes, preferences and world
+under target/scenarios/manual-*. It opens a normal visible window and retains
+that instance and game.log after quitting. Right Shift opens the GUI; all modules
+start disabled, F8/F9 toggle coordinates/FPS and F10 disables all modules. Start
+with the HUD/editor and AutoTool; newer modules still need gameplay validation.
+AutoArmor, Refill and ChestSteal are guarded out in creative, so use survival for inventory tests.
+Rebuild after source changes with `cargo run -p xtask --locked --offline -- build`.
+
+The development scenario driver accepts a prepared resource directory:
 
 ```sh
 python3 tools/scenario.py /absolute/path/to/prepared/26.3
