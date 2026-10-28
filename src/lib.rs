@@ -3,3 +3,6 @@
 pub mod core;
 pub mod input;
 pub mod ui;
+
+pub mod actions;
+pub mod modules;

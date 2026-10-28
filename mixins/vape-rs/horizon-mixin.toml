@@ -203,3 +203,16 @@ bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "partial", ty = "f32", value = "partial" },
 ]
+
+[[module]]
+id = "inventory"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_inventory"
+source = "inventory.rs"
+
+[[injection]]
+id = "auto-tool-attack"
+target = "horizon_client::game::Game<'_>::attack"
+kind = "HEAD"
+helper = "adapters/auto_tool_attack.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]

@@ -2,7 +2,12 @@ pub mod lifecycle;
 pub mod profiles;
 pub mod settings;
 
+use super::actions::{Coordinator, HotbarSlot, Lease, Owner, Resource, SlotChange};
 use super::input::{BindingMode, KeyAction, MultiBinding};
+use super::modules::utility::{
+    auto_tool,
+    inventory_guard::{CombatGuard, CombatSnapshot},
+};
 use super::ui::gui::{Action, Frame, Gui, ModuleView, PersonView, View};
 use super::ui::{CoordinatesLayout, HudLine, HudPanel, Snapshot};
 use lifecycle::{CleanupReason, Context, Session};
@@ -20,6 +25,7 @@ pub enum ModuleId {
     Fps,
     Compass,
     NoHurtCamera,
+    AutoTool,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -28,6 +34,7 @@ impl ModuleId {
             Self::Fps => "hud.fps",
             Self::Compass => "hud.compass",
             Self::NoHurtCamera => "render.no-hurt-camera",
+            Self::AutoTool => "world.auto-tool",
         }
     }
     pub fn name(self) -> &'static str {
@@ -36,17 +43,33 @@ impl ModuleId {
             Self::Fps => "FPS",
             Self::Compass => "Compass",
             Self::NoHurtCamera => "NoHurtCam",
+            Self::AutoTool => "AutoTool",
         }
     }
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
         Self::NoHurtCamera,
+        Self::AutoTool,
     ];
+    pub fn category(self) -> &'static str {
+        if self == Self::AutoTool {
+            "World"
+        } else {
+            "Legit"
+        }
+    }
     pub fn is_panel(self) -> bool {
         matches!(self, Self::Coordinates | Self::Fps | Self::Compass)
     }
+}
+
+#[derive(Debug)]
+pub struct ToolAction {
+    pub change: SlotChange,
+    decision: auto_tool::Decision,
+    options: auto_tool::Options,
 }
 
 #[derive(Debug, Default)]
@@ -60,6 +83,12 @@ pub struct Runtime {
     modules: BTreeMap<ModuleId, ModuleState>,
     ticks: u64,
     session: Session,
+    actions: Coordinator,
+    auto_tool: auto_tool::AutoTool,
+    tool_lease: Option<Lease>,
+    combat_guard: CombatGuard,
+    combat_guard_tick: Option<u64>,
+    combat_blocked: bool,
     settings: Settings,
     document: Document,
     storage: Option<Profiles>,
@@ -89,7 +118,7 @@ impl Default for Runtime {
                     json!(match module {
                         ModuleId::Coordinates => vec!["F8"],
                         ModuleId::Fps => vec!["F9"],
-                        ModuleId::Compass | ModuleId::NoHurtCamera => vec![],
+                        ModuleId::Compass | ModuleId::NoHurtCamera | ModuleId::AutoTool => vec![],
                     }),
                 ),
                 Definition::choice(
@@ -153,6 +182,42 @@ impl Default for Runtime {
                 "horizontal",
             ))
             .unwrap();
+        for definition in [
+            Definition::number(
+                "world.auto-tool.swap-to-delay",
+                "Swap to delay",
+                0.0,
+                50.0,
+                500.0,
+                50.0,
+            ),
+            Definition::boolean("world.auto-tool.swap-weapon", "Swap weapon", true),
+            Definition::boolean("world.auto-tool.instant-swap", "Instant swap", true)
+                .when("world.auto-tool.swap-weapon", json!(true)),
+            Definition::boolean("world.auto-tool.swap-back", "Swap back", false),
+            Definition::number(
+                "world.auto-tool.swap-back-delay",
+                "Swap back delay",
+                50.0,
+                350.0,
+                1000.0,
+                50.0,
+            )
+            .when("world.auto-tool.swap-back", json!(true)),
+            Definition::boolean("world.auto-tool.require-mouse", "Require mouse down", true),
+            Definition::boolean(
+                "world.auto-tool.only-sneaking",
+                "Only while sneaking",
+                false,
+            ),
+            Definition::boolean("world.auto-tool.not-combat", "Not during combat", false),
+            Definition::boolean("world.auto-tool.not-use", "Not during use", false),
+            Definition::boolean("friends.use", "Use Friends", true),
+        ] {
+            settings
+                .define(definition)
+                .expect("static AutoTool definition");
+        }
         settings
             .validate_conditions()
             .expect("static visibility schema");
@@ -191,6 +256,12 @@ impl Default for Runtime {
                 .collect(),
             ticks: 0,
             session: Session::default(),
+            actions: Coordinator::default(),
+            auto_tool: auto_tool::AutoTool::default(),
+            tool_lease: None,
+            combat_guard: CombatGuard::default(),
+            combat_guard_tick: None,
+            combat_blocked: false,
             settings,
             document: Document::default(),
             storage: None,
@@ -218,6 +289,9 @@ impl Runtime {
             .get_mut(&module)
             .expect("registered module")
             .enabled = enabled;
+        if module == ModuleId::AutoTool && !enabled {
+            self.reset_auto_tool();
+        }
         self.dirty = true;
         self.notify(format!(
             "{} {}",
@@ -240,6 +314,9 @@ impl Runtime {
             self.release_input();
         }
         self.settings.set(id, next)?;
+        if id.starts_with("world.auto-tool.") {
+            self.reset_auto_tool();
+        }
         self.dirty = true;
         Ok(())
     }
@@ -532,7 +609,7 @@ impl Runtime {
                 .map(|m| ModuleView {
                     id: m.id().into(),
                     name: m.name().into(),
-                    category: "Legit".into(),
+                    category: m.category().into(),
                     enabled: self.enabled(m),
                     favorite: self.document.0["modules"][m.id()]["favorite"]
                         .as_bool()
@@ -616,6 +693,137 @@ impl Runtime {
             self.key_named(module, "", KeyAction::FocusLost, false);
         }
     }
+    pub fn logic_tick(&self) -> u64 {
+        self.ticks
+    }
+    pub fn friend_keys(&self) -> Vec<String> {
+        if !self
+            .settings
+            .get("friends.use")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+        {
+            return Vec::new();
+        }
+        self.document.0["friends"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|p| p["target"].as_bool().unwrap_or(true))
+            .filter_map(|p| p["name"].as_str().map(str::to_owned))
+            .collect()
+    }
+    fn reset_auto_tool(&mut self) {
+        self.auto_tool.reset();
+        self.combat_guard.reset();
+        self.combat_guard_tick = None;
+        self.combat_blocked = false;
+        self.tool_lease = None;
+        self.actions.release_owner(Owner("world.auto-tool"));
+    }
+    fn auto_tool_options(&self) -> auto_tool::Options {
+        let boolean = |name: &str| {
+            self.settings
+                .get(&format!("world.auto-tool.{name}"))
+                .and_then(Value::as_bool)
+                .unwrap()
+        };
+        let ticks = |name: &str| {
+            (self
+                .settings
+                .get(&format!("world.auto-tool.{name}"))
+                .and_then(Value::as_f64)
+                .unwrap()
+                / 50.0)
+                .ceil() as u64
+        };
+        auto_tool::Options {
+            swap_weapon: boolean("swap-weapon"),
+            instant_weapon: boolean("instant-swap"),
+            swap_to_ticks: ticks("swap-to-delay"),
+            swap_back: boolean("swap-back"),
+            swap_back_ticks: ticks("swap-back-delay"),
+            require_attack: boolean("require-mouse"),
+            only_sneaking: boolean("only-sneaking"),
+            not_during_use: boolean("not-use"),
+            not_during_combat: boolean("not-combat"),
+        }
+    }
+    pub fn auto_tool_propose(
+        &mut self,
+        mut snapshot: auto_tool::Snapshot,
+        combat: CombatSnapshot,
+    ) -> Option<ToolAction> {
+        if !self.enabled(ModuleId::AutoTool)
+            || !self.session.interactive()
+            || snapshot.epoch != self.session.epoch()
+        {
+            self.reset_auto_tool();
+            return None;
+        }
+        if let Some(auto_tool::Target::Entity(handle)) = snapshot.target
+            && !self.session.owns(handle)
+        {
+            self.reset_auto_tool();
+            return None;
+        }
+        let options = self.auto_tool_options();
+        if options.not_during_combat {
+            if self.combat_guard_tick != Some(snapshot.tick) {
+                self.combat_blocked = self.combat_guard.update(combat);
+                self.combat_guard_tick = Some(snapshot.tick);
+            }
+            snapshot.combat_blocked = self.combat_blocked;
+        }
+        if self
+            .tool_lease
+            .is_some_and(|lease| !self.actions.owns(lease, self.session.epoch()))
+        {
+            self.auto_tool.interrupt(snapshot.target);
+            self.tool_lease = None;
+        }
+        let decision = self.auto_tool.step(&snapshot, options);
+        if !self.auto_tool.retains_claim()
+            && let Some(lease) = self.tool_lease.take()
+        {
+            self.actions.release(lease);
+        }
+        let decision = decision?;
+        let lease = self.actions.acquire(
+            Resource::Hotbar,
+            Owner("world.auto-tool"),
+            self.session.epoch(),
+            100,
+        )?;
+        self.tool_lease = Some(lease);
+        Some(ToolAction {
+            change: SlotChange {
+                lease,
+                expected: decision.expected,
+                selected: decision.selected,
+                item: decision.item.clone(),
+            },
+            decision,
+            options,
+        })
+    }
+    pub fn auto_tool_authorize(&self, action: &ToolAction, current: HotbarSlot) -> bool {
+        self.enabled(ModuleId::AutoTool)
+            && self.session.interactive()
+            && self
+                .actions
+                .authorize(&action.change, self.session.epoch(), current)
+    }
+    pub fn auto_tool_applied(&mut self, action: ToolAction) {
+        if !self.actions.owns(action.change.lease, self.session.epoch()) {
+            return;
+        }
+        self.auto_tool.applied(&action.decision, action.options);
+        if !self.auto_tool.retains_claim() {
+            self.actions.release(action.change.lease);
+            self.tool_lease = None;
+        }
+    }
     pub fn session(&self) -> &Session {
         &self.session
     }
@@ -625,10 +833,13 @@ impl Runtime {
         }
         if !self.session.interactive() {
             self.release_input();
+            self.reset_auto_tool();
         }
     }
     pub fn session_change(&mut self, reason: CleanupReason) {
         self.release_input();
+        self.reset_auto_tool();
+        self.actions.clear();
         if reason.closes_gui() {
             self.gui.close();
         }
@@ -826,7 +1037,7 @@ impl Runtime {
                 },
                 ModuleId::Compass => super::ui::hud::Content::Compass { yaw: snapshot.yaw },
                 ModuleId::Fps => super::ui::hud::Content::Lines,
-                ModuleId::NoHurtCamera => continue,
+                ModuleId::NoHurtCamera | ModuleId::AutoTool => continue,
             };
             panels.push(HudPanel {
                 content,
@@ -927,6 +1138,56 @@ mod tests {
         assert_ne!(before, runtime.session().epoch());
         runtime.key(ModuleId::Fps, KeyAction::Release, true);
         assert!(!runtime.enabled(ModuleId::Fps));
+    }
+
+    #[test]
+    fn auto_tool_actions_are_revoked_by_session_change_and_user_selection() {
+        let mut runtime = Runtime::default();
+        runtime.observe_context(Context {
+            in_world: true,
+            alive: true,
+            interactive: true,
+        });
+        runtime.set_enabled(ModuleId::AutoTool, true);
+        runtime
+            .set_setting("world.auto-tool.swap-to-delay", json!(0.0))
+            .unwrap();
+        let mut snapshot = auto_tool::Snapshot {
+            epoch: runtime.session().epoch(),
+            tick: 1,
+            selected: HotbarSlot::new(0).unwrap(),
+            target: Some(auto_tool::Target::Block([1, 64, 1])),
+            candidates: std::array::from_fn(|_| auto_tool::Candidate {
+                item: None,
+                score: 1.0,
+            }),
+            attack_down: true,
+            sneaking: false,
+            using_item: false,
+            combat_blocked: false,
+        };
+        snapshot.candidates[2] = auto_tool::Candidate {
+            item: Some("minecraft:diamond_pickaxe".into()),
+            score: 8.0,
+        };
+        let action = runtime
+            .auto_tool_propose(snapshot.clone(), CombatSnapshot::default())
+            .unwrap();
+        assert!(runtime.auto_tool_authorize(&action, snapshot.selected));
+        assert!(!runtime.auto_tool_authorize(&action, HotbarSlot::new(1).unwrap()));
+        runtime.session_change(CleanupReason::Dimension);
+        assert!(!runtime.auto_tool_authorize(&action, snapshot.selected));
+        assert!(
+            runtime
+                .auto_tool_propose(snapshot.clone(), CombatSnapshot::default())
+                .is_none()
+        );
+        snapshot.epoch = runtime.session().epoch();
+        let action = runtime
+            .auto_tool_propose(snapshot, CombatSnapshot::default())
+            .unwrap();
+        runtime.panic();
+        assert!(!runtime.auto_tool_authorize(&action, HotbarSlot::new(0).unwrap()));
     }
 
     fn snapshot() -> Snapshot {

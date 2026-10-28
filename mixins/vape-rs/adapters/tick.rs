@@ -6,8 +6,15 @@ fn tick(game: &mut crate::game::Game<'_>) {
     crate::game::vape_rs::core::with_client(&client, |runtime| {
         runtime.observe_context(crate::game::vape_rs::core::lifecycle::Context {
             in_world: game.player.is_some() && game.title.is_none(),
-            alive: game.player.as_ref().is_some_and(|p| p.health.health() > 0.0),
-            interactive: game.focused && game.screen == crate::game::Screen::Playing && game.title.is_none() && !game.dialog_open() && game.server_packs.prompt.is_none(),
+            alive: game
+                .player
+                .as_ref()
+                .is_some_and(|p| p.health.health() > 0.0),
+            interactive: game.focused
+                && game.screen == crate::game::Screen::Playing
+                && game.title.is_none()
+                && !game.dialog_open()
+                && game.server_packs.prompt.is_none(),
         });
         if !runtime.initialized() {
             let home = horizon_client::logging::game_home();
@@ -27,4 +34,5 @@ fn tick(game: &mut crate::game::Game<'_>) {
             eprintln!("[vape-rs] {note}");
         }
     });
+    crate::game::vape_inventory::auto_tool(game, false);
 }
