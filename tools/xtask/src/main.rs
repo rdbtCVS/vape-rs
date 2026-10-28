@@ -475,7 +475,7 @@ fn audit(root: &Path) -> Result<()> {
                 .map(|(_, name, stmt)| (name.clone(), stmt.clone()))
                 .collect(),
         };
-        if path.ends_with("game.rs") {
+        if path == "crates/horizon-client/src/game.rs" {
             let payload = syn::parse_file(&fs::read_to_string(
                 root.join("target/bundle/mixins/vape-rs/runtime.rs"),
             )?)?;

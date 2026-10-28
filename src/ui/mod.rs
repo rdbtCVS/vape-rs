@@ -24,6 +24,10 @@ pub struct HudLine {
 #[derive(Debug)]
 pub struct HudPanel {
     pub module: &'static str,
+    pub name: &'static str,
+    pub enabled: bool,
+    pub min_width: f32,
+    pub min_height: f32,
     pub x: f32,
     pub y: f32,
     pub scale: f32,

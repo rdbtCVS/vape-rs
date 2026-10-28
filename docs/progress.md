@@ -83,3 +83,11 @@ Validation: 29 runtime and 3 audit tests, emitted payload tests, fmt/Clippy, exa
 Adjacent Horizon HEAD advanced independently to b7df7bd9e0b2b61cebd73d88194acd0b5956c6ed during development. Staging/builds remain on the original committed e1b2b0… pin; subsequent host inspection uses that pristine export. No adjacent checkout was edited.
 
 Continue immediately with the HUD drag/snap/scale editor and remaining reference widget behavior, then the remaining shared runtime and full feature plan. Fonts/icons/animations and full visual parity are still open; no prototype completion claim is made.
+
+## Native HUD editing
+
+Added native widget dragging, viewport bounds, screen/widget edge snapping (Shift bypass), wheel scaling, settings navigation and enable/disable controls. Disabled widgets appear only as dim editor previews using actual host values; previewing does not enable them. Placement and scale use normal settings persistence. Reference minimum FPS/coordinate panel dimensions are retained; full widget contents, typography and visual parity remain unfinished.
+
+Validation: 30 runtime + 3 audit tests, emitted payload's 30 tests, fmt/Clippy, ten-hook exact source audit, pinned host check and optimized build passed. Real HUD editor and bound-input capture scenarios passed in both integrated-server and in-frame paths, including restart persistence, Shift snapping bypass, no movement from a bound W key and no attack from a bound left mouse button. Inspected actual editor/scaled captures. Evidence: docs/evidence/hud-editor-validation.json. No row was promoted to full `validated` parity.
+
+Next: complete text editing/selection and modal input isolation, then remaining typed controls, widget details, shared lifecycle and the complete feature ledger. Full plan remains active.

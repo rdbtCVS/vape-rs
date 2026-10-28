@@ -48,7 +48,7 @@ fn gui_events(
                     MouseScrollDelta::LineDelta(_, y) => *y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 32.0,
                 };
-                runtime.gui.wheel(y);
+                runtime.gui_wheel(y, game.cursor);
             }
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == ElementState::Pressed

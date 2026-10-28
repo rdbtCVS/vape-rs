@@ -33,7 +33,8 @@ fn hud(game: &mut crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBat
             .map(|s| HudBatch::text_width(atlas, s))
             .fold(0.0f32, f32::max)
             + 8.0;
-        let height = texts.len() as f32 * 12.0 + 4.0;
+        let width = width.max(panel.min_width);
+        let height = (texts.len() as f32 * 12.0 + 4.0).max(panel.min_height);
         let x = panel
             .x
             .clamp(0.0, (batch.width - width * panel.scale).max(0.0));

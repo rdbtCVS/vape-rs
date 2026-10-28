@@ -1,8 +1,12 @@
 fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBatch) {
     use crate::game::vape_rs::{
         core::with_client,
-        ui::gui::{Paint, Rect},
+        ui::{
+            Snapshot,
+            gui::{HudRegion, Paint, Rect},
+        },
     };
+    use horizon_client::hud::HudBatch;
     if game.serving.is_some() || game.options.dedicated.is_some() {
         return;
     }
@@ -10,13 +14,139 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
     let Some(frame) = frame else {
         return;
     };
-    // Keep glyph upload patches already collected by the host, but replace
-    // the hidden vanilla pause-menu vertices/ranges with the owned mod UI.
+    // Retain glyph uploads already gathered by the host while replacing only
+    // the owned pause-menu surface. Closing restores the original path.
     batch.vertices.clear();
     batch.blends.clear();
     batch.blur_at = 0;
     let atlas = &game.gui.atlas;
-    batch.fill(atlas, 0.0, 0.0, batch.width, batch.height, 0x99000000);
+    batch.fill(
+        atlas,
+        0.0,
+        0.0,
+        batch.width,
+        batch.height,
+        if frame.hud_editor {
+            0x33000000
+        } else {
+            0x99000000
+        },
+    );
+    if frame.hud_editor {
+        let panels = game
+            .player
+            .as_ref()
+            .map(|player| {
+                with_client(|runtime| {
+                    runtime.preview_panels(Snapshot {
+                        position: [player.position.x, player.position.y, player.position.z],
+                        fps: game.fps,
+                        in_world: true,
+                        show_hud: true,
+                    })
+                })
+            })
+            .unwrap_or_default();
+        let mut regions = Vec::new();
+        for panel in panels {
+            let texts: Vec<String> = panel
+                .lines
+                .into_iter()
+                .map(|line| {
+                    if line.label.is_empty() {
+                        line.value
+                    } else {
+                        format!("{} {}", line.label, line.value)
+                    }
+                })
+                .collect();
+            let width = (texts
+                .iter()
+                .map(|s| HudBatch::text_width(atlas, s))
+                .fold(0.0f32, f32::max)
+                + 8.0)
+                .max(panel.min_width);
+            let height = (texts.len() as f32 * 12.0 + 4.0).max(panel.min_height);
+            let w = width * panel.scale;
+            let h = height * panel.scale;
+            let x = panel.x.clamp(0.0, (batch.width - w).max(0.0));
+            let y = panel.y.clamp(0.0, (batch.height - h).max(0.0));
+            let first = batch.vertices.len();
+            if panel.background {
+                batch.fill(
+                    atlas,
+                    x,
+                    y,
+                    width,
+                    height,
+                    if panel.enabled {
+                        0x99000000
+                    } else {
+                        0x55000000
+                    },
+                );
+            }
+            let argb = if panel.enabled {
+                panel.color
+            } else {
+                (panel.color & 0x00ffffff) | 0x70000000
+            };
+            let color =
+                (argb & 0xff00ff00) | ((argb & 0x00ff0000) >> 16) | ((argb & 0x000000ff) << 16);
+            for (i, text) in texts.iter().enumerate() {
+                batch.text(
+                    atlas,
+                    text,
+                    x + 4.0,
+                    y + 3.0 + i as f32 * 12.0,
+                    color,
+                    !panel.background,
+                );
+            }
+            batch.scale_since(first, x, y, panel.scale, panel.scale);
+            batch.clip_since(first, 0.0, 0.0, batch.width, batch.height);
+            let outline = if panel.enabled {
+                0xff7ea106
+            } else {
+                0xff737173
+            };
+            batch.fill(atlas, x, y, w, 1.0, outline);
+            batch.fill(atlas, x, y + h - 1.0, w, 1.0, outline);
+            batch.fill(atlas, x, y, 1.0, h, outline);
+            batch.fill(atlas, x + w - 1.0, y, 1.0, h, outline);
+            let hy = if y >= 8.0 { (y - 10.0).max(0.0) } else { y + h };
+            let label = batch.vertices.len();
+            batch.text(atlas, panel.name, x, hy + 1.0, outline, false);
+            batch.clip_since(label, x, hy, x + (w - 26.0).max(0.0), hy + 10.0);
+            // Small authored gear and on/off controls, without bundled images.
+            let gx = x + w - 22.0;
+            let gy = hy + 1.0;
+            batch.fill(atlas, gx + 1.0, gy + 1.0, 6.0, 6.0, outline);
+            batch.fill(atlas, gx + 3.0, gy + 3.0, 2.0, 2.0, 0xff141414);
+            for (tx, ty, tw, th) in [
+                (gx + 3.0, gy, 2.0, 1.0),
+                (gx + 3.0, gy + 7.0, 2.0, 1.0),
+                (gx, gy + 3.0, 1.0, 2.0),
+                (gx + 7.0, gy + 3.0, 1.0, 2.0),
+            ] {
+                batch.fill(atlas, tx, ty, tw, th, outline);
+            }
+            batch.text(
+                atlas,
+                if panel.enabled { "x" } else { "+" },
+                x + w - 9.0,
+                hy + 1.0,
+                outline,
+                false,
+            );
+            regions.push(HudRegion {
+                id: panel.module.into(),
+                rect: Rect(x, y, w, h),
+                enabled: panel.enabled,
+            });
+        }
+        with_client(|runtime| runtime.gui.hud_regions = regions);
+    }
     let start = batch.vertices.len();
     for draw in frame.draw {
         let first = batch.vertices.len();

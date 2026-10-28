@@ -510,6 +510,7 @@ impl Runtime {
         if !self.gui.open {
             return None;
         }
+        self.gui.update_viewport(viewport);
         let actions = self.gui.pointer(cursor);
         self.perform(actions);
         self.gui.multi_bind = self
@@ -527,6 +528,29 @@ impl Runtime {
     pub fn gui_pointer(&mut self, cursor: (f32, f32)) {
         let actions = self.gui.pointer(cursor);
         self.perform(actions);
+    }
+    pub fn gui_wheel(&mut self, delta: f32, cursor: (f32, f32)) {
+        if self.gui.hud_editor {
+            if let Some(region) = self
+                .gui
+                .hud_regions
+                .iter()
+                .find(|r| r.rect.contains(cursor))
+            {
+                let id = format!("{}.scale", region.id);
+                let current = self
+                    .settings
+                    .get(&id)
+                    .and_then(Value::as_f64)
+                    .unwrap_or(1.0);
+                if let Err(error) = self.set_setting(&id, json!(current + f64::from(delta) * 0.05))
+                {
+                    self.notify(error);
+                }
+            }
+        } else {
+            self.gui.wheel(delta);
+        }
     }
     pub fn gui_mouse(&mut self, button: &str, pressed: bool, cursor: (f32, f32)) {
         if !self.gui.open {
@@ -668,12 +692,18 @@ impl Runtime {
         first
     }
     pub fn panels(&self, snapshot: Snapshot) -> Vec<HudPanel> {
+        self.panels_for(snapshot, false)
+    }
+    pub fn preview_panels(&self, snapshot: Snapshot) -> Vec<HudPanel> {
+        self.panels_for(snapshot, true)
+    }
+    fn panels_for(&self, snapshot: Snapshot, preview: bool) -> Vec<HudPanel> {
         if !snapshot.in_world || !snapshot.show_hud {
             return Vec::new();
         }
         let mut panels = Vec::new();
         for module in ModuleId::ALL {
-            if !self.enabled(module) {
+            if !preview && !self.enabled(module) {
                 continue;
             }
             let lines = match module {
@@ -706,6 +736,32 @@ impl Runtime {
             };
             panels.push(HudPanel {
                 module: module.id(),
+                name: module.name(),
+                enabled: self.enabled(module),
+                min_width: if module == ModuleId::Fps {
+                    50.0
+                } else if self
+                    .settings
+                    .get("hud.coordinates.display")
+                    .and_then(Value::as_str)
+                    == Some("vertical")
+                {
+                    70.0
+                } else {
+                    0.0
+                },
+                min_height: if module == ModuleId::Fps {
+                    20.0
+                } else if self
+                    .settings
+                    .get("hud.coordinates.display")
+                    .and_then(Value::as_str)
+                    == Some("vertical")
+                {
+                    90.0
+                } else {
+                    35.0
+                },
                 x: value("x").as_f64().unwrap() as f32,
                 y: value("y").as_f64().unwrap() as f32,
                 scale: value("scale").as_f64().unwrap() as f32,
