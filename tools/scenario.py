@@ -33,7 +33,7 @@ def run(resources, in_frame=False):
     commands = []
 
     def call(*args, timeout=45):
-        result = subprocess.run(prefix + list(args), env=env, text=True, capture_output=True, timeout=timeout)
+        result = subprocess.run(prefix + list(args), env=env, cwd=scratch / 'game', text=True, capture_output=True, timeout=timeout)
         commands.append({'args': args, 'code': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr})
         (scratch / 'commands.json').write_text(json.dumps(commands, indent=2))
         if result.returncode:
@@ -50,11 +50,16 @@ def run(resources, in_frame=False):
         call(*launch, timeout=60)
         (scratch / 'state.json').write_text(call('state'))
         call('screenshot', str(scratch / 'disabled.png'))
-        call('key', 'f8', 'tap')
+        call('key', 'f8', 'down')
         call('key', 'f9', 'tap')
         call('screenshot', str(scratch / 'enabled.png'))
         call('key', 'f8', 'repeat')
         call('screenshot', str(scratch / 'repeat.png'))
+        call('key', 'f8', 'up')
+        call('key', 'f1', 'tap')
+        call('screenshot', str(scratch / 'hidden-hud.png'))
+        call('key', 'f1', 'tap')
+        call('screenshot', str(scratch / 'restored-hud.png'))
         call('key', 'f10', 'tap')
         call('screenshot', str(scratch / 'panic.png'))
         # GUI input must not toggle a display.
@@ -62,7 +67,7 @@ def run(resources, in_frame=False):
         call('key', 'f8', 'tap')
         call('resume')
         call('screenshot', str(scratch / 'after-screen.png'))
-        print('captured disabled/enabled/repeat/panic/screen states', flush=True)
+        print('captured disabled/enabled/repeat/F1/panic/screen states', flush=True)
     finally:
         try:
             call('quit', timeout=15)

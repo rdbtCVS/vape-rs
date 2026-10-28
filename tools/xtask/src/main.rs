@@ -351,13 +351,13 @@ fn audit(root: &Path) -> Result<()> {
     let injections = plan["injections"]
         .as_array()
         .ok_or("missing plan injections")?;
-    if injections.len() != 3 || plan["modules"].as_array().map(Vec::len) != Some(1) {
+    if injections.len() != 4 || plan["modules"].as_array().map(Vec::len) != Some(1) {
         return Err("unexpected mixin plan shape".into());
     }
     let mut expected = Vec::new();
     for injection in injections {
-        if injection["kind"] != "HEAD" || injection["cancellable"] != false {
-            return Err("audit only permits noncancellable HEAD hooks".into());
+        if injection["kind"] != "HEAD" {
+            return Err("audit only permits HEAD hooks".into());
         }
         let helper: syn::ItemFn = syn::parse_str(string(injection, "helper_source")?)?;
         let name = &helper.sig.ident;
@@ -367,7 +367,16 @@ fn audit(root: &Path) -> Result<()> {
             .iter()
             .map(|b| Ok(syn::parse_str::<syn::Expr>(string(b, "value")?)?))
             .collect::<Result<Vec<_>>>()?;
-        let statement: syn::Stmt = syn::parse2(quote!({ #helper #name(#(#args),*) };))?;
+        let statement: syn::Stmt = if injection["cancellable"] == true {
+            if injection["injection_id"] != "control-key-names" {
+                return Err("unexpected cancellable hook".into());
+            }
+            syn::parse2(
+                quote!(if let ::core::ops::ControlFlow::Break(__horizon_mixins_return) = { #helper #name(#(#args),*) } { return __horizon_mixins_return; }),
+            )?
+        } else {
+            syn::parse2(quote!({ #helper #name(#(#args),*) };))?
+        };
         expected.push((
             string(injection, "file")?.to_owned(),
             string(injection, "target")?
@@ -383,6 +392,7 @@ fn audit(root: &Path) -> Result<()> {
         "crates/horizon-client/src/game.rs",
         "crates/horizon-client/src/game/extras.rs",
         "crates/horizon-client/src/game/debug_keys.rs",
+        "crates/horizon-client/src/game/control.rs",
     ] {
         let original = syn::parse_file(&fs::read_to_string(pristine.join(path))?)?;
         let mut modified = syn::parse_file(&fs::read_to_string(staged.join(path))?)?;
@@ -429,15 +439,16 @@ fn audit(root: &Path) -> Result<()> {
             return Err(format!("unexpected transformed AST changes: {path}").into());
         }
     }
-    if removals != 4 {
+    if removals != 5 {
         return Err(
-            format!("expected exactly three hooks and one module, removed {removals}").into(),
+            format!("expected exactly four hooks and one module, removed {removals}").into(),
         );
     }
     for (path, expected_hash) in plan["inputs"].as_object().ok_or("missing plan inputs")? {
         if path != "crates/horizon-client/src/game.rs"
             && path != "crates/horizon-client/src/game/extras.rs"
             && path != "crates/horizon-client/src/game/debug_keys.rs"
+            && path != "crates/horizon-client/src/game/control.rs"
             && expected_hash.as_str() != Some(hash(&fs::read(staged.join(path))?).as_str())
         {
             return Err(format!("unexpected staged file change: {path}").into());
@@ -447,7 +458,7 @@ fn audit(root: &Path) -> Result<()> {
         }
     }
     println!(
-        "audit: original AST restored after removing exactly 3 HEAD hooks and 1 support module; other inputs unchanged"
+        "audit: original AST restored after removing exactly 4 HEAD hooks and 1 support module; other inputs unchanged"
     );
     Ok(())
 }
@@ -461,18 +472,26 @@ struct Strip {
     removed: usize,
     expected: Vec<(String, syn::Stmt)>,
 }
-impl VisitMut for Strip {
-    fn visit_impl_item_fn_mut(&mut self, function: &mut syn::ImplItemFn) {
+impl Strip {
+    fn strip_head(&mut self, function: &syn::Ident, block: &mut syn::Block) {
         for (name, statement) in &self.expected {
-            if function.sig.ident == name
-                && function.block.stmts.first().is_some_and(|actual| {
+            if function == name
+                && block.stmts.first().is_some_and(|actual| {
                     canonical_statement(actual) == canonical_statement(statement)
                 })
             {
-                function.block.stmts.remove(0);
+                block.stmts.remove(0);
                 self.removed += 1;
             }
         }
+    }
+}
+impl VisitMut for Strip {
+    fn visit_impl_item_fn_mut(&mut self, function: &mut syn::ImplItemFn) {
+        self.strip_head(&function.sig.ident, &mut function.block);
+    }
+    fn visit_item_fn_mut(&mut self, function: &mut syn::ItemFn) {
+        self.strip_head(&function.sig.ident, &mut function.block);
     }
 }
 
@@ -554,6 +573,34 @@ mod tests {
                 fn other() { { fn hook() {} hook() }; original(); }
             }
         };
+        assert_eq!(file, expected);
+    }
+
+    #[test]
+    fn audit_handles_cancellable_hook_on_free_function_without_erasing_original_returns() {
+        let statement: syn::Stmt =
+            syn::parse_quote!(if let ::core::ops::ControlFlow::Break(value) = hook(name) {
+                return value;
+            });
+        let mut file: syn::File = syn::parse_quote! {
+            fn key_code(name: &str) -> Option<KeyCode> {
+                if let ::core::ops::ControlFlow::Break(value) = hook(name) { return value; }
+                if name.is_empty() { return None; }
+                original(name)
+            }
+        };
+        let expected: syn::File = syn::parse_quote! {
+            fn key_code(name: &str) -> Option<KeyCode> {
+                if name.is_empty() { return None; }
+                original(name)
+            }
+        };
+        let mut strip = Strip {
+            removed: 0,
+            expected: vec![("key_code".into(), statement)],
+        };
+        strip.visit_file_mut(&mut file);
+        assert_eq!(strip.removed, 1);
         assert_eq!(file, expected);
     }
 

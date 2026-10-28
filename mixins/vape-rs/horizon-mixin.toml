@@ -39,3 +39,13 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
 ]
+
+# The host's control-key parser omits the integration keys. Extend only these
+# names so real keyboard events and controlled scenarios reach the same hook.
+[[injection]]
+id = "control-key-names"
+target = "horizon_client::game::control::key_code"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/control_keys.rs"
+bindings = [{ name = "name", ty = "&str", value = "name" }]

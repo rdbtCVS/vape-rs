@@ -120,7 +120,7 @@ def main():
         rows.append(old.pop(row['id'], row))
     rows.extend(old.values())
     with output.open('w', newline='') as stream:
-        writer = csv.DictWriter(stream, FIELDS)
+        writer = csv.DictWriter(stream, FIELDS, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     (ROOT / 'docs/discovery.json').write_text(json.dumps(entries, indent=2) + '\n')

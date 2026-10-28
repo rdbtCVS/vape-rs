@@ -32,6 +32,7 @@ jobs:
           git clone --filter=blob:none https://github.com/horizon-rust/horizon target/upstream/horizon
           git -C target/upstream/horizon checkout --detach "$(python3 -c 'import json; print(json.load(open("compatibility.json"))["horizon_revision"])')"
           git clone https://github.com/horizon-rust/horizon-mixins target/upstream/horizon-mixins
+          git -C target/upstream/horizon-mixins fetch origin "$(python3 -c 'import json; print(json.load(open("compatibility.json"))["horizon_mixins_revision"])')"
           git -C target/upstream/horizon-mixins checkout --detach "$(python3 -c 'import json; print(json.load(open("compatibility.json"))["horizon_mixins_revision"])')"
           cargo +1.95.0 fetch --locked --manifest-path target/upstream/horizon-mixins/Cargo.toml
       - run: cargo run -p xtask --locked --offline -- stage target/upstream/horizon
