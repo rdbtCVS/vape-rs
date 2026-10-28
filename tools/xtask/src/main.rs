@@ -384,15 +384,51 @@ fn audit(root: &Path) -> Result<()> {
     let injections = plan["injections"]
         .as_array()
         .ok_or("missing plan injections")?;
-    if injections.len() != 4 || plan["modules"].as_array().map(Vec::len) != Some(1) {
+    let manifest: toml::Value = toml::from_str(&fs::read_to_string(
+        root.join("mixins/vape-rs/horizon-mixin.toml"),
+    )?)?;
+    let declarations = manifest["injection"]
+        .as_array()
+        .ok_or("missing declared hooks")?;
+    if injections.len() != declarations.len() || plan["modules"].as_array().map(Vec::len) != Some(1)
+    {
         return Err("unexpected mixin plan shape".into());
     }
     let mut expected = Vec::new();
-    for injection in injections {
-        if injection["kind"] != "HEAD" {
-            return Err("audit only permits HEAD hooks".into());
+    for declaration in declarations {
+        let id = declaration["id"].as_str().ok_or("missing hook id")?;
+        let injection = injections
+            .iter()
+            .find(|p| p["injection_id"] == id)
+            .ok_or("declared hook missing from plan")?;
+        let bindings = declaration
+            .get("bindings")
+            .map(serde_json::to_value)
+            .transpose()?
+            .unwrap_or_else(|| json!([]));
+        if declaration["kind"].as_str() != Some("HEAD")
+            || injection["kind"] != "HEAD"
+            || injection["target"].as_str() != declaration["target"].as_str()
+            || injection["bindings"] != bindings
+            || injection["cancellable"].as_bool()
+                != Some(
+                    declaration
+                        .get("cancellable")
+                        .and_then(toml::Value::as_bool)
+                        .unwrap_or(false),
+                )
+        {
+            return Err(format!("hook plan does not match declaration: {id}").into());
         }
-        let helper: syn::ItemFn = syn::parse_str(string(injection, "helper_source")?)?;
+        let helper_source = fs::read_to_string(
+            root.join("mixins/vape-rs")
+                .join(declaration["helper"].as_str().ok_or("missing helper")?),
+        )?;
+        let helper: syn::ItemFn = syn::parse_str(&helper_source)?;
+        let planned_helper: syn::ItemFn = syn::parse_str(string(injection, "helper_source")?)?;
+        if helper != planned_helper {
+            return Err(format!("helper source differs from plan: {id}").into());
+        }
         let name = &helper.sig.ident;
         let args = injection["bindings"]
             .as_array()
@@ -401,9 +437,6 @@ fn audit(root: &Path) -> Result<()> {
             .map(|b| Ok(syn::parse_str::<syn::Expr>(string(b, "value")?)?))
             .collect::<Result<Vec<_>>>()?;
         let statement: syn::Stmt = if injection["cancellable"] == true {
-            if injection["injection_id"] != "control-key-names" {
-                return Err("unexpected cancellable hook".into());
-            }
             syn::parse2(
                 quote!(if let ::core::ops::ControlFlow::Break(__horizon_mixins_return) = { #helper #name(#(#args),*) } { return __horizon_mixins_return; }),
             )?
@@ -420,13 +453,18 @@ fn audit(root: &Path) -> Result<()> {
             statement,
         ));
     }
+    let files = expected
+        .iter()
+        .map(|(file, _, _)| file.clone())
+        .chain(std::iter::once("crates/horizon-client/src/game.rs".into()))
+        .collect::<std::collections::BTreeSet<_>>();
+    for file in &files {
+        if config["source_hashes"].get(file).is_none() {
+            return Err(format!("hook source lacks a pinned hash: {file}").into());
+        }
+    }
     let mut removals = 0;
-    for path in [
-        "crates/horizon-client/src/game.rs",
-        "crates/horizon-client/src/game/extras.rs",
-        "crates/horizon-client/src/game/debug_keys.rs",
-        "crates/horizon-client/src/game/control.rs",
-    ] {
+    for path in &files {
         let original = syn::parse_file(&fs::read_to_string(pristine.join(path))?)?;
         let mut modified = syn::parse_file(&fs::read_to_string(staged.join(path))?)?;
         let mut stripper = Strip {
@@ -472,16 +510,15 @@ fn audit(root: &Path) -> Result<()> {
             return Err(format!("unexpected transformed AST changes: {path}").into());
         }
     }
-    if removals != 5 {
-        return Err(
-            format!("expected exactly four hooks and one module, removed {removals}").into(),
-        );
+    if removals != injections.len() + 1 {
+        return Err(format!(
+            "expected {} hooks and one module, removed {removals}",
+            injections.len()
+        )
+        .into());
     }
     for (path, expected_hash) in plan["inputs"].as_object().ok_or("missing plan inputs")? {
-        if path != "crates/horizon-client/src/game.rs"
-            && path != "crates/horizon-client/src/game/extras.rs"
-            && path != "crates/horizon-client/src/game/debug_keys.rs"
-            && path != "crates/horizon-client/src/game/control.rs"
+        if !files.contains(path)
             && expected_hash.as_str() != Some(hash(&fs::read(staged.join(path))?).as_str())
         {
             return Err(format!("unexpected staged file change: {path}").into());
@@ -491,7 +528,8 @@ fn audit(root: &Path) -> Result<()> {
         }
     }
     println!(
-        "audit: original AST restored after removing exactly 4 HEAD hooks and 1 support module; other inputs unchanged"
+        "audit: original AST restored after removing exactly {} HEAD hooks and 1 support module; other inputs unchanged",
+        injections.len()
     );
     Ok(())
 }

@@ -1,3 +1,5 @@
+pub mod gui;
+
 #[derive(Clone, Copy, Debug)]
 pub struct Snapshot {
     pub position: [f64; 3],

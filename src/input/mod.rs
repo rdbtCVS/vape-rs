@@ -139,6 +139,9 @@ pub struct MultiBinding {
     armed: bool,
 }
 impl MultiBinding {
+    pub fn complete(&self, required: usize) -> bool {
+        required > 0 && self.pressed.len() == required
+    }
     pub fn apply(
         &mut self,
         key: &str,

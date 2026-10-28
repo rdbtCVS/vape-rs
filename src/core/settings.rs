@@ -204,6 +204,9 @@ impl Settings {
             self.get(id).cloned()
         }
     }
+    pub fn known_values(&self) -> Value {
+        Value::Object(self.values.clone())
+    }
     pub fn snapshot(&self) -> Value {
         let mut values = self.unknown.clone();
         values.extend(self.values.clone());

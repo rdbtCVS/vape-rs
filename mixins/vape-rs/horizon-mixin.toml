@@ -49,3 +49,57 @@ kind = "HEAD"
 cancellable = true
 helper = "adapters/control_keys.rs"
 bindings = [{ name = "name", ty = "&str", value = "name" }]
+
+[[injection]]
+id = "gui-events"
+target = "horizon_client::game::<Game<'_> as ApplicationHandler>::window_event"
+kind = "HEAD"
+helper = "adapters/gui_events.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "id", ty = "winit::window::WindowId", value = "id" },
+  { name = "event", ty = "&winit::event::WindowEvent", value = "&event" },
+]
+
+[[injection]]
+id = "gui-render"
+target = "horizon_client::game::debug_keys::Game<'_>::draw_debug_overlay"
+kind = "HEAD"
+helper = "adapters/gui_render.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+]
+
+[[injection]]
+id = "game-key-capture"
+target = "horizon_client::game::Game<'_>::mapped_key"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/key_capture.rs"
+
+[[injection]]
+id = "control-key-capture"
+target = "horizon_client::game::control::Game<'_>::control_key_down"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/key_capture.rs"
+
+[[injection]]
+id = "mouse-bind"
+target = "horizon_client::game::Game<'_>::play_mouse"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/mouse_bind.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "button", ty = "winit::event::MouseButton", value = "button" },
+  { name = "pressed", ty = "bool", value = "pressed" },
+]
+
+[[injection]]
+id = "client-frame"
+target = "horizon_client::game::Game<'_>::hud"
+kind = "HEAD"
+helper = "adapters/frame.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]

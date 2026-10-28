@@ -53,6 +53,25 @@ impl Document {
             if entries.len() > 4096 || entries.iter().any(|v| !v.is_object()) {
                 return Err(format!("invalid local {name} list"));
             }
+            for person in entries {
+                let valid_name = person.get("name").and_then(Value::as_str).is_some_and(|s| {
+                    !s.is_empty() && s.chars().count() <= 64 && !s.chars().any(char::is_control)
+                });
+                let valid_alias = person.get("alias").is_none_or(|v| {
+                    v.as_str().is_some_and(|s| {
+                        s.chars().count() <= 64 && !s.chars().any(char::is_control)
+                    })
+                });
+                let flag = if name == "friends" {
+                    "target"
+                } else {
+                    "exclusive"
+                };
+                if !valid_name || !valid_alias || person.get(flag).is_some_and(|v| !v.is_boolean())
+                {
+                    return Err(format!("invalid local {name} entry"));
+                }
+            }
         }
         for (id, module) in object.get_mut("modules").unwrap().as_object_mut().unwrap() {
             if !super::settings::valid_id(id) || !module.is_object() {
@@ -160,6 +179,28 @@ impl Profiles {
         let path = self.path(name)?;
         reject_link(&path)?;
         fs::remove_file(path).map_err(|e| e.to_string())
+    }
+    fn transfer_path(&self, directory: &str, name: &str) -> Result<PathBuf, String> {
+        let name = self
+            .path(name)?
+            .file_name()
+            .ok_or("invalid profile filename")?
+            .to_owned();
+        let directory = self.root.join(directory);
+        if directory.exists() {
+            reject_link(&directory)?;
+        } else {
+            fs::create_dir(&directory).map_err(|e| e.to_string())?;
+        }
+        Ok(directory.join(name))
+    }
+    pub fn import_file(&self, name: &str) -> Result<(), String> {
+        let document = read_document(&self.transfer_path("imports", name)?, true)?;
+        self.import(name, &document.bytes()?)?;
+        Ok(())
+    }
+    pub fn export_file(&self, name: &str) -> Result<(), String> {
+        atomic_write(&self.transfer_path("exports", name)?, &self.export(name)?)
     }
     pub fn current(&self) -> Result<Option<Document>, String> {
         let path = self.root.join("current.json");

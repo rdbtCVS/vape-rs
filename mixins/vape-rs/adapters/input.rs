@@ -16,5 +16,26 @@ fn input(
         horizon_client::debug_keys::KeyAction::Press => KeyAction::Press,
         horizon_client::debug_keys::KeyAction::Repeat => KeyAction::Repeat,
     };
-    with_client(|runtime| runtime.input(&format!("{key:?}"), action, accepts_input));
+    let (before, after) = with_client(|runtime| {
+        let before = runtime.gui.open;
+        runtime.input(
+            &format!("{key:?}"),
+            action,
+            accepts_input && !game.dialog_open() && game.server_packs.prompt.is_none(),
+        );
+        if !before && runtime.gui.open {
+            runtime.ui_screen_owned = true;
+        }
+        (before, runtime.gui.open)
+    });
+    if after && !before {
+        game.screen = crate::game::Screen::Paused;
+        game.pause_menu = false;
+        game.capture(false);
+        if let Some(window) = &game.window {
+            window.set_ime_allowed(true);
+        }
+    }
+    // Closing is deferred to the next client tick, after this input event has
+    // passed through the captured host path, so a close click cannot attack.
 }
