@@ -152,9 +152,23 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
         let first = batch.vertices.len();
         let argb = match &draw.paint {
             Paint::Fill(_, color) | Paint::Text(_, _, _, color) => *color,
+            Paint::Edit(..) => 0xffd1d1d1,
         };
         let color = (argb & 0xff00ff00) | ((argb & 0x00ff0000) >> 16) | ((argb & 0x000000ff) << 16);
         match draw.paint {
+            Paint::Edit(Rect(x, y, w, _), text, caret, anchor) => {
+                let prefix = |n| text.chars().take(n).collect::<String>();
+                let cursor_x = HudBatch::text_width(atlas, &prefix(caret));
+                let anchor_x = HudBatch::text_width(atlas, &prefix(anchor));
+                let scroll = (cursor_x - (w - 9.0).max(0.0)).max(0.0);
+                let left = x + 4.0 - scroll;
+                if caret != anchor {
+                    batch.fill(atlas, left + cursor_x.min(anchor_x), y + 3.0,
+                        (cursor_x - anchor_x).abs(), 11.0, 0xff6b5641);
+                }
+                batch.text(atlas, &text, left, y + 5.0, color, false);
+                batch.fill(atlas, left + cursor_x, y + 3.0, 1.0, 11.0, color);
+            }
             Paint::Fill(Rect(x, y, w, h), _) => batch.fill(atlas, x, y, w, h, color),
             Paint::Text(x, y, text, _) => {
                 batch.text(atlas, &text, x, y, color, false);

@@ -23,6 +23,15 @@ fn input(
             action,
             accepts_input && !game.dialog_open() && game.server_packs.prompt.is_none(),
         );
+        let name = format!("{key:?}");
+        if runtime.gui.clipboard_key(&name, action) {
+            use horizon_client::clipboard::Clipboard;
+            if name == "KeyV" {
+                runtime.gui.commit_text(&game.clipboard.get(), false);
+            } else if let Some(text) = runtime.gui.copy_selection(name == "KeyX") {
+                game.clipboard.set(&text);
+            }
+        }
         if !before && runtime.gui.open {
             runtime.ui_screen_owned = true;
         }
