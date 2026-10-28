@@ -1,0 +1,13 @@
+# Native hook catalogue (development)
+
+Horizon `e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083`; mixins `0500ff24aa5933fca95a877ef41125353c4b4fe3`. Full pristine hashes are in compatibility.json. The generated plan records exact original function fingerprints/node paths; selectors below must resolve once. Priority 100, no cancellation or replacement; original functions run normally after helpers.
+
+| ID | Source / exact target | Bindings and phase | Lifetime/thread contract |
+| --- | --- | --- | --- |
+| client-tick | `game.rs`, `horizon_client::game::Game<'_>::tick` | HEAD, `&mut *self` | Runs before remote-client early return. Reject serving/dedicated before accessing thread-local runtime. First tick emits local diagnostic once. No recursive host calls. |
+| client-input | `game.rs`, `horizon_client::game::Game<'_>::mapped_key` | HEAD, `&mut *self`, key/pressed/repeat by value | Host translated keyboard path. Focused Playing screen and local player required to toggle; release clears state. Fixed F8/F9/F10 are temporary integration controls pending full bind editor. |
+| client-hud | `game/extras.rs`, `horizon_client::game::extras::Game<'_>::draw_extras` | HEAD, game and batch mutable borrows | Called in visible world HUD layer. Copies real PlayerMotion position and Game FPS. Host atlas paints text; no retained GPU handles. Rejects serving/dedicated. Borrow ends before original body. |
+
+The runtime payload is inserted as `game::vape_rs` into game.rs. Generic lifetime Game does not satisfy this tool's nongeneric per-instance state contract. The initial adapter uses thread-local state only after a client guard; it owns no world/entity handles or queued actions. A full lifecycle/session owner is required before stateful gameplay modules. Multiple sequential client Game instances on one thread are not yet validated.
+
+Proof: `xtask stage` plans/applies against a committed export. `xtask audit` removes exact planned helper statements only at method HEAD and the exact emitted module; the remaining canonical AST must match. Other plan inputs must retain their hashes. Unit tests reject changed helper bodies and reordered calls. Full binary checking and resource-backed scenarios remain separate evidence.

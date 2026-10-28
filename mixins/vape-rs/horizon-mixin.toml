@@ -1,0 +1,42 @@
+[mod]
+id = "vape-rs"
+version = "0.1.0-dev"
+priority = 100
+
+[compatibility]
+horizon_revision = "e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083"
+
+[[module]]
+id = "runtime"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_rs"
+source = "runtime.rs"
+
+[[injection]]
+id = "client-tick"
+target = "horizon_client::game::Game<'_>::tick"
+kind = "HEAD"
+helper = "adapters/tick.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "client-input"
+target = "horizon_client::game::Game<'_>::mapped_key"
+kind = "HEAD"
+helper = "adapters/input.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "key", ty = "winit::keyboard::KeyCode", value = "key" },
+  { name = "pressed", ty = "bool", value = "pressed" },
+  { name = "repeat", ty = "bool", value = "repeat" },
+]
+
+[[injection]]
+id = "client-hud"
+target = "horizon_client::game::extras::Game<'_>::draw_extras"
+kind = "HEAD"
+helper = "adapters/hud.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+]

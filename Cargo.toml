@@ -1,0 +1,13 @@
+[workspace]
+members = [".", "tools/xtask"]
+resolver = "2"
+
+[package]
+name = "vape-rs"
+version = "0.1.0-dev"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[lib]
+path = "src/lib.rs"
