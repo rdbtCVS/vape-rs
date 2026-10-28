@@ -1,12 +1,19 @@
+pub mod clock;
 pub mod gui;
 pub mod hud;
+pub mod hud_state;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Snapshot {
     pub position: [f64; 3],
     pub fps: f32,
     pub yaw: f32,
     pub biome: String,
+    pub clock: clock::ClockTime,
+    pub keys: [bool; 5],
+    pub mouse: [bool; 2],
+    pub armor: [Option<hud::ArmorPiece>; 4],
+    pub effects: Vec<hud::PotionView>,
     pub in_world: bool,
     pub show_hud: bool,
 }

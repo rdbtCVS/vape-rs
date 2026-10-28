@@ -216,3 +216,15 @@ target = "horizon_client::game::Game<'_>::attack"
 kind = "HEAD"
 helper = "adapters/auto_tool_attack.rs"
 bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[module]]
+id = "transactions"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_transactions"
+source = "transactions.rs"
+
+[[module]]
+id = "macros"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_macros"
+source = "macros.rs"

@@ -86,6 +86,10 @@ impl Document {
                 fields.insert("enabled".into(), json!(false));
             }
         }
+        if let Some(macros) = object.get("macros") {
+            let mut engine = super::super::input::macros::MacroEngine::default();
+            engine.load_json(macros)?;
+        }
         Ok(Self(value))
     }
     pub fn bytes(&self) -> Result<Vec<u8>, String> {

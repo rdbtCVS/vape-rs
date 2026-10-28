@@ -1,3 +1,4 @@
+pub mod macros;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BindingMode {
     Toggle,

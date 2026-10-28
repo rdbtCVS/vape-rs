@@ -1,4 +1,6 @@
+pub mod inventory_runtime;
 pub mod lifecycle;
+pub mod macro_runtime;
 pub mod profiles;
 pub mod settings;
 
@@ -26,6 +28,13 @@ pub enum ModuleId {
     Compass,
     NoHurtCamera,
     AutoTool,
+    Clock,
+    Keystrokes,
+    ArmorStatus,
+    PotionEffects,
+    AutoArmor,
+    Refill,
+    ChestSteal,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -35,6 +44,13 @@ impl ModuleId {
             Self::Compass => "hud.compass",
             Self::NoHurtCamera => "render.no-hurt-camera",
             Self::AutoTool => "world.auto-tool",
+            Self::Clock => "hud.clock",
+            Self::Keystrokes => "hud.keystrokes",
+            Self::ArmorStatus => "hud.armor",
+            Self::PotionEffects => "hud.potions",
+            Self::AutoArmor => "inventory.auto-armor",
+            Self::Refill => "inventory.refill",
+            Self::ChestSteal => "world.chest-steal",
         }
     }
     pub fn name(self) -> &'static str {
@@ -44,24 +60,61 @@ impl ModuleId {
             Self::Compass => "Compass",
             Self::NoHurtCamera => "NoHurtCam",
             Self::AutoTool => "AutoTool",
+            Self::Clock => "Clock",
+            Self::Keystrokes => "Keystrokes",
+            Self::ArmorStatus => "Armor Status",
+            Self::PotionEffects => "Potion Effects",
+            Self::AutoArmor => "AutoArmor",
+            Self::Refill => "Refill",
+            Self::ChestSteal => "ChestSteal",
         }
     }
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 12] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
         Self::NoHurtCamera,
         Self::AutoTool,
+        Self::Clock,
+        Self::Keystrokes,
+        Self::ArmorStatus,
+        Self::PotionEffects,
+        Self::AutoArmor,
+        Self::Refill,
+        Self::ChestSteal,
     ];
+    fn position(self) -> (f64, f64) {
+        match self {
+            Self::Coordinates => (8.0, 8.0),
+            Self::Fps => (8.0, 36.0),
+            Self::Compass => (46.0, 200.0),
+            Self::Clock => (250.0, 8.0),
+            Self::Keystrokes => (8.0, 120.0),
+            Self::ArmorStatus => (330.0, 100.0),
+            Self::PotionEffects => (240.0, 180.0),
+            _ => (8.0, 8.0),
+        }
+    }
     pub fn category(self) -> &'static str {
-        if self == Self::AutoTool {
+        if matches!(self, Self::AutoTool | Self::ChestSteal) {
             "World"
+        } else if matches!(self, Self::AutoArmor | Self::Refill) {
+            "Utility"
         } else {
             "Legit"
         }
     }
     pub fn is_panel(self) -> bool {
-        matches!(self, Self::Coordinates | Self::Fps | Self::Compass)
+        matches!(
+            self,
+            Self::Coordinates
+                | Self::Fps
+                | Self::Compass
+                | Self::Clock
+                | Self::Keystrokes
+                | Self::ArmorStatus
+                | Self::PotionEffects
+        )
     }
 }
 
@@ -85,10 +138,20 @@ pub struct Runtime {
     session: Session,
     actions: Coordinator,
     auto_tool: auto_tool::AutoTool,
+    auto_armor: super::modules::utility::auto_armor::AutoArmor,
+    refill: super::modules::utility::refill::Refill,
+    chest_steal: super::modules::utility::chest_steal::ChestSteal,
     tool_lease: Option<Lease>,
     combat_guard: CombatGuard,
     combat_guard_tick: Option<u64>,
     combat_blocked: bool,
+    macro_engine: super::input::macros::MacroEngine,
+    macro_context: super::input::macros::MacroContext,
+    macro_pending: Vec<super::input::macros::MacroEffect>,
+    macro_origin: std::time::Instant,
+    macro_lease: Option<Lease>,
+    macro_selected: Option<u8>,
+    inventory_schedule: inventory_runtime::Scheduler,
     settings: Settings,
     document: Document,
     storage: Option<Profiles>,
@@ -96,6 +159,7 @@ pub struct Runtime {
     dirty: bool,
     persistence_blocked: bool,
     notes: VecDeque<String>,
+    hud_state: super::ui::hud_state::HudState,
     pub gui: Gui,
     suppress_game_input: bool,
     gui_bind: MultiBinding,
@@ -118,7 +182,7 @@ impl Default for Runtime {
                     json!(match module {
                         ModuleId::Coordinates => vec!["F8"],
                         ModuleId::Fps => vec!["F9"],
-                        ModuleId::Compass | ModuleId::NoHurtCamera | ModuleId::AutoTool => vec![],
+                        _ => vec![],
                     }),
                 ),
                 Definition::choice(
@@ -141,11 +205,7 @@ impl Default for Runtime {
                     &format!("{prefix}.x"),
                     "X",
                     0.0,
-                    if module == ModuleId::Compass {
-                        46.0
-                    } else {
-                        8.0
-                    },
+                    module.position().0,
                     8192.0,
                     1.0,
                 ),
@@ -153,13 +213,7 @@ impl Default for Runtime {
                     &format!("{prefix}.y"),
                     "Y",
                     0.0,
-                    if module == ModuleId::Coordinates {
-                        8.0
-                    } else if module == ModuleId::Fps {
-                        36.0
-                    } else {
-                        200.0
-                    },
+                    module.position().1,
                     8192.0,
                     1.0,
                 ),
@@ -182,6 +236,38 @@ impl Default for Runtime {
                 "horizontal",
             ))
             .unwrap();
+        for definition in [
+            Definition::choice(
+                "hud.clock.type",
+                "Clock Type",
+                &["analog", "digital"],
+                "analog",
+            ),
+            Definition::boolean("hud.clock.date", "Show date", true)
+                .when("hud.clock.type", json!("digital")),
+            Definition::boolean("hud.clock.24-hour", "24 Hour Time", false),
+            Definition::choice(
+                "hud.keystrokes.key-style",
+                "Key Style",
+                &["keyboard", "arrow"],
+                "keyboard",
+            ),
+            Definition::choice(
+                "hud.keystrokes.mouse-style",
+                "Mouse Style",
+                &["button", "icon"],
+                "button",
+            ),
+            Definition::boolean("hud.keystrokes.space", "Show Spacebar", true),
+            Definition::boolean("hud.keystrokes.cps-only", "Show CPS Only", false),
+            Definition::boolean("hud.armor.compact", "Compact", false),
+            Definition::boolean("hud.potions.positive", "Show Positive Effects", true),
+            Definition::boolean("hud.potions.negative", "Show Negative Effects", true),
+        ] {
+            settings
+                .define(definition)
+                .expect("static widget definition");
+        }
         for definition in [
             Definition::number(
                 "world.auto-tool.swap-to-delay",
@@ -217,6 +303,11 @@ impl Default for Runtime {
             settings
                 .define(definition)
                 .expect("static AutoTool definition");
+        }
+        for definition in inventory_runtime::definitions() {
+            settings
+                .define(definition)
+                .expect("static inventory definition");
         }
         settings
             .validate_conditions()
@@ -258,10 +349,20 @@ impl Default for Runtime {
             session: Session::default(),
             actions: Coordinator::default(),
             auto_tool: auto_tool::AutoTool::default(),
+            auto_armor: Default::default(),
+            refill: Default::default(),
+            chest_steal: Default::default(),
             tool_lease: None,
             combat_guard: CombatGuard::default(),
             combat_guard_tick: None,
             combat_blocked: false,
+            macro_engine: Default::default(),
+            macro_context: Default::default(),
+            macro_pending: Vec::new(),
+            macro_origin: std::time::Instant::now(),
+            macro_lease: None,
+            macro_selected: None,
+            inventory_schedule: Default::default(),
             settings,
             document: Document::default(),
             storage: None,
@@ -269,6 +370,7 @@ impl Default for Runtime {
             dirty: false,
             persistence_blocked: false,
             notes: VecDeque::new(),
+            hud_state: super::ui::hud_state::HudState::default(),
             gui: Gui::default(),
             suppress_game_input: false,
             gui_bind: MultiBinding::default(),
@@ -289,6 +391,13 @@ impl Runtime {
             .get_mut(&module)
             .expect("registered module")
             .enabled = enabled;
+        if matches!(
+            module,
+            ModuleId::AutoArmor | ModuleId::Refill | ModuleId::ChestSteal
+        ) && !enabled
+        {
+            self.cancel_inventory();
+        }
         if module == ModuleId::AutoTool && !enabled {
             self.reset_auto_tool();
         }
@@ -314,6 +423,9 @@ impl Runtime {
             self.release_input();
         }
         self.settings.set(id, next)?;
+        if id.starts_with("inventory.") || id.starts_with("world.chest-steal.") {
+            self.cancel_inventory();
+        }
         if id.starts_with("world.auto-tool.") {
             self.reset_auto_tool();
         }
@@ -374,6 +486,13 @@ impl Runtime {
     }
     pub fn input(&mut self, key: &str, action: KeyAction, accepts_input: bool) {
         let was_open = self.gui.open;
+        if !was_open && accepts_input && action == KeyAction::Press {
+            if key == "MouseLeft" {
+                self.hud_state.click(0);
+            } else if key == "MouseRight" {
+                self.hud_state.click(1);
+            }
+        }
         self.suppress_game_input = false;
         let gui_keys = self
             .settings
@@ -427,6 +546,11 @@ impl Runtime {
         if action != KeyAction::Release && (was_open || self.gui.open) {
             self.suppress_game_input = true;
         }
+        self.macro_input(
+            key,
+            action,
+            accepts_input && !self.gui.open && !self.suppress_game_input,
+        );
         // Releases must still reach the host's key mapping cleanup.
         if action == KeyAction::Release {
             self.suppress_game_input = false;
@@ -499,6 +623,8 @@ impl Runtime {
                     self.dirty = true;
                     Ok(())
                 }
+                Action::UpsertMacro(definition) => self.upsert_macro(definition),
+                Action::RemoveMacro(name) => self.remove_macro(&name),
                 Action::Close => {
                     self.gui.close();
                     Ok(())
@@ -625,6 +751,7 @@ impl Runtime {
             values: self.settings.known_values(),
             profiles: self.profile_names.clone(),
             people: self.people(),
+            macros: self.macros().to_vec(),
         }
     }
     pub fn gui_frame(&mut self, viewport: (f32, f32), cursor: (f32, f32)) -> Option<Frame> {
@@ -681,6 +808,7 @@ impl Runtime {
         self.perform(actions);
     }
     pub fn release_input(&mut self) {
+        self.cancel_macros(false);
         self.gui_bind.apply(
             "",
             KeyAction::FocusLost,
@@ -747,6 +875,12 @@ impl Runtime {
             only_sneaking: boolean("only-sneaking"),
             not_during_use: boolean("not-use"),
             not_during_combat: boolean("not-combat"),
+        }
+    }
+    pub fn update_combat(&mut self, combat: CombatSnapshot) {
+        if self.combat_guard_tick != Some(self.ticks) {
+            self.combat_blocked = self.combat_guard.update(combat);
+            self.combat_guard_tick = Some(self.ticks);
         }
     }
     pub fn auto_tool_propose(
@@ -839,7 +973,9 @@ impl Runtime {
     pub fn session_change(&mut self, reason: CleanupReason) {
         self.release_input();
         self.reset_auto_tool();
+        self.cancel_inventory();
         self.actions.clear();
+        self.hud_state.reset_session();
         if reason.closes_gui() {
             self.gui.close();
         }
@@ -903,6 +1039,12 @@ impl Runtime {
                 .unwrap_or(false);
             self.set_enabled(module, enabled && self.mode(module) != BindingMode::Hold);
         }
+        if let Err(error) = self
+            .macro_engine
+            .load_json(document.0.get("macros").unwrap_or(&json!([])))
+        {
+            self.notify(format!("Macros were not loaded: {error}"));
+        }
         self.gui.restore_window(&document.0["ui"]);
         self.document = document;
         self.dirty = true;
@@ -910,6 +1052,7 @@ impl Runtime {
     pub fn snapshot(&self) -> Document {
         let mut document = self.document.clone();
         document.0["settings"] = self.settings.snapshot();
+        document.0["macros"] = self.macro_engine.to_json();
         for module in ModuleId::ALL {
             let object = document.0["modules"].as_object_mut().unwrap();
             let state = object.entry(module.id()).or_insert_with(|| json!({}));
@@ -972,6 +1115,12 @@ impl Runtime {
         self.frame();
         first
     }
+    pub fn update_hud(&mut self, snapshot: &Snapshot) {
+        self.hud_state.update(snapshot);
+    }
+    pub fn register_synthetic_click(&mut self, button: usize) {
+        self.hud_state.click(button);
+    }
     pub fn panels(&self, snapshot: Snapshot) -> Vec<HudPanel> {
         self.panels_for(snapshot, false)
     }
@@ -1008,10 +1157,10 @@ impl Runtime {
                     label: String::new(),
                     value: format!("{:.0} FPS", snapshot.fps.max(0.0)),
                 }],
-                ModuleId::Compass if snapshot.yaw.is_finite() => Vec::new(),
-                _ => continue,
+                ModuleId::Compass if !snapshot.yaw.is_finite() => continue,
+                _ => Vec::new(),
             };
-            if lines.is_empty() && module != ModuleId::Compass {
+            if lines.is_empty() && matches!(module, ModuleId::Coordinates | ModuleId::Fps) {
                 continue;
             }
             let value = |suffix: &str| {
@@ -1037,46 +1186,153 @@ impl Runtime {
                 },
                 ModuleId::Compass => super::ui::hud::Content::Compass { yaw: snapshot.yaw },
                 ModuleId::Fps => super::ui::hud::Content::Lines,
-                ModuleId::NoHurtCamera | ModuleId::AutoTool => continue,
+                ModuleId::Clock => super::ui::hud::Content::Clock {
+                    time: snapshot.clock,
+                    digital: self.settings.get("hud.clock.type").and_then(Value::as_str)
+                        == Some("digital"),
+                    show_date: self
+                        .settings
+                        .get("hud.clock.date")
+                        .and_then(Value::as_bool)
+                        .unwrap(),
+                    twenty_four: self
+                        .settings
+                        .get("hud.clock.24-hour")
+                        .and_then(Value::as_bool)
+                        .unwrap(),
+                },
+                ModuleId::Keystrokes => super::ui::hud::Content::Keystrokes {
+                    keys: snapshot.keys,
+                    mouse: snapshot.mouse,
+                    cps: self.hud_state.cps(),
+                    arrows: self
+                        .settings
+                        .get("hud.keystrokes.key-style")
+                        .and_then(Value::as_str)
+                        == Some("arrow"),
+                    icons: self
+                        .settings
+                        .get("hud.keystrokes.mouse-style")
+                        .and_then(Value::as_str)
+                        == Some("icon"),
+                    space: self
+                        .settings
+                        .get("hud.keystrokes.space")
+                        .and_then(Value::as_bool)
+                        .unwrap(),
+                    cps_only: self
+                        .settings
+                        .get("hud.keystrokes.cps-only")
+                        .and_then(Value::as_bool)
+                        .unwrap(),
+                },
+                ModuleId::ArmorStatus => {
+                    let pieces = self.hud_state.armor(&snapshot, preview);
+                    if pieces.is_empty() {
+                        continue;
+                    }
+                    super::ui::hud::Content::Armor {
+                        pieces,
+                        compact: self
+                            .settings
+                            .get("hud.armor.compact")
+                            .and_then(Value::as_bool)
+                            .unwrap(),
+                    }
+                }
+                ModuleId::PotionEffects => {
+                    let effects = self
+                        .hud_state
+                        .effects(&snapshot, preview)
+                        .into_iter()
+                        .filter(|e| {
+                            self.settings
+                                .get(if e.negative {
+                                    "hud.potions.negative"
+                                } else {
+                                    "hud.potions.positive"
+                                })
+                                .and_then(Value::as_bool)
+                                .unwrap()
+                        })
+                        .collect::<Vec<_>>();
+                    if effects.is_empty() {
+                        continue;
+                    }
+                    super::ui::hud::Content::Potions { effects }
+                }
+                ModuleId::NoHurtCamera
+                | ModuleId::AutoTool
+                | ModuleId::AutoArmor
+                | ModuleId::Refill
+                | ModuleId::ChestSteal => continue,
+            };
+            use super::ui::hud::Content;
+            let (min_width, min_height) = match &content {
+                Content::Clock {
+                    digital,
+                    show_date,
+                    twenty_four,
+                    ..
+                } => (
+                    if *digital {
+                        70.0 + if *show_date { 24.0 } else { 0.0 }
+                            + if *twenty_four { 0.0 } else { 12.0 }
+                    } else {
+                        70.0
+                    },
+                    if *digital { 32.0 } else { 65.0 },
+                ),
+                Content::Keystrokes {
+                    icons,
+                    space,
+                    cps_only,
+                    ..
+                } => (
+                    if *cps_only {
+                        75.0
+                    } else if *icons {
+                        102.0
+                    } else {
+                        54.0
+                    },
+                    if *cps_only {
+                        20.0
+                    } else {
+                        (if *icons { 40.0 } else { 72.0 }) + if *space { 14.0 } else { 0.0 }
+                    },
+                ),
+                Content::Armor { pieces, compact } => (
+                    if *compact { 26.0 } else { 54.0 },
+                    2.0 + pieces.len() as f32 * if *compact { 24.0 } else { 20.0 },
+                ),
+                Content::Potions { effects } => (40.0, 2.0 + effects.len() as f32 * 30.0),
+                Content::Compass { .. } => (308.0, 30.0),
+                Content::Coordinates {
+                    layout: CoordinatesLayout::Vertical,
+                    ..
+                } => (70.0, 90.0),
+                Content::Coordinates { .. } => (0.0, 35.0),
+                Content::Lines => (50.0, 20.0),
             };
             panels.push(HudPanel {
                 content,
                 module: module.id(),
                 name: module.name(),
                 enabled: self.enabled(module),
-                min_width: if module == ModuleId::Compass {
-                    308.0
-                } else if module == ModuleId::Fps {
-                    50.0
-                } else if self
-                    .settings
-                    .get("hud.coordinates.display")
-                    .and_then(Value::as_str)
-                    == Some("vertical")
-                {
-                    70.0
-                } else {
-                    0.0
-                },
-                min_height: if module == ModuleId::Compass {
-                    30.0
-                } else if module == ModuleId::Fps {
-                    20.0
-                } else if self
-                    .settings
-                    .get("hud.coordinates.display")
-                    .and_then(Value::as_str)
-                    == Some("vertical")
-                {
-                    90.0
-                } else {
-                    35.0
-                },
+                min_width,
+                min_height,
                 x: value("x").as_f64().unwrap() as f32,
                 y: value("y").as_f64().unwrap() as f32,
                 scale: value("scale").as_f64().unwrap() as f32,
                 color: value("color").as_u64().unwrap() as u32,
-                background: value("background").as_bool().unwrap(),
+                background: value("background").as_bool().unwrap()
+                    && !(module == ModuleId::Keystrokes
+                        && self
+                            .settings
+                            .get("hud.keystrokes.cps-only")
+                            .and_then(Value::as_bool)
+                            .unwrap()),
                 lines,
             });
         }
@@ -1198,6 +1454,7 @@ mod tests {
             biome: "Forest".into(),
             in_world: true,
             show_hud: true,
+            ..Snapshot::default()
         }
     }
 

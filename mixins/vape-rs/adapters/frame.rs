@@ -45,4 +45,6 @@ fn frame(game: &mut crate::game::Game<'_>) {
             eprintln!("[vape-rs] {note}");
         }
     });
+    crate::game::remote::vape_macros::frame(game);
+    crate::game::remote::vape_transactions::dispatch(game);
 }

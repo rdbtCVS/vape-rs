@@ -17,8 +17,10 @@ fn input(
         horizon_client::debug_keys::KeyAction::Press => KeyAction::Press,
         horizon_client::debug_keys::KeyAction::Repeat => KeyAction::Repeat,
     };
+    let macro_context = crate::game::remote::vape_macros::context(game);
     let (before, after) = with_client(&client, |runtime| {
         let before = runtime.gui.open;
+        runtime.macro_context(macro_context);
         runtime.input(
             &format!("{key:?}"),
             action,

@@ -23,7 +23,7 @@ fn friend(keys: &[String], name: &str, uuid: Option<u128>) -> bool {
             })
     })
 }
-fn combat(game: &Game<'_>, keys: &[String], target: Option<Target>) -> CombatSnapshot {
+pub(super) fn combat(game: &Game<'_>, keys: &[String], target: Option<Target>) -> CombatSnapshot {
     let Some(player) = game.player.as_ref() else {
         return CombatSnapshot::default();
     };

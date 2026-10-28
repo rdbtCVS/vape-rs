@@ -17,7 +17,9 @@ fn mouse_bind(
         MouseButton::Forward => "MouseForward".into(),
         MouseButton::Other(n) => format!("Mouse{n}"),
     };
+    let macro_context = crate::game::remote::vape_macros::context(game);
     let suppressed = with_client(&client, |runtime| {
+        runtime.macro_context(macro_context);
         runtime.input(
             &name,
             if pressed {

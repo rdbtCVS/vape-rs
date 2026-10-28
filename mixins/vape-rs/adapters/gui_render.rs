@@ -2,10 +2,7 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
     let client = game.__horizon_mixins_vape_rs_client().clone();
     use crate::game::vape_rs::{
         core::with_client,
-        ui::{
-            Snapshot,
-            gui::{HudRegion, Paint, Rect},
-        },
+        ui::gui::{HudRegion, Paint, Rect},
     };
     use horizon_client::hud::HudBatch;
     if game.serving.is_some() || game.options.dedicated.is_some() {
@@ -36,22 +33,11 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
         },
     );
     if frame.hud_editor {
-        let panels = game
-            .player
-            .as_ref()
-            .map(|player| {
+        let panels = crate::game::vape_hud::snapshot(game, true)
+            .map(|snapshot| {
                 with_client(&client, |runtime| {
-                    runtime.preview_panels(Snapshot {
-                        position: [player.position.x, player.position.y, player.position.z],
-                        fps: game.fps,
-                        yaw: game.yaw,
-                        biome: crate::game::vape_hud::biome(
-                            game,
-                            [player.position.x, player.position.y, player.position.z],
-                        ),
-                        in_world: true,
-                        show_hud: true,
-                    })
+                    runtime.update_hud(&snapshot);
+                    runtime.preview_panels(snapshot)
                 })
             })
             .unwrap_or_default();
