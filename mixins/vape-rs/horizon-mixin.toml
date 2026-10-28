@@ -242,3 +242,40 @@ kind = "HEAD"
 cancellable = true
 helper = "adapters/fullbright_night_vision.rs"
 bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+
+[[injection]]
+id = "clear-water"
+target = "horizon_client::game::render_tick::Game<'_>::frame_fog"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/clear_water.rs"
+bindings = [
+ { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+ { name = "camera", ty = "glam::DVec3", value = "camera" },
+ { name = "sky", ty = "&horizon_client::environment::Sky", value = "sky" },
+ { name = "biome", ty = "u16", value = "biome" },
+ { name = "water_fog_color", ty = "[f32; 3]", value = "water_fog_color" },
+]
+
+[[module]]
+id = "auto-fish"
+file = "crates/horizon-client/src/game/fishing.rs"
+name = "vape_auto_fish"
+source = "auto_fish.rs"
+
+[[injection]]
+id = "fish-hook-data"
+target = "horizon_client::game::fishing::Game<'_>::remote_hook_data"
+kind = "HEAD"
+helper = "adapters/fish_hook_data.rs"
+bindings = [
+ { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+ { name = "id", ty = "u32", value = "id" },
+ { name = "values", ty = "&[(u8, i32, horizon_protocol::entity_data::Value)]", value = "values" },
+]
+
+[[module]]
+id = "input-delays"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_input_delays"
+source = "input_delays.rs"

@@ -8,7 +8,7 @@ pub fn context(game: &Game<'_>) -> MacroContext {
             s.item.rsplit(':').next().unwrap_or(&s.item).replace('_', " ")
         })).collect(),
         selected_slot: u8::try_from(game.selected).ok().filter(|s| *s < 9),
-        fishing_rod_ready: false,
+        fishing_rod_ready: crate::game::fishing::vape_auto_fish::macro_rod_ready(game),
         accepts_input: game.focused && game.player.as_ref().is_some_and(|p| p.health.health() > 0.0)
             && game.screen == Screen::Playing && game.title.is_none()
             && game.sleeping.is_none() && !game.dialog_open() && game.server_packs.prompt.is_none(),
@@ -26,17 +26,23 @@ pub fn frame(game: &mut Game<'_>) {
             MacroEffect::SelectHotbar { slot } if allowed && slot < 9 => game.selected = usize::from(slot),
             MacroEffect::UseItem { down: true } if allowed => {
                 game.right = true;
-                if let Some(remote) = game.remote.as_mut() {
-                    remote.input.press(horizon_client::interaction_input::Button::Use);
-                } else if game.using.is_none() {
-                    if let Err(error) = game.use_with_hand() {
-                        with_client(&client, |r| r.notify(format!("Macro use failed: {error}")));
-                    }
-                    game.use_delay = 4;
-                }
+                use_once(game);
             }
             MacroEffect::UseItem { down: false } => game.right = game.focused && game.toggles.is_down(3),
             _ => {}
         }
+    }
+}
+
+// Ordinary use activation shared by macros and fishing automation. Caller owns
+// a use-input claim; this never re-enters the physical binding hook.
+pub fn use_once(game: &mut Game<'_>) {
+    if let Some(remote) = game.remote.as_mut() {
+        remote.input.press(horizon_client::interaction_input::Button::Use);
+    } else if game.using.is_none() {
+        if let Err(error) = game.use_with_hand() {
+            with_client(game.__horizon_mixins_vape_rs_client(), |r| r.notify(format!("Automatic item use failed: {error}")));
+        }
+        game.use_delay = 4;
     }
 }

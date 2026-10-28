@@ -26,3 +26,7 @@ must call `cancel` on disable, panic, GUI/context loss, profile replacement,
 world/session transitions and client teardown; cancellation clears held input,
 releases use if owned, and restores the saved hotbar slot. This adds safe
 cleanup where the legacy action's bare cancellation could leave state behind.
+
+Native interruption behavior currently releases owned use and yields hotbar
+selection on context loss. Safe original-slot restoration for GUI/focus/panic
+cleanup is a remaining integration task; normal completed macros restore it.

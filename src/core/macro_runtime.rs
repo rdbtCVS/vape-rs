@@ -75,7 +75,13 @@ impl Runtime {
                 self.session.epoch(),
                 200,
             );
-            if self.macro_lease.is_none() {
+            self.macro_use_lease = self.actions.acquire(
+                Resource::UseItem,
+                Owner("client.macros"),
+                self.session.epoch(),
+                200,
+            );
+            if self.macro_lease.is_none() || self.macro_use_lease.is_none() {
                 self.cancel_macros(false);
             } else {
                 self.macro_selected = context.selected_slot;
@@ -92,13 +98,19 @@ impl Runtime {
         if let Some(lease) = self.macro_lease.take() {
             self.actions.release(lease);
         }
+        if let Some(lease) = self.macro_use_lease.take() {
+            self.actions.release(lease);
+        }
         self.macro_selected = None;
     }
     pub fn macro_frame(&mut self, mut context: MacroContext) -> Vec<MacroEffect> {
         context.accepts_input &= !self.gui.open && self.session.interactive();
         let lost_lease = self
             .macro_lease
-            .is_some_and(|l| !self.actions.owns(l, self.session.epoch()));
+            .is_some_and(|l| !self.actions.owns(l, self.session.epoch()))
+            || self
+                .macro_use_lease
+                .is_some_and(|l| !self.actions.owns(l, self.session.epoch()));
         let manual_slot = self.macro_engine.uses_hotbar()
             && self.macro_selected.is_some()
             && self.macro_selected != context.selected_slot;
@@ -115,6 +127,9 @@ impl Runtime {
             }
         }
         if !self.macro_engine.active() {
+            if let Some(lease) = self.macro_use_lease.take() {
+                self.actions.release(lease);
+            }
             if let Some(lease) = self.macro_lease.take() {
                 self.actions.release(lease);
             }

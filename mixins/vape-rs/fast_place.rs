@@ -20,7 +20,7 @@ pub(super) fn fast_place(game: &mut crate::game::Game<'_>) {
     }
     let client = game.__horizon_mixins_vape_rs_client().clone();
     let options = with_client(&client, |runtime| {
-        if !runtime.enabled(ModuleId::FastPlace) || runtime.macros_active_item() {
+        if !runtime.enabled(ModuleId::FastPlace) || runtime.use_claimed() {
             return None;
         }
         let held_item = match runtime

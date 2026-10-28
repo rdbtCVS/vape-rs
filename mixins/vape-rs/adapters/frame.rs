@@ -49,4 +49,5 @@ fn frame(game: &mut crate::game::Game<'_>) {
     if let Some(gamma) = gamma && let Some(renderer) = game.renderer.as_mut() { renderer.gamma = gamma; }
     crate::game::remote::vape_macros::frame(game);
     crate::game::remote::vape_transactions::dispatch(game);
+    crate::game::fishing::vape_auto_fish::auto_fish(game);
 }

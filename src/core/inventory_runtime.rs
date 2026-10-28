@@ -161,6 +161,26 @@ impl Runtime {
     /// to the host once; the next call only advances when a newer snapshot
     /// acknowledges it through the planner gate.
     pub fn inventory_step(&mut self, snapshot: &Snapshot) -> Vec<InventoryEffect> {
+        use super::super::actions::{Owner, Resource};
+        if self
+            .actions
+            .acquire(
+                Resource::Container,
+                Owner("inventory"),
+                self.session.epoch(),
+                100,
+            )
+            .is_none()
+        {
+            return Vec::new();
+        }
+        let effects = self.inventory_step_owned(snapshot);
+        if self.inventory_schedule.active().is_none() {
+            self.actions.release_owner(Owner("inventory"));
+        }
+        effects
+    }
+    fn inventory_step_owned(&mut self, snapshot: &Snapshot) -> Vec<InventoryEffect> {
         let combat_blocked = self.combat_blocked;
         let module = self.inventory_schedule.active().or_else(|| {
             self.inventory_schedule.choose([
@@ -242,6 +262,8 @@ impl Runtime {
         Vec::new()
     }
     pub fn cancel_inventory(&mut self) {
+        self.actions
+            .release_owner(super::super::actions::Owner("inventory"));
         self.auto_armor.cancel();
         self.refill.cancel();
         self.chest_steal.cancel();

@@ -1,3 +1,4 @@
+pub mod automation;
 pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
@@ -37,6 +38,10 @@ pub enum ModuleId {
     ChestSteal,
     FastPlace,
     Fullbright,
+    ClearWater,
+    AutoFish,
+    NoJumpDelay,
+    NoClickDelay,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -55,6 +60,10 @@ impl ModuleId {
             Self::ChestSteal => "world.chest-steal",
             Self::FastPlace => "world.fast-place",
             Self::Fullbright => "render.fullbright",
+            Self::ClearWater => "render.clear-water",
+            Self::AutoFish => "utility.auto-fish",
+            Self::NoJumpDelay => "legit.no-jump-delay",
+            Self::NoClickDelay => "legit.no-click-delay",
         }
     }
     pub fn name(self) -> &'static str {
@@ -73,9 +82,13 @@ impl ModuleId {
             Self::ChestSteal => "ChestSteal",
             Self::FastPlace => "FastPlace",
             Self::Fullbright => "Fullbright",
+            Self::ClearWater => "Clear Water",
+            Self::AutoFish => "AutoFish",
+            Self::NoJumpDelay => "NoJumpDelay",
+            Self::NoClickDelay => "NoClickDelay",
         }
     }
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 18] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
@@ -90,6 +103,10 @@ impl ModuleId {
         Self::ChestSteal,
         Self::FastPlace,
         Self::Fullbright,
+        Self::ClearWater,
+        Self::AutoFish,
+        Self::NoJumpDelay,
+        Self::NoClickDelay,
     ];
     fn position(self) -> (f64, f64) {
         match self {
@@ -108,7 +125,7 @@ impl ModuleId {
             "World"
         } else if self == Self::Fullbright {
             "Render"
-        } else if matches!(self, Self::AutoArmor | Self::Refill) {
+        } else if matches!(self, Self::AutoArmor | Self::Refill | Self::AutoFish) {
             "Utility"
         } else {
             "Legit"
@@ -148,6 +165,10 @@ pub struct Runtime {
     session: Session,
     actions: Coordinator,
     auto_tool: auto_tool::AutoTool,
+    auto_fish: super::modules::utility::auto_fish::AutoFish,
+    auto_fish_pending: Option<super::inventory::types::Request>,
+    fish_hooked_entity: Option<(u32, i32)>,
+    macro_use_lease: Option<Lease>,
     auto_armor: super::modules::utility::auto_armor::AutoArmor,
     refill: super::modules::utility::refill::Refill,
     chest_steal: super::modules::utility::chest_steal::ChestSteal,
@@ -348,6 +369,24 @@ impl Default for Runtime {
                     .when("render.fullbright.mode", json!("gamma")),
             )
             .unwrap();
+        for definition in [
+            Definition::boolean("utility.auto-fish.recast-ground", "Recast ground", false),
+            Definition::boolean("utility.auto-fish.recast-caught", "Recast caught", false),
+            Definition::boolean("utility.auto-fish.refill-rods", "Refill rods", true),
+            Definition::new(
+                "utility.auto-fish.click-delay",
+                "Click delay",
+                Kind::Range {
+                    min: 50.0,
+                    max: 200.0,
+                    step: 5.0,
+                },
+                json!([75.0, 125.0]),
+            )
+            .when("utility.auto-fish.refill-rods", json!(true)),
+        ] {
+            settings.define(definition).unwrap();
+        }
         for definition in inventory_runtime::definitions() {
             settings
                 .define(definition)
@@ -393,6 +432,10 @@ impl Default for Runtime {
             session: Session::default(),
             actions: Coordinator::default(),
             auto_tool: auto_tool::AutoTool::default(),
+            auto_fish: Default::default(),
+            auto_fish_pending: None,
+            fish_hooked_entity: None,
+            macro_use_lease: None,
             auto_armor: Default::default(),
             refill: Default::default(),
             chest_steal: Default::default(),
@@ -447,6 +490,9 @@ impl Runtime {
         if module == ModuleId::AutoTool && !enabled {
             self.reset_auto_tool();
         }
+        if module == ModuleId::AutoFish && !enabled {
+            self.cancel_auto_fish();
+        }
         self.dirty = true;
         self.notify(format!(
             "{} {}",
@@ -469,6 +515,9 @@ impl Runtime {
             self.release_input();
         }
         self.settings.set(id, next)?;
+        if id.starts_with("utility.auto-fish.") {
+            self.cancel_auto_fish();
+        }
         if id.starts_with("inventory.") || id.starts_with("world.chest-steal.") {
             self.cancel_inventory();
         }
@@ -889,9 +938,6 @@ impl Runtime {
     }
     fn reset_auto_tool(&mut self) {
         self.auto_tool.reset();
-        self.combat_guard.reset();
-        self.combat_guard_tick = None;
-        self.combat_blocked = false;
         self.tool_lease = None;
         self.actions.release_owner(Owner("world.auto-tool"));
     }
@@ -1020,6 +1066,11 @@ impl Runtime {
         self.release_input();
         self.reset_auto_tool();
         self.cancel_inventory();
+        self.cancel_auto_fish();
+        self.combat_guard.reset();
+        self.combat_guard_tick = None;
+        self.combat_blocked = false;
+        self.fish_hooked_entity = None;
         self.actions.clear();
         self.hud_state.reset_session();
         self.brightness_reset = true;
@@ -1342,7 +1393,11 @@ impl Runtime {
                 | ModuleId::Refill
                 | ModuleId::ChestSteal
                 | ModuleId::FastPlace
-                | ModuleId::Fullbright => continue,
+                | ModuleId::Fullbright
+                | ModuleId::ClearWater
+                | ModuleId::AutoFish
+                | ModuleId::NoJumpDelay
+                | ModuleId::NoClickDelay => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

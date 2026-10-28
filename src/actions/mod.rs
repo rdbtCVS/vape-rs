@@ -16,6 +16,8 @@ pub struct Owner(pub &'static str);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Resource {
     Hotbar,
+    UseItem,
+    Container,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Lease {
@@ -72,6 +74,15 @@ impl Coordinator {
     }
     pub fn release_owner(&mut self, owner: Owner) {
         self.claims.retain(|_, lease| lease.owner != owner);
+    }
+    pub fn claimed(&self, resource: Resource, epoch: Epoch) -> bool {
+        self.claims
+            .get(&resource)
+            .is_some_and(|lease| lease.epoch == epoch)
+    }
+    pub fn release_resource(&mut self, owner: Owner, resource: Resource) {
+        self.claims
+            .retain(|key, lease| *key != resource || lease.owner != owner);
     }
     pub fn clear(&mut self) {
         self.claims.clear();
