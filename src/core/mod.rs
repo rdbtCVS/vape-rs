@@ -903,7 +903,7 @@ impl Runtime {
         self.perform(actions);
     }
     pub fn release_input(&mut self) {
-        self.cancel_macros(false);
+        self.cancel_macros(true);
         self.gui_bind.apply(
             "",
             KeyAction::FocusLost,
@@ -1064,6 +1064,14 @@ impl Runtime {
     }
     pub fn session_change(&mut self, reason: CleanupReason) {
         self.release_input();
+        if !matches!(reason, CleanupReason::Panic | CleanupReason::Profile) {
+            self.macro_pending.retain(|effect| {
+                matches!(
+                    effect,
+                    super::input::macros::MacroEffect::UseItem { down: false }
+                )
+            });
+        }
         self.reset_auto_tool();
         self.cancel_inventory();
         self.cancel_auto_fish();

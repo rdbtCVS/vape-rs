@@ -1,6 +1,6 @@
 # vape-rs (development)
 
-Independent Rust-native Horizon mod rewrite. The full scope and completion gates are in [plan.md](plan.md). The rewrite is incomplete. Current native foundations include coordinates/FPS/compass HUDs, local settings/profiles/friends, binding capture, HUD placement and a custom GUI with text editing. The remaining gameplay modules, complete reference parity and release validation are still pending. AI behavior and the online product are explicitly excluded; SilentAura’s PID and other non-AI features remain in scope. No distribution-ready parity claim is made.
+Independent Rust-native Horizon mod rewrite. The full scope and completion gates are in [plan.md](plan.md); the current handoff is [docs/status.md](docs/status.md). The rewrite is incomplete. Eighteen modules are connected to the native client: seven HUD widgets, NoHurtCam, AutoTool, AutoArmor, Refill, ChestSteal, FastPlace, Fullbright, Clear Water, AutoFish, NoJumpDelay and NoClickDelay. Local settings/profiles/friends, macros, typed editors, binding capture and HUD placement are connected. Recent batches have compilation evidence; full gameplay/visual parity and release gates remain open. AI behavior and the online product are explicitly excluded; SilentAura’s PID and other non-AI features remain in scope.
 
 References are read-only. No Java, JNI, process injection, account service or remote backend is part of this runtime. The adjacent reconstructed Java repository is used only for static behavioral inspection.
 
@@ -15,7 +15,7 @@ cargo test --workspace --locked --offline
 cargo run -p xtask --locked --offline -- payload-test
 ```
 
-The AST packer reads conventional Rust module files under src and emits one source-only payload plus a content-hash source map under target. The emitted payload's tests compile in an isolated Cargo fixture with its committed lockfile. The runtime uses serde_json 1.0.151, already declared and locked in the pinned host; staging verifies that contract and never injects a dependency.
+The AST packer reads conventional Rust module files under src and emits one source-only payload plus a content-hash source map under target. The emitted payload's tests compile in an isolated Cargo fixture with its committed lockfile. The runtime uses serde_json 1.0.151 and the native clock adapter uses chrono, both already declared and locked in the pinned host; staging verifies that contract and never injects a dependency.
 
 The mixin pin currently uses [upstream PR #2](https://github.com/horizon-rust/horizon-mixins/pull/2), authorized for development before merge. The exact base commit remains fixed in compatibility.json; merging the PR does not automatically change this pin. Staging also applies the reviewed, SHA-256 pinned patch under tools/mixin-patches for lifetime-owned state and preserved constructors. These patches are exported from local development commit e83e49f4ceca0dbb3156617d6d86f3996c2341cc. `xtask stage` reconstructs them from the clean base; it never builds a dirty development checkout. Distribution is gated until a published tool pin contains this support: the launcher cannot apply tool patches from a mod bundle. `tools/bundle.py` rejects that incompatible package.
 
@@ -34,9 +34,15 @@ cargo run -p xtask --locked --offline -- build ../horizon
 
 Staging exports the committed Horizon pin from compatibility.json, ignores the original working tree, checks pristine source hashes, runs the pinned planner/transformer and audits the generated changes. Wrong pins, source drift, unexpected edits and stale bundle files fail loudly. All exports/builds remain under target. `check` type-checks the actual client binary; `test` compiles/runs embedded runtime tests; `build` compiles the client using Horizon's fast profile with audio/controllers disabled. These execute reviewed native Rust and its build scripts with normal user privileges.
 
-Run the binary only with your own compatible prepared 26.3 resources and fresh scratch homes, as required by Horizon's AGENTS.md. Never point HORIZON_HOME at real player data for tests. See [docs/hooks.md](docs/hooks.md) for integration boundaries. Right Shift opens the custom local GUI. Its current pages expose actual module settings/binding capture, local profiles and local friend/enemy records. F8/F9 are default HUD bindings and F10 disables the active displays. Displays start disabled; saved preferences restore on restart. Text rendering uses the host atlas; reference typography/layout parity remains unverified.
+Run the binary only with your own compatible prepared 26.3 resources and fresh scratch homes, as required by Horizon's AGENTS.md. Never point HORIZON_HOME at real player data for tests. See [docs/hooks.md](docs/hooks.md) for integration boundaries. Right Shift opens the custom local GUI. Its pages expose module settings/binding capture, local profiles, local friend/enemy records and a local macro editor. F8/F9 are default HUD bindings and F10 disables all active modules. Modules start disabled; saved preferences restore on restart. Text rendering uses the host atlas; reference typography/layout parity remains unverified.
 
-The development scenario driver accepts a prepared resource directory:
+The compatible prepared resource directory located for this workspace is:
+
+```text
+<launcher-dir>/versions/nightly-2026-10-28-9b772b2/.local/horizon-client/26.3
+```
+
+Use it read-only; every executable game run must use fresh isolated homes and working directory through tools/native_session.py. No new gameplay/visual test round was run for the latest implementation batches, following the user's implementation-first preference. The development scenario driver accepts a prepared resource directory:
 
 ```sh
 python3 tools/scenario.py /absolute/path/to/prepared/26.3

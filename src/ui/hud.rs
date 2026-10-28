@@ -166,6 +166,8 @@ impl Layout {
             color,
         });
     }
+    // A single drawn key combines explicit rectangle geometry, state and font metrics.
+    #[allow(clippy::too_many_arguments)]
     fn key(
         &mut self,
         x: f32,

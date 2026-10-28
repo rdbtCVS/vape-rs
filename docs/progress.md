@@ -1,5 +1,7 @@
 # Progress
 
+Current handoff: [status.md](status.md). Entries below are chronological; later milestones supersede earlier pending-work notes.
+
 ## 2026-10-28 — implementation start
 
 Initialized Git and committed the unmodified plan. Both adjacent references match the plan and are clean. Read Horizon's contribution/data isolation rules and the native packaging/CLI implementation.
@@ -197,3 +199,13 @@ Added Clear Water using a guarded cancellable HEAD and preserved pinned native f
 Added NoJumpDelay and NoClickDelay against the actual native jump gate and attack-miss timer, under gameplay guards. The obsolete NoClickDelay 1.8.9 gate is explicitly modernized against Horizon's unified current miss timer; normal combat cooldowns and collisions remain host-owned.
 
 Validation: runtime cargo check, exact native stage/audit (22 HEAD hooks, one owned state, nine support modules) and pinned client cargo check passed. No gameplay/visual suites or broad tests run. Evidence: docs/evidence/fishing-water-delays-compile.json. All four module rows are implemented-core only; complete plan/parity/distribution gates remain open. BlockOverlay source exploration is unregistered pending a complete geometry insertion path; it is not claimed implemented.
+
+## Current batch close-out and documentation handoff
+
+At the user's request, finished the current macro-cleanup work and stopped starting new features. Macro completion and safe GUI/focus/panic/profile cleanup now emit a separate restoration effect. A valid same-session hotbar claim and unchanged selection are required; manual selection (including after cleanup was queued), preemption, death and world/dimension/connection replacement discard stale restoration. Owned use input is released. Added three focused runtime cases for menu cleanup, manual selection and panic versus dimension changes.
+
+Updated README.md, plan.md, decisions, the complete hook catalogue, macro specification and feature evidence. New docs/status.md lists all 18 connected modules, actual evidence levels, compatible resource path, unfinished fidelity/dependencies and ordered next work. AI remains excluded; the rest of the full plan remains open. Historical prototype/pending notes above are superseded only where a later milestone provides evidence.
+
+BlockOverlay remains unregistered. Moved its partial outline/options code out of shipping source paths into documentation-only drafts, preserving the exact proposed fishing-line outline hook and transparent-fill/tool capability dependency in docs/specs/block-overlay.md. These drafts were not compiled or gameplay validated and do not promote the feature ledger status. No new mixin-tool patch or host source change was made for them.
+
+Close-out verification: 48 runtime tests and 4 audit tests passed; workspace formatting and Clippy (all targets, warnings denied) passed. Corrected six lint findings in the recent batch without broadening feature scope. Exact final native stage/audit passed with 22 HEAD hooks, one owned state and nine support modules, restoring original host ASTs and other input hashes. The final pinned-client compilation result is recorded in docs/evidence/macro-cleanup-closeout.json. No new executable build, game/visual suite, remote scenario or distribution validation was run. The adjacent Horizon checkout has unrelated working-tree changes; exports still use only the immutable pinned commit under target, and no adjacent changes were made here.

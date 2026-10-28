@@ -89,16 +89,15 @@ impl Snapshot {
             if seen.insert(slot.index, ()).is_some() {
                 return Err("inventory snapshot repeats a slot".into());
             }
-            if let Some(item) = &slot.item {
-                if item.fingerprint.id.is_empty()
+            if let Some(item) = &slot.item
+                && (item.fingerprint.id.is_empty()
                     || item.fingerprint.id.len() > 256
                     || item.fingerprint.count == 0
                     || item.max_count == 0
                     || item.fingerprint.count > item.max_count
-                    || !item.score.is_finite()
-                {
-                    return Err("invalid inventory item metadata".into());
-                }
+                    || !item.score.is_finite())
+            {
+                return Err("invalid inventory item metadata".into());
             }
         }
         Ok(())

@@ -1,6 +1,6 @@
 # Vape-rs: complete Rust reimplementation for Horizon
 
-Written 2026-10-28; updated after the user's scope clarification. This is the implementation handoff for an agent starting in this directory. No implementation has been created yet. The task that produced this document was planning only.
+Written 2026-10-28; updated during implementation. This remains the complete implementation plan, not a completion report. Current code, evidence, open dependencies and next steps are summarized in [docs/status.md](docs/status.md); chronological milestone results are in [docs/progress.md](docs/progress.md). Eighteen modules and the local client foundation are connected, while the complete feature ledger and release gates remain unfinished. The user requested implementation-first batches with testing afterward; recent compile-only evidence must not be treated as gameplay/visual validation.
 
 ## 1. Objective and user decisions
 

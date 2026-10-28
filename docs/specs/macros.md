@@ -27,6 +27,12 @@ world/session transitions and client teardown; cancellation clears held input,
 releases use if owned, and restores the saved hotbar slot. This adds safe
 cleanup where the legacy action's bare cancellation could leave state behind.
 
-Native interruption behavior currently releases owned use and yields hotbar
-selection on context loss. Safe original-slot restoration for GUI/focus/panic
-cleanup is a remaining integration task; normal completed macros restore it.
+Native interruption cleanup releases owned use and restores the original slot
+in menus, on focus loss, panic or profile replacement only if the same-session
+hotbar claim is still owned and user selection has not changed. Restoration is
+a distinct typed cleanup effect; it cannot trigger a macro or item use. Manual
+slot changes, claim preemption, death and world/dimension/connection replacement
+discard old selection effects. Normal completion restores through the same
+native cleanup path. Focused workspace tests cover menu cleanup, manual
+override and panic versus dimension replacement; real native interruption
+scenarios remain deferred.

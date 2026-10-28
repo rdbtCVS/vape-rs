@@ -38,9 +38,7 @@ impl Runtime {
             return None;
         }
         if let Some(request) = &self.auto_fish_pending {
-            let Some(snapshot) = snapshot else {
-                return None;
-            };
+            let snapshot = snapshot?;
             if request.session != snapshot.session || request.container_id != snapshot.container_id
             {
                 self.cancel_auto_fish();
@@ -62,15 +60,14 @@ impl Runtime {
                 return None;
             }
         }
-        if matches!(context.rod, Rod::Inventory(_)) || self.auto_fish.refilling() {
-            if self
+        if (matches!(context.rod, Rod::Inventory(_)) || self.auto_fish.refilling())
+            && self
                 .actions
                 .acquire(Resource::Container, Owner("utility.auto-fish"), epoch, 100)
                 .is_none()
-            {
-                self.cancel_auto_fish();
-                return None;
-            }
+        {
+            self.cancel_auto_fish();
+            return None;
         }
         let effect = self.auto_fish.step(context, options);
         if !self.auto_fish.refilling() {

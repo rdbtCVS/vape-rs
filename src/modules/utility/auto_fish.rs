@@ -113,11 +113,9 @@ impl AutoFish {
                 self.cast_due = None;
                 self.ground_since = None;
                 if !context.inventory_open {
-                    if !self.refill_issued {
-                        if self.refill_due.is_none() {
-                            let delay = self.delay(options.click_delay_ms);
-                            self.refill_due = Some(context.now + Duration::from_millis(delay));
-                        }
+                    if !self.refill_issued && self.refill_due.is_none() {
+                        let delay = self.delay(options.click_delay_ms);
+                        self.refill_due = Some(context.now + Duration::from_millis(delay));
                     }
                     return Some(Effect::OpenInventory);
                 }

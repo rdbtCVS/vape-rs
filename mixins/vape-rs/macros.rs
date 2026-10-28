@@ -24,6 +24,7 @@ pub fn frame(game: &mut Game<'_>) {
             MacroEffect::Chat { text } if allowed => game.handle_chat_input(&text),
             MacroEffect::Command { command } if allowed => game.handle_chat_input(&format!("/{command}")),
             MacroEffect::SelectHotbar { slot } if allowed && slot < 9 => game.selected = usize::from(slot),
+            MacroEffect::RestoreHotbar { slot } if slot < 9 && game.title.is_none() && game.player.as_ref().is_some_and(|p| p.health.health() > 0.0) => game.selected = usize::from(slot),
             MacroEffect::UseItem { down: true } if allowed => {
                 game.right = true;
                 use_once(game);

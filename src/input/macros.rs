@@ -199,6 +199,8 @@ pub enum MacroEffect {
     Command { command: String },
     /// Choose a hotbar slot through the host's ordinary selection path.
     SelectHotbar { slot: u8 },
+    /// Cleanup selection, permitted in menus only while the same world/claim remains valid.
+    RestoreHotbar { slot: u8 },
     /// Set the host's normal use-item key state. The host must never feed this
     /// emitted state back to `input` as a physical macro trigger.
     UseItem { down: bool },
@@ -383,7 +385,7 @@ impl MacroEngine {
                 else {
                     unreachable!()
                 };
-                if context.slot_for(&name) != Some(target_slot) {
+                if context.slot_for(name) != Some(target_slot) {
                     return self.finish_item(original_slot, *use_down, effects);
                 }
                 match *phase {
@@ -431,7 +433,7 @@ impl MacroEngine {
             effects.push(MacroEffect::UseItem { down: false });
         }
         if let Some(slot) = original_slot {
-            effects.push(MacroEffect::SelectHotbar { slot });
+            effects.push(MacroEffect::RestoreHotbar { slot });
         }
         effects
     }
