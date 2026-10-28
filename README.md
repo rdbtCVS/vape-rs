@@ -15,7 +15,7 @@ cargo test --workspace --locked --offline
 cargo run -p xtask --locked --offline -- payload-test
 ```
 
-The AST packer reads conventional Rust module files under src and emits one source-only payload plus a content-hash source map under target. The emitted payload's tests compile independently with rustc, without host dependencies.
+The AST packer reads conventional Rust module files under src and emits one source-only payload plus a content-hash source map under target. The emitted payload's tests compile in an isolated Cargo fixture with its committed lockfile. The runtime uses serde_json 1.0.151, already declared and locked in the pinned host; staging verifies that contract and never injects a dependency.
 
 The mixin pin currently uses [upstream PR #2](https://github.com/horizon-rust/horizon-mixins/pull/2), authorized for development before merge. The exact commit remains fixed in compatibility.json; merging the PR does not automatically change this pin.
 

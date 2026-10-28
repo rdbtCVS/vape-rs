@@ -19,6 +19,17 @@ pub struct HudLine {
     pub value: String,
 }
 
+#[derive(Debug)]
+pub struct HudPanel {
+    pub module: &'static str,
+    pub x: f32,
+    pub y: f32,
+    pub scale: f32,
+    pub color: u32,
+    pub background: bool,
+    pub lines: Vec<HudLine>,
+}
+
 impl CoordinatesLayout {
     pub fn lines(self, position: [f64; 3]) -> Vec<HudLine> {
         if position.iter().any(|x| !x.is_finite()) {

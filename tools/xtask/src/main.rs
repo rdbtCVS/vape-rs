@@ -139,6 +139,12 @@ fn copy_sources(from: &Path, to: &Path) -> Result<()> {
 
 fn pack(root: &Path) -> Result<PathBuf> {
     let config = config(root)?;
+    let cargo: toml::Value = toml::from_str(&fs::read_to_string(root.join("Cargo.toml"))?)?;
+    if cargo["dependencies"]["serde_json"].as_str() != Some("=1.0.151") {
+        return Err(
+            "runtime serde_json contract changed; update dependency audit and payload lock".into(),
+        );
+    }
     let mut sources = BTreeMap::new();
     let file = expand(&root.join("src/lib.rs"), root, &mut sources)?;
     let payload = prettyplease::unparse(&file);
@@ -178,15 +184,27 @@ fn pack(root: &Path) -> Result<PathBuf> {
 
 fn payload_test(root: &Path) -> Result<()> {
     let bundle = pack(root)?;
-    let executable = root.join("target/payload-tests");
-    checked(
-        Command::new("rustc")
-            .args(["--edition=2024", "--test"])
-            .arg(bundle.join("runtime.rs"))
-            .arg("-o")
-            .arg(&executable),
+    let fixture = root.join("target/payload-test");
+    fs::create_dir_all(&fixture)?;
+    let manifest = format!(
+        "[workspace]\n[package]\nname=\"vape-rs\"\nversion=\"0.1.0-dev\"\nedition=\"2024\"\n[lib]\npath={:?}\n[dependencies]\nserde_json=\"=1.0.151\"\n",
+        bundle
+            .join("runtime.rs")
+            .to_str()
+            .ok_or("non-UTF8 payload path")?
+    );
+    write_changed(&fixture.join("Cargo.toml"), manifest.as_bytes())?;
+    write_changed(
+        &fixture.join("Cargo.lock"),
+        &fs::read(root.join("tools/payload.lock"))?,
     )?;
-    checked(Command::new(executable).arg("--quiet"))
+    checked(
+        Command::new("cargo")
+            .args(["test", "--locked", "--offline", "--manifest-path"])
+            .arg(fixture.join("Cargo.toml"))
+            .arg("--target-dir")
+            .arg(root.join("target/payload-cargo")),
+    )
 }
 
 fn export(root: &Path, horizon: &Path) -> Result<PathBuf> {
@@ -284,6 +302,21 @@ fn audit_hashes(pristine: &Path, config: &Value) -> Result<()> {
 fn stage(root: &Path, horizon: &Path) -> Result<PathBuf> {
     let bundle = pack(root)?;
     let pristine = export(root, horizon)?;
+    let host_manifest: toml::Value = toml::from_str(&fs::read_to_string(
+        pristine.join("crates/horizon-client/Cargo.toml"),
+    )?)?;
+    let host_lock: toml::Value = toml::from_str(&fs::read_to_string(pristine.join("Cargo.lock"))?)?;
+    if host_manifest["dependencies"].get("serde_json").is_none()
+        || !host_lock["package"]
+            .as_array()
+            .ok_or("host lock missing packages")?
+            .iter()
+            .any(|p| {
+                p["name"].as_str() == Some("serde_json") && p["version"].as_str() == Some("1.0.151")
+            })
+    {
+        return Err("pinned host must already provide serde_json 1.0.151; no dependency injection is performed".into());
+    }
     let config = config(root)?;
     let mixins = root.join("target/upstream/horizon-mixins");
     let revision = capture(

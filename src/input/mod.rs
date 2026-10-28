@@ -132,3 +132,89 @@ mod tests {
         );
     }
 }
+
+#[derive(Debug, Default)]
+pub struct MultiBinding {
+    pressed: std::collections::BTreeSet<String>,
+    armed: bool,
+}
+impl MultiBinding {
+    pub fn apply(
+        &mut self,
+        key: &str,
+        action: KeyAction,
+        mode: BindingMode,
+        enabled: bool,
+        accepts_input: bool,
+        required: usize,
+    ) -> Option<bool> {
+        if action == KeyAction::FocusLost {
+            let held = !self.pressed.is_empty();
+            self.pressed.clear();
+            self.armed = false;
+            return (held && enabled && mode == BindingMode::Hold).then_some(false);
+        }
+        if action == KeyAction::Release {
+            let was_down = self.pressed.remove(key);
+            let armed = std::mem::take(&mut self.armed);
+            return match mode {
+                BindingMode::Hold if was_down && enabled => Some(false),
+                BindingMode::Release if was_down && armed && accepts_input => Some(!enabled),
+                _ => None,
+            };
+        }
+        if !accepts_input || action == KeyAction::Repeat || !self.pressed.insert(key.into()) {
+            return None;
+        }
+        if required == 0 || self.pressed.len() != required {
+            return None;
+        }
+        self.armed = true;
+        match mode {
+            BindingMode::Toggle => Some(!enabled),
+            BindingMode::Hold => Some(true),
+            BindingMode::Release => None,
+        }
+    }
+}
+#[cfg(test)]
+mod multi_tests {
+    use super::*;
+    #[test]
+    fn reference_chords_activate_only_when_complete_and_release_any_member() {
+        let mut bind = MultiBinding::default();
+        assert_eq!(
+            bind.apply("A", KeyAction::Press, BindingMode::Hold, false, true, 2),
+            None
+        );
+        assert_eq!(
+            bind.apply("B", KeyAction::Press, BindingMode::Hold, false, true, 2),
+            Some(true)
+        );
+        assert_eq!(
+            bind.apply("A", KeyAction::Release, BindingMode::Hold, true, true, 2),
+            Some(false)
+        );
+        assert_eq!(
+            bind.apply("B", KeyAction::Release, BindingMode::Hold, false, true, 2),
+            None
+        );
+    }
+    #[test]
+    fn focus_loss_releases_all_keys_and_repeat_never_generates_an_edge() {
+        let mut bind = MultiBinding::default();
+        assert_eq!(
+            bind.apply("A", KeyAction::Repeat, BindingMode::Toggle, false, true, 1),
+            None
+        );
+        bind.apply("A", KeyAction::Press, BindingMode::Hold, false, true, 1);
+        assert_eq!(
+            bind.apply("", KeyAction::FocusLost, BindingMode::Hold, true, false, 1),
+            Some(false)
+        );
+        assert_eq!(
+            bind.apply("A", KeyAction::Press, BindingMode::Hold, false, true, 1),
+            Some(true)
+        );
+    }
+}

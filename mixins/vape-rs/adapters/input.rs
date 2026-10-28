@@ -3,11 +3,7 @@ fn input(
     key: winit::keyboard::KeyCode,
     action: horizon_client::debug_keys::KeyAction,
 ) {
-    use crate::game::vape_rs::{
-        core::{ModuleId, with_client},
-        input::KeyAction,
-    };
-    use winit::keyboard::KeyCode;
+    use crate::game::vape_rs::{core::with_client, input::KeyAction};
     if game.serving.is_some() || game.options.dedicated.is_some() {
         return;
     }
@@ -20,10 +16,5 @@ fn input(
         horizon_client::debug_keys::KeyAction::Press => KeyAction::Press,
         horizon_client::debug_keys::KeyAction::Repeat => KeyAction::Repeat,
     };
-    with_client(|runtime| match key {
-        KeyCode::F8 => runtime.key(ModuleId::Coordinates, action, accepts_input),
-        KeyCode::F9 => runtime.key(ModuleId::Fps, action, accepts_input),
-        KeyCode::F10 if accepts_input && action == KeyAction::Press => runtime.panic(),
-        _ => {}
-    });
+    with_client(|runtime| runtime.input(&format!("{key:?}"), action, accepts_input));
 }
