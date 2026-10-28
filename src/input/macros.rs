@@ -309,7 +309,7 @@ impl MacroEngine {
                     .macros
                     .iter()
                     .find(|macro_| {
-                        macro_.binds.len() == pressed.len()
+                        macro_.binds.iter().any(|bound| bound == key)
                             && macro_.binds.iter().all(|k| pressed.contains(k))
                     })
                     .cloned();

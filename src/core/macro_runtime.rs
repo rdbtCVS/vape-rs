@@ -9,6 +9,9 @@ use super::super::{
 use super::Runtime;
 
 impl Runtime {
+    pub fn macros_active_item(&self) -> bool {
+        self.macro_engine.uses_hotbar()
+    }
     pub fn macros(&self) -> &[Macro] {
         self.macro_engine.macros()
     }

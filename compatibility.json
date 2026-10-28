@@ -16,7 +16,8 @@
     "crates/horizon-client/src/game/control.rs": "24bb4cfb64c5f2f56f35687c63f7490d1a5e7d13d8638b3296cf97a672ee2889",
     "crates/horizon-client/src/game/remote.rs": "faeabdbe1c81202566b220828d6b3c78adc1e543ebebc90c060704d06d61d12d",
     "crates/horizon-client/src/game/screens.rs": "06f49c056f21e058c9a0bfb15fada4492bc662d08433352c2cc107a0f5a13c58",
-    "crates/horizon-client/src/game/fov.rs": "a64f8c183d608695a0fe8029e4f91c98fbcd2f3c7d7cd6adc089cdd0f1794a14"
+    "crates/horizon-client/src/game/fov.rs": "a64f8c183d608695a0fe8029e4f91c98fbcd2f3c7d7cd6adc089cdd0f1794a14",
+    "crates/horizon-client/src/game/sculk.rs": "3dc59ef4ee09b70a4c3ca8ee1d61805d0214081cf40a3e6fcc466a0bbf868747"
   },
   "reference_revision": "3d600a48106822755cea2d633062e5ab1f383d48",
   "validated_platforms": [],
@@ -26,7 +27,8 @@
     "note": "PR #2 base plus checked-in development patch for lifetime-owned state; launcher packaging gated until tool pin is published upstream."
   },
   "runtime_dependencies": {
-    "serde_json": "1.0.151 (already declared and locked in horizon-client)"
+    "serde_json": "1.0.151 (already declared and locked in horizon-client)",
+    "chrono": "0.4.42 (already declared and locked in horizon-client; HUD clock only)"
   },
   "horizon_mixins_patches": [
     {

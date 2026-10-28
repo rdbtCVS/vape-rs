@@ -35,4 +35,5 @@ fn tick(game: &mut crate::game::Game<'_>) {
         }
     });
     crate::game::vape_inventory::auto_tool(game, false);
+    crate::game::vape_fast_place::fast_place(game);
 }

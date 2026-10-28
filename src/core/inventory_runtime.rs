@@ -274,7 +274,12 @@ impl Runtime {
             .get(key)
             .and_then(serde_json::Value::as_array)
             .filter(|range| range.len() == 2)
-            .and_then(|range| Some((range[0].as_u64()?, range[1].as_u64()?)))
+            .and_then(|range| {
+                let min = range[0].as_f64()?;
+                let max = range[1].as_f64()?;
+                (min.is_finite() && max.is_finite())
+                    .then_some((min.max(0.0).round() as u64, max.max(0.0).round() as u64))
+            })
             .unwrap_or(default)
     }
     fn armor_options(&self) -> auto_armor::Options {

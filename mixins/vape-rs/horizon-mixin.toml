@@ -228,3 +228,17 @@ id = "macros"
 file = "crates/horizon-client/src/game/remote.rs"
 name = "vape_macros"
 source = "macros.rs"
+
+[[module]]
+id = "fast-place"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_fast_place"
+source = "fast_place.rs"
+
+[[injection]]
+id = "fullbright-night-vision"
+target = "horizon_client::game::sculk::Game<'_>::night_vision_intensity"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/fullbright_night_vision.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]

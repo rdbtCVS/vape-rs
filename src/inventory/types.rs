@@ -129,6 +129,7 @@ pub struct Request {
     pub slot: u16,
     pub click: Click,
     pub expected: Option<Fingerprint>,
+    pub expected_carried: Option<Fingerprint>,
 }
 impl Request {
     pub fn for_slot(snapshot: &Snapshot, slot: &Slot, click: Click) -> Self {
@@ -139,6 +140,7 @@ impl Request {
             slot: slot.index,
             click,
             expected: slot.item.as_ref().map(|i| i.fingerprint.clone()),
+            expected_carried: snapshot.carried.as_ref().map(|i| i.fingerprint.clone()),
         }
     }
 }

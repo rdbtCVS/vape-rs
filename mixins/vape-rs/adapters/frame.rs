@@ -45,6 +45,8 @@ fn frame(game: &mut crate::game::Game<'_>) {
             eprintln!("[vape-rs] {note}");
         }
     });
+    let gamma = crate::game::vape_rs::core::with_client(&client, |runtime| runtime.fullbright_gamma(game.settings.gamma, game.player.is_some() && game.title.is_none()));
+    if let Some(gamma) = gamma && let Some(renderer) = game.renderer.as_mut() { renderer.gamma = gamma; }
     crate::game::remote::vape_macros::frame(game);
     crate::game::remote::vape_transactions::dispatch(game);
 }

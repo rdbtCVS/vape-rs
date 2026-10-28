@@ -35,6 +35,8 @@ pub enum ModuleId {
     AutoArmor,
     Refill,
     ChestSteal,
+    FastPlace,
+    Fullbright,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -51,6 +53,8 @@ impl ModuleId {
             Self::AutoArmor => "inventory.auto-armor",
             Self::Refill => "inventory.refill",
             Self::ChestSteal => "world.chest-steal",
+            Self::FastPlace => "world.fast-place",
+            Self::Fullbright => "render.fullbright",
         }
     }
     pub fn name(self) -> &'static str {
@@ -67,9 +71,11 @@ impl ModuleId {
             Self::AutoArmor => "AutoArmor",
             Self::Refill => "Refill",
             Self::ChestSteal => "ChestSteal",
+            Self::FastPlace => "FastPlace",
+            Self::Fullbright => "Fullbright",
         }
     }
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
@@ -82,6 +88,8 @@ impl ModuleId {
         Self::AutoArmor,
         Self::Refill,
         Self::ChestSteal,
+        Self::FastPlace,
+        Self::Fullbright,
     ];
     fn position(self) -> (f64, f64) {
         match self {
@@ -96,8 +104,10 @@ impl ModuleId {
         }
     }
     pub fn category(self) -> &'static str {
-        if matches!(self, Self::AutoTool | Self::ChestSteal) {
+        if matches!(self, Self::AutoTool | Self::ChestSteal | Self::FastPlace) {
             "World"
+        } else if self == Self::Fullbright {
+            "Render"
         } else if matches!(self, Self::AutoArmor | Self::Refill) {
             "Utility"
         } else {
@@ -159,6 +169,8 @@ pub struct Runtime {
     dirty: bool,
     persistence_blocked: bool,
     notes: VecDeque<String>,
+    gamma: super::modules::render::fullbright::Gamma,
+    brightness_reset: bool,
     hud_state: super::ui::hud_state::HudState,
     pub gui: Gui,
     suppress_game_input: bool,
@@ -304,6 +316,38 @@ impl Default for Runtime {
                 .define(definition)
                 .expect("static AutoTool definition");
         }
+        settings
+            .define(Definition::choice(
+                "world.fast-place.held-item",
+                "Held Item",
+                &["all", "blocks", "projectiles"],
+                "all",
+            ))
+            .unwrap();
+        settings
+            .define(Definition::number(
+                "world.fast-place.delay",
+                "Delay",
+                0.0,
+                1.0,
+                4.0,
+                1.0,
+            ))
+            .unwrap();
+        settings
+            .define(Definition::choice(
+                "render.fullbright.mode",
+                "Mode",
+                &["night-vision", "gamma"],
+                "night-vision",
+            ))
+            .unwrap();
+        settings
+            .define(
+                Definition::boolean("render.fullbright.fade", "Fade", false)
+                    .when("render.fullbright.mode", json!("gamma")),
+            )
+            .unwrap();
         for definition in inventory_runtime::definitions() {
             settings
                 .define(definition)
@@ -370,6 +414,8 @@ impl Default for Runtime {
             dirty: false,
             persistence_blocked: false,
             notes: VecDeque::new(),
+            gamma: Default::default(),
+            brightness_reset: false,
             hud_state: super::ui::hud_state::HudState::default(),
             gui: Gui::default(),
             suppress_game_input: false,
@@ -976,6 +1022,7 @@ impl Runtime {
         self.cancel_inventory();
         self.actions.clear();
         self.hud_state.reset_session();
+        self.brightness_reset = true;
         if reason.closes_gui() {
             self.gui.close();
         }
@@ -1114,6 +1161,34 @@ impl Runtime {
         self.ticks = self.ticks.saturating_add(1);
         self.frame();
         first
+    }
+    pub fn fullbright_night_vision(&self) -> bool {
+        self.enabled(ModuleId::Fullbright)
+            && self
+                .settings
+                .get("render.fullbright.mode")
+                .and_then(Value::as_str)
+                == Some("night-vision")
+    }
+    pub fn fullbright_gamma(&mut self, base: f32, in_world: bool) -> Option<f32> {
+        let gamma_mode = self
+            .settings
+            .get("render.fullbright.mode")
+            .and_then(Value::as_str)
+            == Some("gamma");
+        let fade = self
+            .settings
+            .get("render.fullbright.fade")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let reset = std::mem::take(&mut self.brightness_reset);
+        self.gamma.update(
+            self.enabled(ModuleId::Fullbright) && in_world && !reset,
+            gamma_mode,
+            fade,
+            base,
+            reset || !in_world,
+        )
     }
     pub fn update_hud(&mut self, snapshot: &Snapshot) {
         self.hud_state.update(snapshot);
@@ -1265,7 +1340,9 @@ impl Runtime {
                 | ModuleId::AutoTool
                 | ModuleId::AutoArmor
                 | ModuleId::Refill
-                | ModuleId::ChestSteal => continue,
+                | ModuleId::ChestSteal
+                | ModuleId::FastPlace
+                | ModuleId::Fullbright => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

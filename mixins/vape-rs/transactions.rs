@@ -7,12 +7,15 @@ use crate::game::vape_rs::{
         ArmorSlot, Click, Fingerprint, Healing, Item, ItemClass, Request, Slot, SlotRole, Snapshot,
     },
 };
-use horizon_client::{items::ItemStack, menu::Input};
+use horizon_client::{brewing, items::ItemStack, menu::Input};
 
 fn hash(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf29ce484222325, |h, b| {
-        (h ^ u64::from(*b)).wrapping_mul(0x100000001b3)
-    })
+    hash_from(0xcbf29ce484222325, bytes)
+}
+fn hash_from(h: u64, bytes: &[u8]) -> u64 {
+    bytes
+        .iter()
+        .fold(h, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x100000001b3))
 }
 fn armor(slot: Option<&str>) -> Option<ArmorSlot> {
     match slot {
@@ -64,10 +67,43 @@ fn score(stack: &ItemStack, info: Option<&horizon_client::items::ItemInfo>) -> f
         info.attack_damage
     }
 }
+
+fn potion_metadata(id: &str, stack: &ItemStack) -> (Option<Healing>, bool) {
+    let soup = matches!(
+        id,
+        "minecraft:mushroom_stew" | "minecraft:rabbit_stew" | "minecraft:beetroot_soup"
+    );
+    if soup {
+        return (Some(Healing::Soup), false);
+    }
+    // Vape's Refill accepts only splash potions whose real contents include
+    // instant health or regeneration. ChestSteal separately rejects the five
+    // harmful splash effects named by the reference; both decisions come from
+    // Horizon's decoded PotionContents component, never from an item-id suffix.
+    if id != "minecraft:splash_potion" {
+        return (None, false);
+    }
+    let Some(definition) = stack.potion().and_then(brewing::potion) else {
+        return (None, false);
+    };
+    let healing = definition
+        .effects
+        .iter()
+        .any(|(effect, _, _)| matches!(*effect, "instant_health" | "regeneration"))
+        .then_some(Healing::Potion);
+    let harmful = definition.effects.iter().any(|(effect, _, _)| {
+        matches!(
+            *effect,
+            "poison" | "instant_damage" | "slowness" | "weakness" | "blindness"
+        )
+    });
+    (healing, harmful)
+}
 fn stack(game: &Game<'_>, stack: &ItemStack) -> Item {
     let info = game.res.items().get(&stack.item);
     let id = stack.item.to_string();
     let tag_hash = hash(format!("{:?}", stack.extra).as_bytes());
+    let (healing, harmful_splash) = potion_metadata(&id, stack);
     Item {
         fingerprint: Fingerprint {
             id: id.clone(),
@@ -80,17 +116,8 @@ fn stack(game: &Game<'_>, stack: &ItemStack) -> Item {
         armor: info.and_then(|i| armor(i.equip_slot.as_deref())),
         class: class(&id),
         score: score(stack, info),
-        healing: if id.contains("mushroom_stew") || id.contains("rabbit_stew") {
-            Some(Healing::Soup)
-        } else if id.contains("potion") {
-            Some(Healing::Potion)
-        } else {
-            None
-        },
-        // Host packet/item components do not expose a lossy heuristic here;
-        // adapters must populate a precise potion classification before a
-        // harmful-potion policy is enabled.
-        harmful_splash: false,
+        healing,
+        harmful_splash,
     }
 }
 fn slot(game: &Game<'_>, index: usize, role: SlotRole, value: Option<&ItemStack>) -> Slot {
@@ -100,21 +127,27 @@ fn slot(game: &Game<'_>, index: usize, role: SlotRole, value: Option<&ItemStack>
         role,
     }
 }
-fn revision(game: &Game<'_>, slots: &[Slot]) -> u32 {
+fn revision(game: &Game<'_>, slots: &[Slot], carried: Option<&Item>) -> u32 {
     if let Some(remote) = &game.remote {
         return remote.state_id.max(0) as u32;
     }
     // Single player has no protocol state-id. A content fingerprint changes
     // only when the ordinary local menu engine changed its authoritative copy.
-    slots.iter().fold(0u32, |h, s| {
-        h.rotate_left(5)
-            ^ u32::from(s.index)
-            ^ s.item.as_ref().map_or(0, |i| {
-                (i.fingerprint.tag_hash as u32)
-                    ^ u32::from(i.fingerprint.count)
-                    ^ u32::from(i.fingerprint.damage)
-            })
-    })
+    fn fold_item(h: u64, item: Option<&Item>) -> u64 {
+        let Some(item) = item else {
+            return hash_from(h, &[0]);
+        };
+        let h = hash_from(h, &[1]);
+        let h = hash_from(h, item.fingerprint.id.as_bytes());
+        let h = hash_from(h, &item.fingerprint.count.to_le_bytes());
+        let h = hash_from(h, &item.fingerprint.damage.to_le_bytes());
+        hash_from(h, &item.fingerprint.tag_hash.to_le_bytes())
+    }
+    let h = slots.iter().fold(0xcbf29ce484222325, |h, slot| {
+        fold_item(hash_from(h, &slot.index.to_le_bytes()), slot.item.as_ref())
+    });
+    let h = fold_item(h, carried);
+    (h ^ (h >> 32)) as u32
 }
 
 /// Copies the host's actual player/menu slots; it never predicts acceptance.
@@ -173,12 +206,13 @@ pub fn snapshot(game: &Game<'_>) -> Option<Snapshot> {
             ),
             None => (0, true),
         };
+    let carried = game.carried.as_ref().map(|s| stack(game, s));
     let out = Snapshot {
         session,
         container_id,
-        revision: revision(game, &slots),
+        revision: revision(game, &slots, carried.as_ref()),
         slots,
-        carried: game.carried.as_ref().map(|s| stack(game, s)),
+        carried,
         screen_open,
         is_player_inventory: screen_open && !is_chest,
         is_chest,
@@ -208,6 +242,9 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     if slot.item.as_ref().map(|i| &i.fingerprint) != request.expected.as_ref() {
         return false;
     }
+    if current.carried.as_ref().map(|i| &i.fingerprint) != request.expected_carried.as_ref() {
+        return false;
+    }
     let input = match request.click {
         Click::Pickup => Input::Pickup,
         Click::QuickMove => Input::QuickMove,
@@ -225,10 +262,17 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
 pub fn dispatch(game: &mut Game<'_>) {
     use crate::game::vape_rs::core::inventory_runtime::InventoryEffect;
     let client = game.__horizon_mixins_vape_rs_client().clone();
-    let allowed = matches!(game.screen, Screen::Playing | Screen::Inventory) && game.focused && game.title.is_none()
-        && game.player.as_ref().is_some_and(|p| p.health.health() > 0.0)
-        && !game.dialog_open() && game.server_packs.prompt.is_none()
-        && !game.creative && game.sleeping.is_none()
+    let allowed = matches!(game.screen, Screen::Playing | Screen::Inventory)
+        && game.focused
+        && game.title.is_none()
+        && game
+            .player
+            .as_ref()
+            .is_some_and(|p| p.health.health() > 0.0)
+        && !game.dialog_open()
+        && game.server_packs.prompt.is_none()
+        && !game.creative
+        && game.sleeping.is_none()
         && with_client(&client, |r| !r.gui.open);
     let snapshot = allowed.then(|| snapshot(game)).flatten();
     let Some(snapshot) = snapshot else {
@@ -237,10 +281,17 @@ pub fn dispatch(game: &mut Game<'_>) {
     };
     let friends = with_client(&client, |r| r.friend_keys());
     let combat = crate::game::vape_inventory::combat(game, &friends, None);
-    let effects = with_client(&client, |r| { r.update_combat(combat); r.inventory_step(&snapshot) });
+    let effects = with_client(&client, |r| {
+        r.update_combat(combat);
+        r.inventory_step(&snapshot)
+    });
     for effect in effects {
         match effect {
-            InventoryEffect::Request(request) => if !submit(game, &request) { with_client(&client, |r| r.inventory_rejected()); },
+            InventoryEffect::Request(request) => {
+                if !submit(game, &request) {
+                    with_client(&client, |r| r.inventory_rejected());
+                }
+            }
             InventoryEffect::OpenInventory if game.screen == Screen::Playing => {
                 game.screen = Screen::Inventory;
                 game.capture(false);
