@@ -1,6 +1,6 @@
 # vape-rs (development)
 
-Independent Rust-native Horizon mod rewrite. The full scope and completion gates are in [plan.md](plan.md). The rewrite is incomplete. Current native foundations include coordinates/FPS/compass HUDs, local settings/profiles/friends, binding capture, HUD placement and a custom GUI with text editing. The remaining gameplay modules, complete reference parity and release validation are still pending. No distribution-ready parity claim is made.
+Independent Rust-native Horizon mod rewrite. The full scope and completion gates are in [plan.md](plan.md). The rewrite is incomplete. Current native foundations include coordinates/FPS/compass HUDs, local settings/profiles/friends, binding capture, HUD placement and a custom GUI with text editing. The remaining gameplay modules, complete reference parity and release validation are still pending. AI behavior and the online product are explicitly excluded; SilentAura’s PID and other non-AI features remain in scope. No distribution-ready parity claim is made.
 
 References are read-only. No Java, JNI, process injection, account service or remote backend is part of this runtime. The adjacent reconstructed Java repository is used only for static behavioral inspection.
 
@@ -53,4 +53,4 @@ It uses a fresh working directory and isolated homes for each run, then captures
 - [Static discovery](docs/discovery.json): source declarations/hashes; not a completed behavior specification.
 - [Progress](docs/progress.md), [decisions](docs/decisions.md), [hooks](docs/hooks.md).
 
-Before a release, finish the behavioral/UI audit, session ownership, gameplay/remote-client scenarios, performance measurement, provenance and fresh native installation tests. No asset or model redistribution rights are inferred from the reference's root CC0 notice.
+Before a release, finish the behavioral/UI audit, session ownership, gameplay/remote-client scenarios, performance measurement, provenance and fresh native installation tests. No asset redistribution rights are inferred from the reference's root CC0 notice.

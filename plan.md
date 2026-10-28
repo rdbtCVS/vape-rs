@@ -12,8 +12,9 @@ The user explicitly wants:
 - Integration as a Horizon mod through its native source-mixin system.
 - One pinned Horizon/Minecraft version at a time.
 - Removal of Java, JNI/JVMTI, process injection, and unnecessary multi-version machinery.
-- Near-1:1 fidelity across all modules, submodes, UI, visuals, settings and interactions. All modules are wanted; simpler ones may be implemented first, but prioritization is not pruning.
+- Near-1:1 fidelity across all retained modules, submodes, UI, visuals, settings and interactions. AI behavior is explicitly excluded by the user; all other retained modules are wanted; simpler ones may be implemented first, but prioritization is not pruning.
 - A near-1:1 recreation of the existing interface, not a redesigned or deliberately simplified replacement.
+- Removal of AI behavior, including SilentAura’s neural rotation mode, model selection, inference, model weights and AI-only dependencies. SilentAura’s PID and other non-AI behavior remain in scope.
 - Complete removal of the online product: accounts, licensing, cloud/public profiles, reviews, parties, shared activity/inventories, remote synchronization and their backends. Local profiles and local friend/enemy management remain.
 - Public distribution to general Horizon users, with continuing updates as Horizon evolves. This is not a personal Linux-only prototype frozen indefinitely on one revision.
 - Rebuilding Horizon for native-mod installation/update is acceptable.
@@ -103,7 +104,6 @@ The local launcher already stages and builds native mods; this is not merely a p
 - Click GUI, module categories/search/favorites, tooltips, keybind editing, profiles, macros, notifications and HUD customization.
 - Friend/enemy/team filtering and local management.
 - Render features and visual customizations using the host renderer.
-- AI-assisted rotation/model behavior where present and applicable, subject to model provenance and an asset packaging solution.
 - Useful debug/performance reporting through ordinary local diagnostics.
 
 ### Confirmed exclusions and retained local behavior
@@ -112,11 +112,11 @@ The user explicitly approved deleting the entire online product. Mark those ledg
 
 No service process, remote login or mod-owned network backend is required. Horizon's normal multiplayer networking is unaffected by this exclusion. Preserve near-1:1 visual behavior for retained screens; omit online-only pages and controls cleanly rather than recreating them as empty placeholders.
 
-### AI clarification
+### Approved AI exclusion
 
-This checkout really has an optional SilentAura `Rotation Mode` choice: `PID` (default) or `AI`. The latter runs a small local neural-network regression model, not a language model or online AI service. `SilentAura.java:740` constructs six inputs (yaw/pitch error, yaw/pitch velocity, combined movement speed and distance); the model outputs yaw/pitch adjustments. `deeplearn/models/MlpModel.java` implements numerical inference, with bundled `21KC11KP` and `19KC8KP` weights. The architecture is 6 → 128 → 64 → 32 → 2 with normalization/activation layers.
+The user explicitly requested removing AI behavior from this plan. Exclude SilentAura's AI rotation submode, its model-selection settings, neural inference, model weights and AI-only helpers/dependencies. Do not implement, package or validate those branches. Mark their ledger entries `excluded-approved`; they do not block completion.
 
-The user asked what this meant; they did not authorize dropping it. Retain the AI submode under the all-features scope unless they explicitly change that decision. Implement inference in Rust with no Python runtime, Java, external AI API or heavyweight ML framework unless justified. Its packaging/provenance and numeric equivalence still require tests. Do not claim this was necessarily a feature of the original proprietary release: the evidence is this reconstructed checkout, whose comments attribute the models to LiquidBounce.
+Keep SilentAura itself, its PID rotation mode and all other non-AI targeting, aiming, combat and movement behavior. Remove AI-only controls cleanly instead of leaving unavailable options in the UI. This decision supersedes the earlier requirement to retain the AI submode. It does not authorize additional exclusions.
 
 ## 5. Reference source: where behavior lives
 
@@ -135,7 +135,6 @@ Root all paths in this section at `../Vape-v4/src/main/java/gg/vape/`.
 | GUI/HUD/rendering | `ui/`, `render/`, `utils/render/`, `module/render/`, `module/none/` |
 | Local configuration and profiles | `config/`, `sync/`, `manager/client/ProfilesManager.java` |
 | Friends and online features | `friend/`, `manager/client/Online*`, `api/`, `protocol/`, `service/` |
-| AI/model inference | `deeplearn/`, `deeplearn/models/MlpModel.java`, `module/combat/silentaura/` |
 | Localization/assets/model data | `../Vape-v4/src/main/resources/` |
 
 The project has approximately 2,975 Java source files. Registration order and version gates matter. Names of classes can be misleading; trace constructors, settings creation, event subscribers, helpers and downstream actions. Do not run it to discover behavior.
@@ -309,7 +308,7 @@ Gate: controlled scenarios demonstrate intended effects and interruption recover
 
 ### Phase 5 — Targeting, combat, movement and advanced state machines
 
-Build shared target filters, visibility/raycast tests, rotation coordinator and click timing. Port simple modules first, then multi-stage behavior and modern-item modules. Implement all combat/movement seeds and their submodes, including adaptive/AI paths where specified.
+Build shared target filters, visibility/raycast tests, rotation coordinator and click timing. Port simple modules first, then multi-stage behavior and modern-item modules. Implement all combat/movement seeds and their submodes, including retained non-AI adaptive paths where specified. SilentAura uses its retained PID rotation behavior; AI branches are excluded.
 
 Modern combat cooldowns, shields, attack/use order and movement correction must match the pinned host. Old-version mechanics must have an explicit modern interpretation or a reviewed not-applicable entry. Do not simulate server acceptance by modifying only local display values.
 
@@ -325,11 +324,11 @@ Gate: local controlled client/server integration verifies ordering and correctio
 
 ### Phase 7 — Remaining parity and removal audit
 
-Audit every ledger row, not only the module seeds. Complete specialized world modes, subsettings, macros, translations, performance views and local AI inference/assets. Finish the near-1:1 visual and interaction pass; simpler interim UI must not become the final implementation by accident.
+Audit every ledger row, not only the module seeds. Complete specialized world modes, subsettings, macros, translations, performance views and retained non-AI behavior. Finish the near-1:1 visual and interaction pass; simpler interim UI must not become the final implementation by accident.
 
 Verify that no account/login/token bootstrap, online pages, cloud/public profile calls, reviews, parties, shared activity or inventory service, remote synchronization or hidden localhost service remains. Preserve local profiles and friend/enemy filters. Do not confuse the removed online product with packet features operating through Horizon's existing game connection.
 
-Gate: every retained row is validated or has an explicit accepted modernization decision. Online-only rows are `excluded-approved`, not pending decisions or unfinished optional functionality. No additional module exclusions are inferred from implementation difficulty.
+Gate: every retained row is validated or has an explicit accepted modernization decision. Online-only and AI-only rows are `excluded-approved`, not pending decisions or unfinished optional functionality. No additional module exclusions are inferred from implementation difficulty.
 
 ### Phase 8 — Release and maintenance
 
@@ -381,7 +380,7 @@ The Java checkout was initially suspected of being an infostealer. Static review
 
 Horizon core contribution rules prohibit translating other mods into its own codebase. Keep this rewrite in its independent repository; do not submit copied/translated Vape feature code as Horizon core contributions. If a generic host/tooling change is required, isolate and implement it according to upstream rules.
 
-The reference root has a CC0 document, but that does not by itself establish the provenance of reconstructed code, branding, fonts, textures or model weights. Track sources/attribution, inspect third-party notices and resolve redistribution rights before publication. Registry policy specifically requires permission/licensing for ports. This is a release requirement, not a reason to leave technical exploration unfinished.
+The reference root has a CC0 document, but that does not by itself establish the provenance of reconstructed code, branding, fonts or textures. Track sources/attribution, inspect third-party notices and resolve redistribution rights before publication. Registry policy specifically requires permission/licensing for ports. This is a release requirement, not a reason to leave technical exploration unfinished.
 
 ## 12. Agent execution protocol and definition of done
 

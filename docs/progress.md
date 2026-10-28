@@ -137,3 +137,9 @@ Added the actual retained NoHurtCam module with common activation/bind/profile/U
 Validation: 38 runtime + 4 audit tests, 38 emitted tests, fmt/Clippy, exact 18-hook/state/three-module audit, pinned host check and optimized build passed. Two actual embedded native camera tests passed (`cargo test ... --bin horizon-client game::vape_camera::tests`), checking hurt removal, retained view bob/death and unchanged input snapshot. Real damage/GUI/bind/restart/panic scenarios passed on both host paths and exited cleanly. Inspected enabled-hurt capture. The first integrated-server scenario observed health before the asynchronous server update; fixed it to wait for authoritative damage/hurt state. Evidence: docs/evidence/no-hurt-camera-validation.json. Module remains implemented-core while full shared UI/icon fidelity is open.
 
 Continue shared action/inventory ownership and AutoTool's full settings/state machine, without pruning weapon swap, delays, guards or interruption cleanup. Other UI/HUD/render modules and all remaining phases stay in scope.
+
+## User scope change — exclude AI behavior
+
+Removed AI behavior from plan.md's retained features and implementation/release gates. SilentAura remains in scope with PID and its other non-AI behavior. Marked the AI submode, both AI model options and the cross-cutting inference/assets row excluded-approved. Inventory regeneration enforces those approved exclusions while preserving historical source discovery and all other implementation evidence. No AI runtime code or assets have been implemented, so no runtime removal was necessary. This decision supersedes prior progress references to future AI work.
+
+Validation: regenerated the static inventory twice and verified stable ledger/discovery output, four approved AI exclusions and retained PID/module status. No game test is needed for this scope/documentation change. The rest of the full implementation plan remains active.

@@ -15,6 +15,14 @@ REF = ROOT.parent / 'Vape-v4/src/main/java/gg/vape'
 FIELDS = 'id display_name category reference_paths reference_methods settings_and_defaults visibility_conditions triggers inputs state_machine actions disable_cleanup dependencies conflicts old_version_gate modern_semantics horizon_hook_ids tests status evidence decision'.split()
 
 
+AI_EXCLUDED_IDS = {
+    'client.ai',
+    'module.silentaura.mode.ai',
+    'module.silentaura.mode.21kc11kp',
+    'module.silentaura.mode.19kc8kp',
+}
+
+
 def slug(value):
     return re.sub(r'[^a-z0-9]+', '-', value.lower()).strip('-')
 
@@ -107,7 +115,7 @@ def main():
         'target-info': 'Target/inventory/rotation/trajectory displays',
         'arbitration': 'Rotation/attack/use/hotbar/inventory/rescue claims',
         'timing': 'Deterministic randomized click and rotation timing',
-        'ai': 'SilentAura local neural inference and model provenance',
+        'ai': 'SilentAura AI behavior and model assets (excluded)',
         'notifications': 'Local notifications and profile/toggle feedback',
         'performance': 'Local performance and debug diagnostics',
     }.items():
@@ -119,6 +127,13 @@ def main():
         row.update(id='online.' + feature, display_name=feature, category='Online product', status='excluded-approved', decision='plan.md sections 1 and 4: explicit user-approved online product removal')
         rows.append(old.pop(row['id'], row))
     rows.extend(old.values())
+    for row in rows:
+        if row['id'] in AI_EXCLUDED_IDS:
+            row.update(status='excluded-approved', decision='Explicit user request to remove AI behavior; plan.md section 4. No AI inference, model selection, weights or AI-only dependencies are required.')
+        elif row['id'] == 'module.silentaura':
+            note = 'AI rotation and model branches are excluded-approved; PID and other non-AI behavior remain in scope.'
+            if note not in row['decision']:
+                row['decision'] = row['decision'].rstrip() + '; ' + note
     with output.open('w', newline='') as stream:
         writer = csv.DictWriter(stream, FIELDS, lineterminator="\n")
         writer.writeheader()

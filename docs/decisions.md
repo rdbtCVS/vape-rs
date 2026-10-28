@@ -12,3 +12,5 @@
 
 - User instructed continuing the entire plan after the lifecycle tooling concern. Implemented an isolated development tool commit e83e49f4ceca0dbb3156617d6d86f3996c2341cc atop PR #2, exported as a hashed source patch. Original pinned checkout and Horizon remain unchanged. `xtask stage` materializes a fresh base export plus checked patches. No upstream message or publication is inferred. Native launcher packaging is gated until a published compatible tool pin exists; no misleading base-only `.hnmod` is emitted.
 - Per-client runtime is owned by a native state field on Game, using Arc/Mutex for safe temporary handle clones across adapter host effects. It has no thread/process singleton. Runtime settings persist in the instance-owned directory; session generations and transient cleanup remain separate work.
+
+- User explicitly removed AI behavior from scope. This supersedes plan.md's earlier AI-retention requirement: exclude SilentAura's neural rotation mode, model selection, inference, weights and AI-only dependencies. SilentAura's PID and all other non-AI features remain in scope. Ledger exclusions are approved removals, not unfinished requirements.
