@@ -22,3 +22,7 @@ Proof: `xtask stage` plans/applies against a committed export. `xtask audit` rem
 - `mouse-bind`: cancellable HEAD on `Game::play_mouse`; named physical mouse bindings share runtime activation logic and consume handled presses before attack/use. Original release behavior is retained.
 
 The GUI uses an owned `Screen::Paused` with the normal pause-menu controls disabled; it does not impersonate a sandboxed mod screen or stock settings widgets. Closing is completed on a subsequent frame so the close pointer event cannot become a world attack. Compatibility errors remain fail-closed; the precise contracts are in the current native manifest and generated plan.
+
+## Session invalidation
+
+Seven additional noncancellable HEAD hooks cover local open/close, in-frame dimension travel, UI respawn, connection join/leave and received remote spawn/dimension replacement. All are client-guarded and dispatch into the Game-owned runtime. Client tick/frame context observation catches death, readiness, lost world and screen/focus suspension. No server-side packet path is delayed or canceled. Exact selectors and boundary semantics: docs/specs/lifecycle.md. The audit now restores 17 hooks, the owned state and support module to the original AST.

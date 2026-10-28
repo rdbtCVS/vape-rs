@@ -13,7 +13,9 @@
     "crates/horizon-client/src/game/mod_input.rs": "3e4fffb0ebefe395167bee609bc8570606140fa085dcaf4ff21a58265b9dfa5e",
     "crates/horizon-core/src/version.rs": "7a6cd0ca8f69b22d70ffc63e16e0b2872f3b128b25deb6604aa493d5ca2177ef",
     "crates/horizon-client/src/game/debug_keys.rs": "c3e562bc75eac6a6fbea7ed6ea4094090622d3aeec25355baa6352cc657f4254",
-    "crates/horizon-client/src/game/control.rs": "24bb4cfb64c5f2f56f35687c63f7490d1a5e7d13d8638b3296cf97a672ee2889"
+    "crates/horizon-client/src/game/control.rs": "24bb4cfb64c5f2f56f35687c63f7490d1a5e7d13d8638b3296cf97a672ee2889",
+    "crates/horizon-client/src/game/remote.rs": "faeabdbe1c81202566b220828d6b3c78adc1e543ebebc90c060704d06d61d12d",
+    "crates/horizon-client/src/game/screens.rs": "06f49c056f21e058c9a0bfb15fada4492bc662d08433352c2cc107a0f5a13c58"
   },
   "reference_revision": "3d600a48106822755cea2d633062e5ab1f383d48",
   "validated_platforms": [],

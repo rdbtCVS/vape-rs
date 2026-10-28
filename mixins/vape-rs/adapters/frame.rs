@@ -4,6 +4,11 @@ fn frame(game: &mut crate::game::Game<'_>) {
         return;
     }
     crate::game::vape_rs::core::with_client(&client, |runtime| {
+        runtime.observe_context(crate::game::vape_rs::core::lifecycle::Context {
+            in_world: game.player.is_some() && game.title.is_none(),
+            alive: game.player.as_ref().is_some_and(|p| p.health.health() > 0.0),
+            interactive: game.focused && game.screen == crate::game::Screen::Playing && game.title.is_none() && !game.dialog_open() && game.server_packs.prompt.is_none(),
+        });
         if !runtime.initialized() {
             let home = horizon_client::logging::game_home();
             runtime.attach_storage(

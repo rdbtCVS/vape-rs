@@ -1,9 +1,11 @@
+pub mod lifecycle;
 pub mod profiles;
 pub mod settings;
 
 use super::input::{BindingMode, KeyAction, MultiBinding};
 use super::ui::gui::{Action, Frame, Gui, ModuleView, PersonView, View};
 use super::ui::{CoordinatesLayout, HudLine, HudPanel, Snapshot};
+use lifecycle::{CleanupReason, Context, Session};
 use profiles::{Document, Profiles};
 use serde_json::{Value, json};
 use settings::{Definition, Kind, Settings};
@@ -37,6 +39,7 @@ pub struct Runtime {
     coordinates_bind: MultiBinding,
     fps_bind: MultiBinding,
     ticks: u64,
+    session: Session,
     settings: Settings,
     document: Document,
     storage: Option<Profiles>,
@@ -145,6 +148,7 @@ impl Default for Runtime {
             coordinates_bind: MultiBinding::default(),
             fps_bind: MultiBinding::default(),
             ticks: 0,
+            session: Session::default(),
             settings,
             document: Document::default(),
             storage: None,
@@ -572,8 +576,34 @@ impl Runtime {
             self.key_named(module, "", KeyAction::FocusLost, false);
         }
     }
-    pub fn panic(&mut self) {
+    pub fn session(&self) -> &Session {
+        &self.session
+    }
+    pub fn observe_context(&mut self, context: Context) {
+        if let Some(reason) = self.session.observe(context) {
+            self.session_change(reason);
+        }
+        if !self.session.interactive() {
+            self.release_input();
+        }
+    }
+    pub fn session_change(&mut self, reason: CleanupReason) {
         self.release_input();
+        if reason.closes_gui() {
+            self.gui.close();
+        }
+        let epoch = self.session.advance();
+        if self.notes.len() == 32 {
+            self.notes.pop_front();
+        }
+        self.notes.push_back(format!(
+            "session epoch {}: {}",
+            epoch.value(),
+            reason.label()
+        ));
+    }
+    pub fn panic(&mut self) {
+        self.session_change(CleanupReason::Panic);
         for module in ModuleId::ALL {
             self.set_enabled(module, false);
         }
@@ -612,7 +642,7 @@ impl Runtime {
         }
     }
     pub fn apply_document(&mut self, document: Document) {
-        self.release_input();
+        self.session_change(CleanupReason::Profile);
         for warning in self.settings.load(&document.0["settings"]) {
             self.notify(warning);
         }
@@ -803,6 +833,31 @@ mod tests {
         assert!(with_client(&moved, |runtime| runtime.enabled(ModuleId::Coordinates)));
         with_client(&moved, |runtime| runtime.panic());
         assert!(!with_client(&moved, |runtime| runtime.enabled(ModuleId::Coordinates)));
+    }
+
+    #[test]
+    fn session_transition_releases_held_modules_without_erasing_toggle_preferences() {
+        let mut runtime = Runtime::default();
+        runtime.observe_context(Context {
+            in_world: true,
+            alive: true,
+            interactive: true,
+        });
+        runtime
+            .set_setting("hud.fps.activation", json!("hold"))
+            .unwrap();
+        runtime.set_enabled(ModuleId::Coordinates, true);
+        runtime.key(ModuleId::Fps, KeyAction::Press, true);
+        assert!(runtime.enabled(ModuleId::Fps));
+        runtime.gui.open = true;
+        let before = runtime.session().epoch();
+        runtime.session_change(CleanupReason::Dimension);
+        assert!(!runtime.enabled(ModuleId::Fps));
+        assert!(runtime.enabled(ModuleId::Coordinates));
+        assert!(!runtime.gui.open);
+        assert_ne!(before, runtime.session().epoch());
+        runtime.key(ModuleId::Fps, KeyAction::Release, true);
+        assert!(!runtime.enabled(ModuleId::Fps));
     }
 
     fn snapshot() -> Snapshot {

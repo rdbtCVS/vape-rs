@@ -117,3 +117,66 @@ initial = "::core::default::Default::default()"
 target = "horizon_client::game::Game<'_>::new"
 selector = "Game"
 require = 1
+
+[[injection]]
+id = "session-world-open"
+target = "horizon_client::game::Game<'_>::open_world"
+kind = "HEAD"
+helper = "adapters/session_world_open.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "session-world-close"
+target = "horizon_client::game::Game<'_>::close_world"
+kind = "HEAD"
+helper = "adapters/session_world_close.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "session-dimension"
+target = "horizon_client::game::Game<'_>::enter_dimension"
+kind = "HEAD"
+helper = "adapters/session_dimension.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "session-respawn"
+target = "horizon_client::game::screens::Game<'_>::respawn_player"
+kind = "HEAD"
+helper = "adapters/session_respawn.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "session-connect"
+target = "horizon_client::game::remote::Game<'_>::join_server"
+kind = "HEAD"
+helper = "adapters/session_connect.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "session-disconnect"
+target = "horizon_client::game::remote::Game<'_>::leave_server"
+kind = "HEAD"
+helper = "adapters/session_disconnect.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "session-remote-dimension"
+target = "horizon_client::game::remote::Game<'_>::enter_remote_dimension"
+kind = "HEAD"
+helper = "adapters/session_remote_dimension.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
