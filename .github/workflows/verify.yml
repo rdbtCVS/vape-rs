@@ -1,0 +1,39 @@
+name: Verify development sources
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  standalone:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+          components: rustfmt, clippy
+      - run: cargo fetch --locked
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+      - run: cargo test --workspace --locked --offline
+      - run: cargo run -p xtask --locked --offline -- payload-test
+      - run: python3 tools/bundle.py
+  pinned-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+      - run: rustup toolchain install 1.95.0 --profile minimal
+      - run: cargo fetch --locked
+      - name: Fetch pinned references
+        run: |
+          git clone --filter=blob:none https://github.com/horizon-rust/horizon target/upstream/horizon
+          git -C target/upstream/horizon checkout --detach "$(python3 -c 'import json; print(json.load(open("compatibility.json"))["horizon_revision"])')"
+          git clone https://github.com/horizon-rust/horizon-mixins target/upstream/horizon-mixins
+          git -C target/upstream/horizon-mixins checkout --detach "$(python3 -c 'import json; print(json.load(open("compatibility.json"))["horizon_mixins_revision"])')"
+          cargo +1.95.0 fetch --locked --manifest-path target/upstream/horizon-mixins/Cargo.toml
+      - run: cargo run -p xtask --locked --offline -- stage target/upstream/horizon
+      - run: cargo fetch --locked --manifest-path target/horizon/modded/Cargo.toml
+      - run: cargo run -p xtask --locked --offline -- check target/upstream/horizon
