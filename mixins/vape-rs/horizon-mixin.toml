@@ -21,14 +21,13 @@ bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *s
 
 [[injection]]
 id = "client-input"
-target = "horizon_client::game::Game<'_>::mapped_key"
+target = "horizon_client::game::debug_keys::Game<'_>::debug_key"
 kind = "HEAD"
 helper = "adapters/input.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "key", ty = "winit::keyboard::KeyCode", value = "key" },
-  { name = "pressed", ty = "bool", value = "pressed" },
-  { name = "repeat", ty = "bool", value = "repeat" },
+  { name = "action", ty = "horizon_client::debug_keys::KeyAction", value = "action" },
 ]
 
 [[injection]]

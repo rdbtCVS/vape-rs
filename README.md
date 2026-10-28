@@ -17,11 +17,13 @@ cargo run -p xtask --locked --offline -- payload-test
 
 The AST packer reads conventional Rust module files under src and emits one source-only payload plus a content-hash source map under target. The emitted payload's tests compile independently with rustc, without host dependencies.
 
+The mixin pin currently uses [upstream PR #2](https://github.com/horizon-rust/horizon-mixins/pull/2), authorized for development before merge. The exact commit remains fixed in compatibility.json; merging the PR does not automatically change this pin.
+
 For native staging, review the pinned mixin sources before building them:
 
 ```sh
 git clone https://github.com/horizon-rust/horizon-mixins target/upstream/horizon-mixins
-git -C target/upstream/horizon-mixins checkout --detach 0500ff24aa5933fca95a877ef41125353c4b4fe3
+git -C target/upstream/horizon-mixins checkout --detach 29a8f8f84b253ea89422c0049ff5e8bfda36f1fb
 cargo +1.95.0 fetch --locked --manifest-path target/upstream/horizon-mixins/Cargo.toml
 cargo run -p xtask --locked --offline -- stage ../horizon
 cargo fetch --locked --manifest-path target/horizon/modded/Cargo.toml

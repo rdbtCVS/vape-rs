@@ -7,3 +7,5 @@
 - Runtime sources remain modular. A Rust AST packer will inline only conventional module declarations into a self-contained native payload, with module-to-source hashes. Standalone tests must also run on emitted source.
 - First vertical slice: client-only tick diagnostic, explicit keyboard toggles, coordinates/FPS HUD. This establishes host integration; it does not establish UI parity or completed feature rows.
 - Public release policy: stable-release compatibility with continuous main-source drift detection. Pins never move within an existing release. Publication, registry submission and distribution rights require completed validation/provenance evidence.
+
+- User authorized using upstream horizon-mixins PR #2 before merge. Updated development tool pin to `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` and moved the input hook to shared `debug_key`. This supersedes the original tool pin and resolves the tooling choice; the Horizon target stays fixed. Validate full native staging/build/scenarios before claiming integration.

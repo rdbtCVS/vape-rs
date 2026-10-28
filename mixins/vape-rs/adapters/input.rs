@@ -1,8 +1,7 @@
 fn input(
     game: &mut crate::game::Game<'_>,
     key: winit::keyboard::KeyCode,
-    pressed: bool,
-    repeat: bool,
+    action: horizon_client::debug_keys::KeyAction,
 ) {
     use crate::game::vape_rs::{
         core::{ModuleId, with_client},
@@ -16,12 +15,10 @@ fn input(
         && game.player.is_some()
         && game.screen == crate::game::Screen::Playing
         && game.title.is_none();
-    let action = if !pressed {
-        KeyAction::Release
-    } else if repeat {
-        KeyAction::Repeat
-    } else {
-        KeyAction::Press
+    let action = match action {
+        horizon_client::debug_keys::KeyAction::Release => KeyAction::Release,
+        horizon_client::debug_keys::KeyAction::Press => KeyAction::Press,
+        horizon_client::debug_keys::KeyAction::Repeat => KeyAction::Repeat,
     };
     with_client(|runtime| match key {
         KeyCode::F8 => runtime.key(ModuleId::Coordinates, action, accepts_input),

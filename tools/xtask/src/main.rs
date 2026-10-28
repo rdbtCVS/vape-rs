@@ -382,6 +382,7 @@ fn audit(root: &Path) -> Result<()> {
     for path in [
         "crates/horizon-client/src/game.rs",
         "crates/horizon-client/src/game/extras.rs",
+        "crates/horizon-client/src/game/debug_keys.rs",
     ] {
         let original = syn::parse_file(&fs::read_to_string(pristine.join(path))?)?;
         let mut modified = syn::parse_file(&fs::read_to_string(staged.join(path))?)?;
@@ -436,6 +437,7 @@ fn audit(root: &Path) -> Result<()> {
     for (path, expected_hash) in plan["inputs"].as_object().ok_or("missing plan inputs")? {
         if path != "crates/horizon-client/src/game.rs"
             && path != "crates/horizon-client/src/game/extras.rs"
+            && path != "crates/horizon-client/src/game/debug_keys.rs"
             && expected_hash.as_str() != Some(hash(&fs::read(staged.join(path))?).as_str())
         {
             return Err(format!("unexpected staged file change: {path}").into());

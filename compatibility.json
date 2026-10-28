@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "horizon_revision": "e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083",
-  "horizon_mixins_revision": "0500ff24aa5933fca95a877ef41125353c4b4fe3",
+  "horizon_mixins_revision": "29a8f8f84b253ea89422c0049ff5e8bfda36f1fb",
   "minecraft": "26.3",
   "protocol": 777,
   "rust": "1.99.0",
@@ -11,8 +11,14 @@
     "crates/horizon-client/src/game/extras.rs": "44d241af0e685ee4cf1d4766c3cc5435dfe0b94f14cc76653facfa54f097e05a",
     "crates/horizon-client/src/hud.rs": "fb5c77f5364b3ff888144755f796c1cfb747a1afcb90ce0790201df35a2f0ca8",
     "crates/horizon-client/src/game/mod_input.rs": "3e4fffb0ebefe395167bee609bc8570606140fa085dcaf4ff21a58265b9dfa5e",
-    "crates/horizon-core/src/version.rs": "7a6cd0ca8f69b22d70ffc63e16e0b2872f3b128b25deb6604aa493d5ca2177ef"
+    "crates/horizon-core/src/version.rs": "7a6cd0ca8f69b22d70ffc63e16e0b2872f3b128b25deb6604aa493d5ca2177ef",
+    "crates/horizon-client/src/game/debug_keys.rs": "c3e562bc75eac6a6fbea7ed6ea4094090622d3aeec25355baa6352cc657f4254"
   },
   "reference_revision": "3d600a48106822755cea2d633062e5ab1f383d48",
-  "validated_platforms": []
+  "validated_platforms": [],
+  "horizon_mixins_source": {
+    "repository": "https://github.com/horizon-rust/horizon-mixins",
+    "pull_request": "https://github.com/horizon-rust/horizon-mixins/pull/2",
+    "note": "User-authorized development pin to PR head; preserve exact revision after merge."
+  }
 }
