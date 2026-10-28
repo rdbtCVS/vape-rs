@@ -1,7 +1,6 @@
 fn hud(game: &mut crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBatch) {
     let client = game.__horizon_mixins_vape_rs_client().clone();
     use crate::game::vape_rs::{core::with_client, ui::Snapshot};
-    use horizon_client::hud::HudBatch;
     if game.serving.is_some() || game.options.dedicated.is_some() {
         return;
     }
@@ -12,53 +11,16 @@ fn hud(game: &mut crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBat
         runtime.panels(Snapshot {
             position: [player.position.x, player.position.y, player.position.z],
             fps: game.fps,
+            yaw: game.yaw,
+            biome: crate::game::vape_hud::biome(
+                game,
+                [player.position.x, player.position.y, player.position.z],
+            ),
             in_world: true,
             show_hud: !game.ui.hide_gui && game.screen == crate::game::Screen::Playing,
         })
     });
-    let atlas = &game.gui.atlas;
     for panel in panels {
-        let texts: Vec<String> = panel
-            .lines
-            .into_iter()
-            .map(|line| {
-                if line.label.is_empty() {
-                    line.value
-                } else {
-                    format!("{} {}", line.label, line.value)
-                }
-            })
-            .collect();
-        let width = texts
-            .iter()
-            .map(|s| HudBatch::text_width(atlas, s))
-            .fold(0.0f32, f32::max)
-            + 8.0;
-        let width = width.max(panel.min_width);
-        let height = (texts.len() as f32 * 12.0 + 4.0).max(panel.min_height);
-        let x = panel
-            .x
-            .clamp(0.0, (batch.width - width * panel.scale).max(0.0));
-        let y = panel
-            .y
-            .clamp(0.0, (batch.height - height * panel.scale).max(0.0));
-        let start = batch.vertices.len();
-        if panel.background {
-            batch.fill(atlas, x, y, width, height, 0x99000000);
-        }
-        let argb = panel.color;
-        let color = (argb & 0xff00ff00) | ((argb & 0x00ff0000) >> 16) | ((argb & 0x000000ff) << 16);
-        for (index, text) in texts.iter().enumerate() {
-            batch.text(
-                atlas,
-                text,
-                x + 4.0,
-                y + 3.0 + index as f32 * 12.0,
-                color,
-                !panel.background,
-            );
-        }
-        batch.scale_since(start, x, y, panel.scale, panel.scale);
-        batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
+        crate::game::vape_hud::panel(game, batch, &panel);
     }
 }

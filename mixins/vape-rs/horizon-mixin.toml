@@ -180,3 +180,9 @@ helper = "adapters/session_remote_dimension.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]
+
+[[module]]
+id = "hud-painter"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_hud"
+source = "hud_painter.rs"

@@ -1,6 +1,6 @@
 # vape-rs (development)
 
-Independent Rust-native Horizon mod rewrite. The full scope and completion gates are in [plan.md](plan.md). The rewrite is incomplete. Current native foundations include coordinates/FPS HUDs, local settings/profiles/friends, binding capture, HUD placement and a custom GUI with text editing. The remaining gameplay modules, complete reference parity and release validation are still pending. No distribution-ready parity claim is made.
+Independent Rust-native Horizon mod rewrite. The full scope and completion gates are in [plan.md](plan.md). The rewrite is incomplete. Current native foundations include coordinates/FPS/compass HUDs, local settings/profiles/friends, binding capture, HUD placement and a custom GUI with text editing. The remaining gameplay modules, complete reference parity and release validation are still pending. No distribution-ready parity claim is made.
 
 References are read-only. No Java, JNI, process injection, account service or remote backend is part of this runtime. The adjacent reconstructed Java repository is used only for static behavioral inspection.
 

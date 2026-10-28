@@ -472,9 +472,47 @@ fn audit(root: &Path) -> Result<()> {
     let declarations = manifest["injection"]
         .as_array()
         .ok_or("missing declared hooks")?;
-    if injections.len() != declarations.len() || plan["modules"].as_array().map(Vec::len) != Some(1)
-    {
+    let module_declarations = manifest["module"]
+        .as_array()
+        .ok_or("missing support modules")?;
+    let modules = plan["modules"]
+        .as_array()
+        .ok_or("missing planned support modules")?;
+    if injections.len() != declarations.len() || modules.len() != module_declarations.len() {
         return Err("unexpected mixin plan shape".into());
+    }
+    let mut expected_modules = Vec::new();
+    for declaration in module_declarations {
+        let planned = modules
+            .iter()
+            .find(|m| m["module_id"].as_str() == declaration["id"].as_str())
+            .ok_or("declared support module missing")?;
+        for key in ["file", "name"] {
+            if planned[key].as_str() != declaration[key].as_str() {
+                return Err("support module plan differs from declaration".into());
+            }
+        }
+        let relative = declaration["source"]
+            .as_str()
+            .ok_or("missing module source")?;
+        let source = if relative == "runtime.rs" {
+            let runtime = expand(&root.join("src/lib.rs"), root, &mut BTreeMap::new())?;
+            syn::parse_file(&prettyplease::unparse(&runtime))?
+        } else {
+            syn::parse_file(&fs::read_to_string(
+                root.join("mixins/vape-rs").join(relative),
+            )?)?
+        };
+        if source != syn::parse_file(string(planned, "source")?)? {
+            return Err("support module source differs from plan".into());
+        }
+        let name = syn::parse_str::<syn::Ident>(string(planned, "name")?)?;
+        let items = source.items;
+        let wrapper: syn::File = syn::parse2(quote!(pub(crate) mod #name { #(#items)* }))?;
+        let item = syn::parse_file(&prettyplease::unparse(&wrapper))?
+            .items
+            .remove(0);
+        expected_modules.push((string(planned, "file")?.to_owned(), item));
     }
     if plan
         .get("bridges")
@@ -584,7 +622,7 @@ fn audit(root: &Path) -> Result<()> {
     let files = expected
         .iter()
         .map(|(file, _, _)| file.clone())
-        .chain(std::iter::once("crates/horizon-client/src/game.rs".into()))
+        .chain(expected_modules.iter().map(|(file, _)| file.clone()))
         .collect::<std::collections::BTreeSet<_>>();
     for file in &files {
         if config["source_hashes"].get(file).is_none() {
@@ -603,19 +641,11 @@ fn audit(root: &Path) -> Result<()> {
                 .map(|(_, name, stmt)| (name.clone(), stmt.clone()))
                 .collect(),
         };
-        if path == "crates/horizon-client/src/game.rs" {
-            let payload = syn::parse_file(&fs::read_to_string(
-                root.join("target/bundle/mixins/vape-rs/runtime.rs"),
-            )?)?;
-            let items = payload.items;
-            let module: syn::File = syn::parse2(quote!(pub(crate) mod vape_rs { #(#items)* }))?;
-            let module = syn::parse_file(&prettyplease::unparse(&module))?
-                .items
-                .remove(0);
+        for (_, module) in expected_modules.iter().filter(|(file, _)| file == path) {
             let index = modified
                 .items
                 .iter()
-                .position(|item| item == &module)
+                .position(|item| item == module)
                 .ok_or("exact support module not found")?;
             modified.items.remove(index);
             removals += 1;
@@ -641,7 +671,7 @@ fn audit(root: &Path) -> Result<()> {
             return Err(format!("unexpected transformed AST changes: {path}").into());
         }
     }
-    if removals != injections.len() + 1 + states.len() * 4 {
+    if removals != injections.len() + modules.len() + states.len() * 4 {
         return Err(format!(
             "expected {} hooks and one module, removed {removals}",
             injections.len()
@@ -659,9 +689,10 @@ fn audit(root: &Path) -> Result<()> {
         }
     }
     println!(
-        "audit: original AST restored after removing exactly {} HEAD hooks, {} owned state and 1 support module; other inputs unchanged",
+        "audit: original AST restored after removing exactly {} HEAD hooks, {} owned state and {} support modules; other inputs unchanged",
         injections.len(),
-        states.len()
+        states.len(),
+        modules.len()
     );
     Ok(())
 }

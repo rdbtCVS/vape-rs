@@ -9,35 +9,44 @@ use lifecycle::{CleanupReason, Context, Session};
 use profiles::{Document, Profiles};
 use serde_json::{Value, json};
 use settings::{Definition, Kind, Settings};
-use std::{collections::VecDeque, path::PathBuf};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    path::PathBuf,
+};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ModuleId {
     Coordinates,
     Fps,
+    Compass,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
         match self {
             Self::Coordinates => "hud.coordinates",
             Self::Fps => "hud.fps",
+            Self::Compass => "hud.compass",
         }
     }
     pub fn name(self) -> &'static str {
         match self {
             Self::Coordinates => "Coords",
             Self::Fps => "FPS",
+            Self::Compass => "Compass",
         }
     }
-    pub const ALL: [Self; 2] = [Self::Coordinates, Self::Fps];
+    pub const ALL: [Self; 3] = [Self::Coordinates, Self::Fps, Self::Compass];
+}
+
+#[derive(Debug, Default)]
+struct ModuleState {
+    enabled: bool,
+    binding: MultiBinding,
 }
 
 #[derive(Debug)]
 pub struct Runtime {
-    coordinates: bool,
-    fps: bool,
-    coordinates_bind: MultiBinding,
-    fps_bind: MultiBinding,
+    modules: BTreeMap<ModuleId, ModuleState>,
     ticks: u64,
     session: Session,
     settings: Settings,
@@ -66,11 +75,11 @@ impl Default for Runtime {
                         max_entries: 8,
                         max_chars: 64,
                     },
-                    json!([if module == ModuleId::Coordinates {
-                        "F8"
-                    } else {
-                        "F9"
-                    }]),
+                    json!(match module {
+                        ModuleId::Coordinates => vec!["F8"],
+                        ModuleId::Fps => vec!["F9"],
+                        ModuleId::Compass => vec![],
+                    }),
                 ),
                 Definition::choice(
                     &format!("{prefix}.activation"),
@@ -79,15 +88,28 @@ impl Default for Runtime {
                     "toggle",
                 ),
                 Definition::boolean(&format!("{prefix}.background"), "Render background", true),
-                Definition::number(&format!("{prefix}.x"), "X", 0.0, 8.0, 8192.0, 1.0),
+                Definition::number(
+                    &format!("{prefix}.x"),
+                    "X",
+                    0.0,
+                    if module == ModuleId::Compass {
+                        46.0
+                    } else {
+                        8.0
+                    },
+                    8192.0,
+                    1.0,
+                ),
                 Definition::number(
                     &format!("{prefix}.y"),
                     "Y",
                     0.0,
                     if module == ModuleId::Coordinates {
                         8.0
-                    } else {
+                    } else if module == ModuleId::Fps {
                         36.0
+                    } else {
+                        200.0
                     },
                     8192.0,
                     1.0,
@@ -143,10 +165,10 @@ impl Default for Runtime {
             ))
             .unwrap();
         Self {
-            coordinates: false,
-            fps: false,
-            coordinates_bind: MultiBinding::default(),
-            fps_bind: MultiBinding::default(),
+            modules: ModuleId::ALL
+                .into_iter()
+                .map(|id| (id, ModuleState::default()))
+                .collect(),
             ticks: 0,
             session: Session::default(),
             settings,
@@ -166,19 +188,16 @@ impl Default for Runtime {
 }
 impl Runtime {
     pub fn enabled(&self, module: ModuleId) -> bool {
-        match module {
-            ModuleId::Coordinates => self.coordinates,
-            ModuleId::Fps => self.fps,
-        }
+        self.modules[&module].enabled
     }
     pub fn set_enabled(&mut self, module: ModuleId, enabled: bool) {
         if self.enabled(module) == enabled {
             return;
         }
-        match module {
-            ModuleId::Coordinates => self.coordinates = enabled,
-            ModuleId::Fps => self.fps = enabled,
-        }
+        self.modules
+            .get_mut(&module)
+            .expect("registered module")
+            .enabled = enabled;
         self.dirty = true;
         self.notify(format!(
             "{} {}",
@@ -242,10 +261,11 @@ impl Runtime {
             .get(&format!("{}.binds", module.id()))
             .and_then(Value::as_array)
             .map_or(0, Vec::len);
-        let bind = match module {
-            ModuleId::Coordinates => &mut self.coordinates_bind,
-            ModuleId::Fps => &mut self.fps_bind,
-        };
+        let bind = &mut self
+            .modules
+            .get_mut(&module)
+            .expect("registered module")
+            .binding;
         if let Some(next) = bind.apply(key, action, mode, enabled, accepts_input, required) {
             self.set_enabled(module, next);
             return true;
@@ -754,9 +774,10 @@ impl Runtime {
                     label: String::new(),
                     value: format!("{:.0} FPS", snapshot.fps.max(0.0)),
                 }],
+                ModuleId::Compass if snapshot.yaw.is_finite() => Vec::new(),
                 _ => continue,
             };
-            if lines.is_empty() {
+            if lines.is_empty() && module != ModuleId::Compass {
                 continue;
             }
             let value = |suffix: &str| {
@@ -764,11 +785,33 @@ impl Runtime {
                     .get(&format!("{}.{suffix}", module.id()))
                     .unwrap()
             };
+            let content = match module {
+                ModuleId::Coordinates => super::ui::hud::Content::Coordinates {
+                    layout: if self
+                        .settings
+                        .get("hud.coordinates.display")
+                        .and_then(Value::as_str)
+                        == Some("vertical")
+                    {
+                        CoordinatesLayout::Vertical
+                    } else {
+                        CoordinatesLayout::Horizontal
+                    },
+                    position: snapshot.position,
+                    yaw: snapshot.yaw,
+                    biome: snapshot.biome.clone(),
+                },
+                ModuleId::Compass => super::ui::hud::Content::Compass { yaw: snapshot.yaw },
+                ModuleId::Fps => super::ui::hud::Content::Lines,
+            };
             panels.push(HudPanel {
+                content,
                 module: module.id(),
                 name: module.name(),
                 enabled: self.enabled(module),
-                min_width: if module == ModuleId::Fps {
+                min_width: if module == ModuleId::Compass {
+                    308.0
+                } else if module == ModuleId::Fps {
                     50.0
                 } else if self
                     .settings
@@ -780,7 +823,9 @@ impl Runtime {
                 } else {
                     0.0
                 },
-                min_height: if module == ModuleId::Fps {
+                min_height: if module == ModuleId::Compass {
+                    30.0
+                } else if module == ModuleId::Fps {
                     20.0
                 } else if self
                     .settings
@@ -864,6 +909,8 @@ mod tests {
         Snapshot {
             position: [-1.5, 64.2, 10.9],
             fps: 143.8,
+            yaw: 0.0,
+            biome: "Forest".into(),
             in_world: true,
             show_hud: true,
         }
@@ -888,10 +935,10 @@ mod tests {
         runtime.set_enabled(ModuleId::Coordinates, true);
         let mut data = snapshot();
         data.in_world = false;
-        assert!(runtime.hud(data).is_empty());
+        assert!(runtime.hud(data.clone()).is_empty());
         data.in_world = true;
         data.show_hud = false;
-        assert!(runtime.hud(data).is_empty());
+        assert!(runtime.hud(data.clone()).is_empty());
         assert!(runtime.enabled(ModuleId::Coordinates));
     }
 

@@ -11,7 +11,9 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
     if game.serving.is_some() || game.options.dedicated.is_some() {
         return;
     }
-    let frame = with_client(&client, |runtime| runtime.gui_frame((batch.width, batch.height), game.cursor));
+    let frame = with_client(&client, |runtime| {
+        runtime.gui_frame((batch.width, batch.height), game.cursor)
+    });
     let Some(frame) = frame else {
         return;
     };
@@ -42,6 +44,11 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
                     runtime.preview_panels(Snapshot {
                         position: [player.position.x, player.position.y, player.position.z],
                         fps: game.fps,
+                        yaw: game.yaw,
+                        biome: crate::game::vape_hud::biome(
+                            game,
+                            [player.position.x, player.position.y, player.position.z],
+                        ),
                         in_world: true,
                         show_hud: true,
                     })
@@ -50,62 +57,7 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
             .unwrap_or_default();
         let mut regions = Vec::new();
         for panel in panels {
-            let texts: Vec<String> = panel
-                .lines
-                .into_iter()
-                .map(|line| {
-                    if line.label.is_empty() {
-                        line.value
-                    } else {
-                        format!("{} {}", line.label, line.value)
-                    }
-                })
-                .collect();
-            let width = (texts
-                .iter()
-                .map(|s| HudBatch::text_width(atlas, s))
-                .fold(0.0f32, f32::max)
-                + 8.0)
-                .max(panel.min_width);
-            let height = (texts.len() as f32 * 12.0 + 4.0).max(panel.min_height);
-            let w = width * panel.scale;
-            let h = height * panel.scale;
-            let x = panel.x.clamp(0.0, (batch.width - w).max(0.0));
-            let y = panel.y.clamp(0.0, (batch.height - h).max(0.0));
-            let first = batch.vertices.len();
-            if panel.background {
-                batch.fill(
-                    atlas,
-                    x,
-                    y,
-                    width,
-                    height,
-                    if panel.enabled {
-                        0x99000000
-                    } else {
-                        0x55000000
-                    },
-                );
-            }
-            let argb = if panel.enabled {
-                panel.color
-            } else {
-                (panel.color & 0x00ffffff) | 0x70000000
-            };
-            let color =
-                (argb & 0xff00ff00) | ((argb & 0x00ff0000) >> 16) | ((argb & 0x000000ff) << 16);
-            for (i, text) in texts.iter().enumerate() {
-                batch.text(
-                    atlas,
-                    text,
-                    x + 4.0,
-                    y + 3.0 + i as f32 * 12.0,
-                    color,
-                    !panel.background,
-                );
-            }
-            batch.scale_since(first, x, y, panel.scale, panel.scale);
-            batch.clip_since(first, 0.0, 0.0, batch.width, batch.height);
+            let Rect(x, y, w, h) = crate::game::vape_hud::panel(game, batch, &panel);
             let outline = if panel.enabled {
                 0xff7ea106
             } else {
@@ -164,8 +116,14 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
                 let scroll = (cursor_x - (w - 9.0).max(0.0)).max(0.0);
                 let left = x + 4.0 - scroll;
                 if caret != anchor {
-                    batch.fill(atlas, left + cursor_x.min(anchor_x), y + 3.0,
-                        (cursor_x - anchor_x).abs(), 11.0, 0xff6b5641);
+                    batch.fill(
+                        atlas,
+                        left + cursor_x.min(anchor_x),
+                        y + 3.0,
+                        (cursor_x - anchor_x).abs(),
+                        11.0,
+                        0xff6b5641,
+                    );
                 }
                 batch.text(atlas, &text, left, y + 5.0, color, false);
                 batch.fill(atlas, left + cursor_x, y + 3.0, 1.0, 11.0, color);

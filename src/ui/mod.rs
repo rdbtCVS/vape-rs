@@ -1,9 +1,12 @@
 pub mod gui;
+pub mod hud;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Snapshot {
     pub position: [f64; 3],
     pub fps: f32,
+    pub yaw: f32,
+    pub biome: String,
     pub in_world: bool,
     pub show_hud: bool,
 }
@@ -34,6 +37,7 @@ pub struct HudPanel {
     pub color: u32,
     pub background: bool,
     pub lines: Vec<HudLine>,
+    pub content: hud::Content,
 }
 
 impl CoordinatesLayout {
