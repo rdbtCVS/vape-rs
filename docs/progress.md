@@ -157,3 +157,9 @@ AutoTool and hotbar arbitration rows are implemented-core, not fully validated. 
 The already-running expanded AutoTool suite completed before the user's testing preference changed. Fourteen fresh native scenarios passed across the two host paths: pending cancellation on disable/menu, no replay across dimension changes, sneak/use/recent-damage guards and cooldown expiry, mouse requirement disabled without synthetic attacks, weapon swapping enabled/disabled, instant/delayed selection and Sharpness changing the preferred weapon. These used the 2f0b433 implementation. Evidence: docs/evidence/auto-tool-guards-validation.json. Nearby-player/friend threat combinations and cross-module combinations remain open.
 
 User now requests implementation focus with fewer tests and explicitly permits subagents when optimal. Keep quick compile checks as needed, defer broad gameplay/visual suites until larger feature batches are implemented, and preserve final validation gates. A worker is implementing retained UI editors and then the macro engine while root continues modules/adapters. AI remains excluded.
+
+## Typed editor implementation batch
+
+Worker implemented retained choice popups, quantized drag number sliders, ordered dual-handle range sliders, ARGB channel popup sliders/swatches and click/drag text caret selection. Existing Paint/Action APIs are preserved. Pointer text placement currently uses compact character-cell metrics; exact proportional-font placement remains open and documented in docs/specs/typed-editors.md.
+
+Validation at this stage is quick offline workspace cargo check, rustfmt and whitespace checks only. Gameplay/visual regression is deferred under the user's implementation-first preference; these edits are not promoted to fully validated parity. The worker continues the macro engine independently while root implements more live HUD modules.
