@@ -42,6 +42,7 @@ pub enum ModuleId {
     AutoFish,
     NoJumpDelay,
     NoClickDelay,
+    StorageEsp,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -64,6 +65,7 @@ impl ModuleId {
             Self::AutoFish => "utility.auto-fish",
             Self::NoJumpDelay => "legit.no-jump-delay",
             Self::NoClickDelay => "legit.no-click-delay",
+            Self::StorageEsp => "render.storage-esp",
         }
     }
     pub fn name(self) -> &'static str {
@@ -86,9 +88,10 @@ impl ModuleId {
             Self::AutoFish => "AutoFish",
             Self::NoJumpDelay => "NoJumpDelay",
             Self::NoClickDelay => "NoClickDelay",
+            Self::StorageEsp => "StorageESP",
         }
     }
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
@@ -107,6 +110,7 @@ impl ModuleId {
         Self::AutoFish,
         Self::NoJumpDelay,
         Self::NoClickDelay,
+        Self::StorageEsp,
     ];
     fn position(self) -> (f64, f64) {
         match self {
@@ -123,7 +127,7 @@ impl ModuleId {
     pub fn category(self) -> &'static str {
         if matches!(self, Self::AutoTool | Self::ChestSteal | Self::FastPlace) {
             "World"
-        } else if self == Self::Fullbright {
+        } else if matches!(self, Self::Fullbright | Self::StorageEsp) {
             "Render"
         } else if matches!(self, Self::AutoArmor | Self::Refill | Self::AutoFish) {
             "Utility"
@@ -385,6 +389,9 @@ impl Default for Runtime {
             )
             .when("utility.auto-fish.refill-rods", json!(true)),
         ] {
+            settings.define(definition).unwrap();
+        }
+        for definition in super::modules::render::storage_esp::definitions() {
             settings.define(definition).unwrap();
         }
         for definition in inventory_runtime::definitions() {
@@ -1405,7 +1412,8 @@ impl Runtime {
                 | ModuleId::ClearWater
                 | ModuleId::AutoFish
                 | ModuleId::NoJumpDelay
-                | ModuleId::NoClickDelay => continue,
+                | ModuleId::NoClickDelay
+                | ModuleId::StorageEsp => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

@@ -233,3 +233,34 @@ unit tests, 52 emitted-payload tests, rustfmt and workspace Clippy with warnings
 denied passed. Exact native stage/audit passed (22 HEAD hooks, one owned state, nine support
 modules); the pinned client cargo check passed. No game executable or resource-backed scenario ran.
 BlockOverlay's transparent-fill boundary remains unresolved.
+
+## World-line host integration and partial StorageESP
+
+Registered an initial StorageESP module with real loaded block-entity
+enumeration and chest/furnace color and toggle settings. A cancellable HEAD on
+`Game::fishing_line` preserves the pinned host fishing lines and appends
+world-space outlines to the real renderer's depth-tested line batch. The
+normal module registry, binds, profiles and panic apply. The specification in
+`docs/specs/storage-esp-baseline.md` records the copied host source hash and
+substantial missing behavior. This is an initial partial module, not parity:
+fill and through-wall rendering, other containers and controls, open-chest
+handling, model bounds, and double-chest behavior remain open. All other
+requested render modules, entity/camera snapshots, text/quads and collision
+queries remain unfinished; no shared targeting adapter was introduced.
+
+Validation: 53 standalone runtime tests, four audit tests, 53 emitted-payload
+tests, formatting, and workspace Clippy with warnings denied passed. Exact
+native stage/audit passed with 23 HEAD hooks, one owned state and ten support
+modules; pinned host client cargo check passed. The initial flattened-payload
+import failed the host check and was corrected before the successful rerun.
+
+The optimized pinned client and control tool built successfully. Fresh isolated
+resource-backed integrated-server and in-frame chest scenarios both completed
+and exited cleanly; enabled captures visibly showed the outline, and the
+integrated disabled capture showed its removal after the binding toggle.
+Artifacts remain under `target/scenarios/storage-esp-nlz84kyn` and
+`target/scenarios/storage-esp-znyv8l1n`; they are not committed. The first
+integrated attempt failed because its block-targeting call ran before the
+server's block update arrived; the final scenario uses a fixed camera and was
+rerun in a fresh home. These tests do not validate furnace, occluded storage,
+other features or reference parity.

@@ -6,13 +6,13 @@ and the online product are excluded; all other retained scope remains.
 
 ## Connected native implementation
 
-The runtime registers 18 modules, all with normal local activation, binds,
+The runtime registers 19 modules, all with normal local activation, binds,
 profile persistence and GUI access:
 
 | Area | Modules |
 | --- | --- |
 | HUD | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
-| Render | NoHurtCam, Fullbright, Clear Water |
+| Render | NoHurtCam, Fullbright, Clear Water, StorageESP (partial chest/furnace outlines) |
 | Inventory / world / utility | AutoTool, AutoArmor, Refill, ChestSteal, FastPlace, AutoFish, NoJumpDelay, NoClickDelay |
 
 The local foundation includes typed settings/editors, chord/held bindings,
@@ -32,7 +32,7 @@ menu cleanup, manual override and panic versus dimension replacement.
   formatting and Clippy with warnings denied pass. Final native staging/check
   results are recorded in [progress.md](progress.md) and
   [macro-cleanup-closeout.json](evidence/macro-cleanup-closeout.json).
-- The native configuration has **22 HEAD hooks, one owned state and nine
+- The native configuration has **23 HEAD hooks, one owned state and ten
   support modules**. [hooks.md](hooks.md) lists all current targets and modules.
 - Earlier resource-backed foundation/GUI/lifecycle/HUD/NoHurtCam/AutoTool
   scenarios passed on integrated-server and in-frame paths. Evidence is under

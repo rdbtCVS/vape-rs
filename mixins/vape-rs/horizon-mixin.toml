@@ -279,3 +279,21 @@ id = "input-delays"
 file = "crates/horizon-client/src/game.rs"
 name = "vape_input_delays"
 source = "input_delays.rs"
+
+[[module]]
+id = "world-lines"
+file = "crates/horizon-client/src/game/fishing.rs"
+name = "vape_world_lines"
+source = "world_lines.rs"
+
+[[injection]]
+id = "world-lines-hook"
+target = "horizon_client::game::fishing::Game<'_>::fishing_line"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/world_lines.rs"
+bindings = [
+ { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+ { name = "alpha", ty = "f64", value = "alpha" },
+ { name = "size", ty = "[u32; 2]", value = "size" },
+]
