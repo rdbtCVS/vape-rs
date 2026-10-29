@@ -1,4 +1,4 @@
-//! Reference click timing. The caller supplies a monotonic millisecond clock.
+// Reference click timing. The caller supplies a monotonic millisecond clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Normal,

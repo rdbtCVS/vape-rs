@@ -1,50 +1,60 @@
 # Current implementation handoff
 
-Updated 2026-10-28 at the user's request to finish the current batch and bring
-the documentation up to date. **The full plan is not complete.** AI behavior
-and the online product are excluded; all other retained scope remains.
-
-Biome and potion HUD names now use the active Horizon language when a resource translation exists, with a readable ID fallback. This is partial localization; typography, icons, client translations and Windows date conventions remain open.
-
-Panic now has a configurable binding and optional re-enable behavior; it has runtime tests and native compilation evidence only. Its reference default visibility and host behavior remain unverified. The rest of the requested HUD/client-settings batch, including Text GUI, HUD-family modules, typography, localization and date conventions, remains open.
+Updated 2026-10-29 after the parallel implementation round (combat/movement,
+render, inventory and HUD/UI workers) was merged into main. **The full plan is
+not complete.** AI behavior and the online product are excluded; all other
+retained scope remains open as listed below.
 
 ## Connected native implementation
 
-The runtime registers 19 modules, all with normal local activation, binds,
+The runtime registers 23 modules, all with normal local activation, binds,
 profile persistence and GUI access:
 
 | Area | Modules |
 | --- | --- |
 | HUD | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
-| Render | NoHurtCam, Fullbright, Clear Water, StorageESP (partial chest/furnace outlines) |
-| Inventory / world / utility | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal, FastPlace, AutoFish, NoJumpDelay, NoClickDelay |
+| Render | NoHurtCam, Fullbright, Clear Water, StorageESP (partial: chest/furnace outlines) |
+| Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
+| World / movement | FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Sprint (baseline), Parkour (experimental) |
+| Utility | Panic (configurable bind, optional re-enable) |
 
 The local foundation includes typed settings/editors, chord/held bindings,
 local profiles and friends/enemies, text/clipboard/IME editing, local macro
 creation/binding/delays, and HUD drag/snap/scale editing. Each Game owns its
 runtime. Session generations and hotbar/use/container claims guard transient
-work. Native effects use normal host input/menu/chat paths.
+work. Native effects use normal host input/menu/chat paths. Biome and potion
+HUD names use the active Horizon language when a resource translation exists.
 
-The latest macro cleanup restores its original slot on GUI/focus/panic/profile
-cleanup only while it still owns the claim and user selection is unchanged.
-Manual selection, preemption, death and world replacement win. New tests cover
-menu cleanup, manual override and panic versus dimension replacement.
+Unconnected groundwork present in source (no module uses it yet):
+
+- Targeting: candidate filtering (friend/enemy/team/visibility), distance/yaw/
+  armor/threat/health sorting and bounded rotation stepping
+  ([targeting-foundation.json](evidence/targeting-foundation.json)).
+- Clicker timing: Normal/Extra click-interval primitives in
+  `src/modules/combat/click_timing.rs` (unit-tested only).
+- World render: world-space line/box primitives and bounded projectile
+  prediction with caller-supplied collision (`src/modules/render/world.rs`).
+- Movement: an initial movement-request resolver used by Sprint; not yet a
+  general multi-input arbiter.
 
 ## Evidence and limits
 
-- The close-out workspace pass has **48 runtime tests + 4 audit tests passing**;
-  formatting and Clippy with warnings denied pass. Final native staging/check
-  results are recorded in [progress.md](progress.md) and
-  [macro-cleanup-closeout.json](evidence/macro-cleanup-closeout.json).
-- The native configuration has **23 HEAD hooks, one owned state and ten
-  support modules**. [hooks.md](hooks.md) lists all current targets and modules.
+- Integrated main (after all merges): **67 runtime tests + 4 audit tests** and
+  67 emitted-payload tests pass; formatting and Clippy (all targets, warnings
+  denied) pass; exact native stage/audit passes with **23 HEAD hooks, one owned
+  state and 11 support modules**; the pinned client cargo check passes. See
+  [parallel-round-integration.json](evidence/parallel-round-integration.json).
+- **StorageESP** is the only module from this round with resource-backed host
+  scenarios: fresh isolated integrated-server and in-frame runs showed a chest
+  outline, and the integrated-server capture confirmed it clears when disabled.
+- Sprint, Parkour, AutoTotem, Panic, the Refill fixes and localization have
+  compile/unit evidence only. No ledger row is `validated` from compilation.
 - Earlier resource-backed foundation/GUI/lifecycle/HUD/NoHurtCam/AutoTool
-  scenarios passed on integrated-server and in-frame paths. Evidence is under
-  docs/evidence; those are specific slices, not full reference parity.
-- Recent widgets, macros, inventory, brightness/fog, fishing and input-delay
-  batches have compilation evidence. **No new gameplay/visual suite was run**
-  for them, following the user's implementation-first preference. No ledger
-  row was promoted to `validated` from compilation alone.
+  scenarios remain the other host evidence; they are specific slices, not full
+  reference parity. [hooks.md](hooks.md) lists every current target and module.
+- Ledger: 34 implemented-core, 13 excluded-approved, 2 not-applicable-reviewed
+  (MouseDelayFix, scoreboard predicate; see [hud-triage.md](specs/hud-triage.md)),
+  423 not-started. 0 validated.
 
 Concrete implementation milestones:
 
@@ -56,33 +66,61 @@ Concrete implementation milestones:
 | `3509cca` | Four HUD widgets, local macros and native inventory automation |
 | `90a9f78` | FastPlace, Fullbright and inventory metadata safeguards |
 | `17371d2` | AutoFish, Clear Water, shared use/container claims and input delays |
-
-The final close-out commit adds safe macro restoration, focused tests, lint
-cleanup and these documentation updates; Git history records its exact SHA.
+| `3f0462a` | Safe macro restoration and documentation handoff |
+| `c30f977` | Pure targeting/rotation primitives |
+| `932511a` | Sprint connected to native movement input |
+| `844d72e` | World-render line/box/projectile primitives |
+| `1a43a3f` | Partial StorageESP with host scenarios |
+| `d951a3e` | Refill allow-list/scatter/cursor fixes |
+| `a013a23` | Partial AutoTotem |
+| `82a0c68` | Configurable Panic restoration |
+| `fdb0ff6` | Localized biome/potion HUD names |
+| `340eb44` | MouseDelayFix / scoreboard predicate triage |
+| `60c6775` | Clicker Normal/Extra timing primitives |
+| `bcd854f` | Experimental Parkour and movement-request resolver |
 
 ## Open dependencies and next work
 
-1. **BlockOverlay:** preserved design drafts are under docs/drafts and are
-   excluded from the payload and registry. Its outline boundary is known;
-   transparent fill requires an opaque-body-safe geometry insertion capability
-   in the mixin tool or an explicit host geometry hook. The exact proposed
-   layer, vertex format and hook are in [block-overlay.md](specs/block-overlay.md).
-   No BlockOverlay implementation or host validation is claimed.
-2. **Recent module fidelity:** remote AutoFish ground-state observation, custom
-   potion effects/item names, creative inventory protocol support, precise
-   inventory scoring/selection parity (Refill duplicate allow-list handling and scatter corrected), shader-pack brightness inputs, HUD
-   typography/icons/localization and Windows date conventions remain open.
-3. **Full retained port:** InventoryManager/rule editors, remaining HUD/UI/world
-   render features, and the targeting/rotation/movement/packet foundations and
-   combat/utility modules remain unfinished. Continue their dependencies from
-   [plan.md](../plan.md) and [features.csv](features.csv); do not reduce scope or
-   call the current implementation the full port.
-4. **Validation after implementation:** run the new batch in fresh isolated
-   worlds on integrated-server and in-frame paths, then independent remote/LAN
-   cases, visual comparisons, interruption/cleanup checks and performance.
-   The later manual-testing preparation rebuilds the native executable; a
-   successful build still does not constitute new gameplay/visual evidence.
-5. **Distribution:** launcher/public packaging is gated until a published mixin
+Per area, in dependency order. None of these are blocked externally except
+where stated; they are unfinished implementation.
+
+1. **Combat / targeting:** live entity snapshots (position, box, health,
+   armor, team, line of sight), reference score calculation, a single-writer
+   rotation owner through the host look path, and attack/use scheduling on top
+   of the existing click timing. Then AimAssist, TriggerBot, Left/RightClicker,
+   HitSelect, BlockHit, Reach, Hitboxes, KillAura (non-AI), SilentAura PID,
+   AntiBot and the remaining combat rows.
+2. **Movement / packets:** complete shared movement-input arbitration, then
+   SafeWalk, KeepSprint, WTap, NoSlowdown, AutoLadder; an inbound/outbound
+   packet hook for Velocity, JumpReset, KnockbackDelay, Blink, FakeLag,
+   Backtrack; then NoFall, Speed, Fly, Timer, Scaffold modes, Clutch, MLG,
+   Freecam and the remaining world/utility rows. Parkour needs host scenarios.
+3. **Render:** connect camera/projection, world text/quads, entity snapshots
+   and collision queries; finish StorageESP (fill, through-wall, all container
+   types); then ESP (3D/2D/outline/skeleton), Tracers, Nametags, ItemESP,
+   Search, SpawnerFinder, Chams, Xray, Trajectories, Projectiles, Arrows,
+   Indicators, Bedplates, Explosions. **BlockOverlay** transparent fill still
+   needs an opaque-body-safe geometry insertion capability in the mixin tool or
+   an explicit host geometry hook ([block-overlay.md](specs/block-overlay.md)).
+4. **Inventory / consumables:** InventoryManager rule model and editor frames,
+   InvCleaner, AutoHotbar, InventoryFill, custom item-name/potion metadata,
+   ThrowPot, ThrowDebuff, AntiDebuff, AutoHeal, ArmorSwitch, Refill pots/soup
+   modes and double-click, InvWalk, NoItemRelease. AutoTotem still lacks silent
+   opening, random slot, extra timing variance, count display and
+   inventory-free operation, and needs a survival scenario.
+5. **HUD / UI:** ClientSettings (floating/integrated/none), Text GUI and module
+   list, ModuleDisplayInfo; the HUD-module family (Freelook, Time/Weather
+   Changer, Reach Display, Scoreboard, Inventory Blur, Motion Blur, Block Hit
+   Animation, Block Render Color Override, Health); triage of the remaining
+   "inherited/HUD; review" ledger rows; typography, icons, client translations
+   and Windows date conventions. Panic default visibility needs verification.
+6. **Other fidelity:** remote AutoFish ground-state observation, creative
+   inventory protocol support, precise inventory scoring parity and
+   shader-pack brightness inputs.
+7. **Validation after implementation:** fresh isolated integrated-server and
+   in-frame scenarios for every compile-only module, then remote/LAN cases,
+   visual comparisons, interruption/cleanup checks and performance.
+8. **Distribution:** launcher/public packaging is gated until a published mixin
    pin includes the required lifetime-state patch. Cross-platform builds,
    installation/provenance and release gates remain open.
 
@@ -120,17 +158,7 @@ creative (inventory automation requires survival). Quit the window normally;
 the test instance and game.log are retained. No normal player worlds/settings
 are used. Right Shift opens the GUI, F8/F9 toggle coordinates/FPS and F10 is panic.
 
-GUI/profile/HUD editing and AutoTool have earlier real host evidence. Treat the
-newer inventory, macro, fishing and render features as experimental until their
-resource-backed validation pass. BlockOverlay and the rest of the unfinished
+GUI/profile/HUD editing, AutoTool and the partial StorageESP have real host
+evidence. Treat the newer inventory, macro, fishing, Sprint, Parkour, AutoTotem
+and Panic features as experimental until their resource-backed validation pass. BlockOverlay and the rest of the unfinished
 plan are not available by enabling hidden options.
-
-## Partial targeting groundwork
-
-Pure candidate filtering, five sort modes and bounded rotation math have been added; see [targeting-foundation.json](evidence/targeting-foundation.json). They are not connected to live entities or player rotation, and no new combat or movement module is registered. Native snapshots, scoring, visibility, input/action dispatch and host scenarios remain the next dependency work.
-
-## Sprint input baseline
-
-Sprint is registered with its Cancel Invis setting and feeds the host's sprint key at the existing client tick hook. It is an experimental input baseline: scaffold and shared movement arbitration, exact reference conditions, controlled-input interference and real host scenarios remain open. See [sprint-core.json](evidence/sprint-core.json). The targeting foundation remains unconnected.
-
-Parkour has an experimental host collision/jump adapter; see [progress](progress.md) and [compile evidence](evidence/parkour-compile.json). Its gameplay scenarios, controller input and shared input arbitration remain open.
