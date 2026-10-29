@@ -215,3 +215,21 @@ Close-out verification: 48 runtime tests and 4 audit tests passed; workspace for
 In response to the user's usability/testing question, rebuilt the current native client from the close-out runtime (source commit 3f0462a). Exact staging/audit passed again; optimized fast-profile build passed (1m17s compile, existing 17 dead-code warnings). This replaces the older executable under target/host-cargo/fast/horizon-client. No new game execution or visual/gameplay validation is claimed.
 
 Added tools/play.py as a visible manual entry point using the existing NativeSession isolation. Each invocation allocates fresh homes and working directory under target/scenarios/manual-*, uses approved prepared resources read-only, opens a normal survival world, retains its log/world/preferences for inspection, and closes only its owned process. Optional --in-frame and --creative are available; the three inventory automation modules require survival. CLI help passed. The development build has audio/controllers disabled. README and docs/status.md now include the exact launch command and controls. Evidence: docs/evidence/manual-playtest-build.json.
+
+## World render foundation batch
+
+Added host-independent world-space line/box primitives and a bounded projectile
+integrator. The integrator applies the reference's 0.99f drag before gravity,
+accepts a host collision query, stops at the returned impact and caps work at
+4096 steps. Returning the impact position instead of the reference's
+post-collision full-step vertex is an intentional modern interpretation; the
+caller must select the nearest block/entity impact. This is a foundation only:
+there is no native line adapter, entity/block snapshot, world-text or filled
+geometry path, projectile launch/collision adapter, module registration or
+visual validation. None of the assigned feature rows has been promoted.
+
+Validation: 52 runtime tests (including four new focused cases), four audit
+unit tests, 52 emitted-payload tests, rustfmt and workspace Clippy with warnings
+denied passed. Exact native stage/audit passed (22 HEAD hooks, one owned state, nine support
+modules); the pinned client cargo check passed. No game executable or resource-backed scenario ran.
+BlockOverlay's transparent-fill boundary remains unresolved.
