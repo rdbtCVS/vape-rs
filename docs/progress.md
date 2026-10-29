@@ -375,3 +375,25 @@ AimAssist's Simple mode is a step-for-step port of `AimAssistRotationSubModule`,
 Validation: fmt and Clippy (all targets, warnings denied) pass; 95 runtime + 4 audit tests and 95 emitted-payload tests pass. Exact stage/audit: 24 HEAD hooks, one owned state, 12 support modules. Pinned client check and fast build pass. New fresh-home `tools/aim_assist_scenario.py`: integrated 14/14 and in-frame 14/14. It covers no turn while disabled, behind a screen, with Mobs off, or without attack held under Require mouse down; turning to within 0.6 degrees of a NoAI zombie; and profile restore across a restart. Smoke regression: 27/27. Evidence: docs/evidence/aim-assist.json. Not covered: Adaptive mode, player and LAN-guest targets, remote servers, strafe increase, vertical aim, and friends, enemies and walls in the host.
 
 Next: TriggerBot and the clickers on the same snapshot; SafeWalk through an edge back-off hook (Worker C); the packet boundary (Worker B); world text/camera (Worker D).
+
+## SafeWalk, TriggerBot and Velocity (2026-10-29)
+
+SafeWalk ports the reference move-only sneak flag. A library-side support module (`vape_safe_walk`) marks the local `PlayerMotion` from the movement writer before each tick. A cancellable HEAD on the host's `staying_on_ground_surface` then makes Horizon's own edge back-off run, without a sneak key, crouch pose or slowdown. Direction Check is ported.
+
+TriggerBot is a full port of the reference tick/input state machine: 50 ms press gate, synthetic click and release, Require mouse down with Ignore activation click, Air crits, Shield check, Select first hit with its 1 s grace, mouse-over delay, extra delay, and early-hit and miss chances. It reads the client attack-strength ticker and clicks through the host input path (`vape_macros::attack_once`).
+
+Velocity ports the entity-motion and explosion rules, delayed Ticks scaling, Kite mode, the facing checks and the reference `scaleMotion` truncation. The inbound-packet boundary is an observe-only HEAD on `handle_packet`, because its body has macros. Replacements land right after the host's own assignment, guarded by the exact received motion. Explosion packets use a cancellable HEAD on `remote_explode`.
+
+Host scenarios found two bugs, both fixed. TriggerBot initially read the integrated server's `attack_ticks` and landed one hit in 40 ticks. A disabled AimAssist reset Velocity every frame through a shared reset; resets are now per module, with a regression test.
+
+Validation: fmt and Clippy pass; 102 runtime + 4 audit tests and 102 payload tests pass. Stage/audit: 27 HEAD hooks, one owned state, 13 support modules. Host check and fast build pass. Fresh-home scenarios on one build (docs/evidence/combat-movement-round.json):
+
+| Scenario | Integrated | In-frame |
+| --- | --- | --- |
+| TriggerBot | 12/12 | 12/12 |
+| AimAssist | 14/14 | 14/14 |
+| SafeWalk | 13/13 | 13/13 |
+| Velocity | 10/10 | **7/10 FAIL** |
+| Smoke | 27/27 | not run |
+
+The in-frame Velocity failure is expected: in-frame knockback is applied locally by `knock_back_player`/`explosion_hurt_player` with no packets, and those aren't hooked yet. That's the next fix. AutoClicker's engine (Normal/Extra/Extra+ timing, hold/release cycle, jitter, break blocks) is drafted in `src/modules/combat/clicker.rs` but not yet registered.

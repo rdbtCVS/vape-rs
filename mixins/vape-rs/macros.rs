@@ -47,3 +47,14 @@ pub fn use_once(game: &mut Game<'_>) {
         game.use_delay = 4;
     }
 }
+
+// One attack click (`KeyMapping.click` on key.attack) through the host's
+// normal input path: the remote interaction queue, or the integrated tick's
+// attack clicks. Never re-enters the physical binding hook.
+pub fn attack_once(game: &mut Game<'_>) {
+    if let Some(remote) = game.remote.as_mut() {
+        remote.input.press(horizon_client::interaction_input::Button::Attack);
+    } else {
+        game.attack_clicks += 1;
+    }
+}

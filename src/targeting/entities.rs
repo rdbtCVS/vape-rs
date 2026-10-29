@@ -86,6 +86,8 @@ pub struct EntityView {
     pub visible: bool,
     /// The local player rides this entity.
     pub vehicle: bool,
+    /// Raising a shield (`RotationUtil.n`).
+    pub blocking: bool,
 }
 
 impl EntityView {

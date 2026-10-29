@@ -105,6 +105,21 @@ pub(crate) fn movement(game: &mut crate::game::Game<'_>, requests: bool) {
     if tap {
         overrides.request(Request { axis: Axis::Jump, owner: Owner::Parkour, priority: 1, pressed: true });
     }
+    // SafeWalk (reference onPreMove): edge back-off for this tick's move,
+    // except when walking straight forward with Direction Check on.
+    let safe_walk = with_client(&client, |runtime| {
+        active
+            && runtime.enabled(ModuleId::SafeWalk)
+            && !(runtime.settings().get("world.safe-walk.direction-check")
+                .and_then(serde_json::Value::as_bool).unwrap_or(true)
+                && !runtime.movement().user(Axis::Sneak, &view)
+                && runtime.movement().user(Axis::Forward, &view)
+                && !runtime.movement().user(Axis::Back, &view)
+                && runtime.movement().user(Axis::Left, &view) == runtime.movement().user(Axis::Right, &view))
+    });
+    if let Some(player) = game.player.as_ref() {
+        player.vape_rs_set_safe_walk(safe_walk);
+    }
     let writes = with_client(&client, |runtime| {
         runtime.replace_parkour_tap(tap);
         runtime.movement().resolve(&overrides, &view)

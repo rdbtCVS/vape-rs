@@ -8,7 +8,7 @@ excluded; all other retained scope remains open as listed below.
 
 ## Connected native implementation
 
-The runtime registers 24 modules, all with normal local activation, binds,
+The runtime registers 27 modules, all with normal local activation, binds,
 profile persistence and GUI access:
 
 | Area | Modules |
@@ -16,8 +16,8 @@ profile persistence and GUI access:
 | HUD | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
 | Render | NoHurtCam, Fullbright, Clear Water, StorageESP (partial: chest/furnace outlines) |
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
-| World / movement | FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Sprint (baseline), Parkour (experimental) |
-| Combat | AimAssist (Simple mode; Adaptive open) |
+| World / movement | FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Sprint (baseline), Parkour (experimental), SafeWalk |
+| Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity (in-frame path open) |
 | Utility | Panic (configurable bind, optional re-enable) |
 
 The local foundation includes typed settings/editors, chord/held bindings,

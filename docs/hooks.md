@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **24 HEAD hooks, one Game-owned state, 12 support modules**. Horizon `9669600c389ad6d205db4ec0bb061935f2a38d0c` (`nightly-source/2026-10-28-9669600`); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
+Current audited configuration: **27 HEAD hooks, one Game-owned state, 13 support modules**. Horizon `9669600c389ad6d205db4ec0bb061935f2a38d0c` (`nightly-source/2026-10-28-9669600`); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers, modules and owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
@@ -32,6 +32,9 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `fish-hook-data` | `horizon_client::game::fishing::Game<'_>::remote_hook_data` | Observes only own-hook DATA_HOOKED_ENTITY into session-owned state; original packet handling continues. |
 
 | `aim-assist-look` | `horizon_client::game::pad::Game<'_>::pad_look` | Runs after `apply_mouse_look` and before `render` each frame. AimAssist builds the live entity snapshot and turns the view through the host `mouse::Rotation::turn` (`Entity.turn`). The controller look that follows is unchanged. |
+| `safe-walk-edge` | `horizon_client::motion::<MotionWorld<'_,'_,'_> as EdgeBackoffWorld>::staying_on_ground_surface` | Cancellable HEAD (library crate). Returns true for the one local player the movement writer marked for SafeWalk this tick, so the host's own `back_off_from_edge` runs without a sneak key or crouch pose. Otherwise the original `shift_key_down` answer continues. |
+| `inbound-packet` | `horizon_client::game::remote::Game<'_>::handle_packet` | Observe-only HEAD: the body has macros, which the tool preserves only for non-cancellable hooks. Velocity decides on the local player's `SetEntityMotion` here. A replacement is applied right after the host's own assignment (at the next packet or tick), and only while the motion is still exactly the packet's. |
+| `explosion-push` | `horizon_client::game::lan_particles::Game<'_>::remote_explode` | Cancellable HEAD. Velocity re-runs the host handler on a copy with the scaled push, guarded against re-entry. |
 | `world-lines-hook` | `horizon_client::game::fishing::Game<'_>::fishing_line` | Cancellable HEAD. Preserves fishing lines and adds depth-tested StorageESP outlines when enabled. |
 
 ## Support modules
@@ -50,6 +53,7 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_input_delays` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/input_delays.rs` |
 | `vape_parkour` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/parkour.rs` |
 | `vape_combat` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/combat.rs` |
+| `vape_safe_walk` | `crates/horizon-client/src/motion.rs` | `mixins/vape-rs/safe_walk.rs` |
 
 The runtime source is deterministically expanded from src/lib.rs. Each Game owns one Arc<Mutex<Runtime>>; there is no process/thread singleton. Adapters release runtime borrows before calling host actions. Session generations invalidate stale entity, slot, container and hook observations. Transient state never enters local profiles.
 
@@ -59,6 +63,6 @@ BlockOverlay drafts under docs/drafts are unregistered and excluded from the run
 
 Current evidence and remaining validation are in [status.md](status.md) and [progress.md](progress.md). Public packaging remains gated until a published mixin-tool pin contains the required state patch.
 
-Live entity snapshots come from `vape_combat::snapshot`: alive `Game::mobs` (remote players included, named through `remote_player_names`) and, when hosting LAN, the guests. Positions are interpolated at `clock.fraction()`, ids are paired with the session epoch, and line-of-sight raycasts (`MobWorld::line_of_sight`) run only when a filter needs them. The pure filter/sort/rotation code is in `src/targeting`. AimAssist is the first consumer.
+Live entity snapshots come from `vape_combat::snapshot`: alive `Game::mobs` (remote players included, named through `remote_player_names`) and, when hosting LAN, the guests. Positions are interpolated at `clock.fraction()`, ids are paired with the session epoch, and line-of-sight raycasts (`MobWorld::line_of_sight`) run only when a filter needs them. The pure filter/sort/rotation code is in `src/targeting`. AimAssist and TriggerBot consume it; Velocity reads the nearby-player facing from the same mobs. TriggerBot attacks through `vape_macros::attack_once`: the remote interaction queue, or the integrated tick's attack clicks.
 
 Movement keys have one writer: `vape_input_delays::movement`, called from `client-tick` before local and remote movement, and from `client-frame` on screen/pause/unfocused frames. It reads the host's canonical key set and toggle mappings, resolves the per-tick requests from Sprint and Parkour (`vape_parkour::edge_ahead` answers the host collision query) through `core::movement_input::Writer`, and writes only the axes that differ from the user's state, or that it owned and must hand back. Host events reach the writer through the two key-capture adapters above. Host scenarios: docs/evidence/postmerge-validation.json.

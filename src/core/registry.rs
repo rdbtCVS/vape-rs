@@ -67,6 +67,9 @@ registry! {
     StorageEsp => "render.storage-esp", "StorageESP", "Render", None, [];
     Parkour => "world.parkour", "Parkour", "World", None, [];
     AimAssist => "combat.aim-assist", "AimAssist", "Combat", None, [];
+    SafeWalk => "world.safe-walk", "SafeWalk", "World", None, [];
+    TriggerBot => "combat.trigger-bot", "TriggerBot", "Combat", None, [];
+    Velocity => "combat.velocity", "Velocity", "Utility", None, [];
 }
 
 impl ModuleId {

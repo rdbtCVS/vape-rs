@@ -31,7 +31,12 @@ fn mouse_bind(
         );
         runtime.suppress_game_input()
     });
-    if suppressed {
+    // TriggerBot's "Ignore activation click" swallows the first manual press.
+    let swallowed = button == MouseButton::Left
+        && !suppressed
+        && crate::game::vape_combat::trigger_bot_input(game, pressed)
+        && pressed;
+    if suppressed || swallowed {
         core::ops::ControlFlow::Break(Ok(()))
     } else {
         core::ops::ControlFlow::Continue(())

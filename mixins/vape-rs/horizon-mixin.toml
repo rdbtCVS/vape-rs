@@ -325,3 +325,45 @@ target = "horizon_client::game::pad::Game<'_>::pad_look"
 kind = "HEAD"
 helper = "adapters/aim_look.rs"
 bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+# SafeWalk: the reference sets MovementInput.sneak only around the move, so
+# the edge back-off applies without crouching. The movement writer marks the
+# local player before its tick; the host's own back-off check then answers true.
+[[module]]
+id = "safe-walk"
+file = "crates/horizon-client/src/motion.rs"
+name = "vape_safe_walk"
+source = "safe_walk.rs"
+
+[[injection]]
+id = "safe-walk-edge"
+target = "horizon_client::motion::<MotionWorld<'_,'_,'_> as EdgeBackoffWorld>::staying_on_ground_surface"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/safe_walk_edge.rs"
+bindings = [{ name = "world", ty = "&crate::motion::MotionWorld<'_, '_, '_>", value = "&*self" }]
+
+# The inbound packet boundary: each clientbound play packet before the host
+# handles it. Observe-only: the handler's body has macros, which the tool
+# preserves only for non-cancellable hooks.
+[[injection]]
+id = "inbound-packet"
+target = "horizon_client::game::remote::Game<'_>::handle_packet"
+kind = "HEAD"
+helper = "adapters/inbound_packet.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "packet", ty = "&horizon_protocol::packets::play::Clientbound", value = "&packet" },
+]
+
+# Explosion knockback on the local player (Entity.pushFromExplosion).
+[[injection]]
+id = "explosion-push"
+target = "horizon_client::game::lan_particles::Game<'_>::remote_explode"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/explosion_push.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "packet", ty = "&horizon_protocol::packets::play::Explode", value = "p" },
+]

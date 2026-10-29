@@ -196,6 +196,7 @@ pub(crate) mod tests {
             threat: 0.0,
             visible: true,
             vehicle: false,
+            blocking: false,
         }
     }
 

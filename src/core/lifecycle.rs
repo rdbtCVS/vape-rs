@@ -66,6 +66,10 @@ impl Session {
     pub fn epoch(&self) -> Epoch {
         self.epoch
     }
+    /// In a world with a living player, screens or focus notwithstanding.
+    pub fn in_world(&self) -> bool {
+        self.context.in_world && self.context.alive
+    }
     pub fn interactive(&self) -> bool {
         self.context.in_world && self.context.alive && self.context.interactive
     }

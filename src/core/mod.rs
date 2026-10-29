@@ -81,6 +81,10 @@ pub struct Runtime {
     parkour_tapped: bool,
     aim_assist: super::modules::combat::aim_assist::AimAssist,
     aim_clock: Option<std::time::Instant>,
+    trigger_bot: super::modules::combat::trigger_bot::TriggerBot,
+    velocity: super::modules::combat::velocity::Velocity,
+    motion_override: Option<([f64; 3], [f64; 3])>,
+    explosion_reentry: bool,
     hud_state: super::ui::hud_state::HudState,
     pub gui: Gui,
     suppress_game_input: bool,
@@ -279,6 +283,12 @@ impl Default for Runtime {
         ] {
             settings.define(definition).unwrap();
         }
+        for definition in super::modules::combat::velocity::definitions() {
+            settings.define(definition).unwrap();
+        }
+        for definition in super::modules::combat::trigger_bot::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::combat::aim_assist::definitions() {
             settings.define(definition).unwrap();
         }
@@ -290,6 +300,13 @@ impl Default for Runtime {
                 .define(definition)
                 .expect("static inventory definition");
         }
+        settings
+            .define(Definition::boolean(
+                "world.safe-walk.direction-check",
+                "Direction Check",
+                true,
+            ))
+            .unwrap();
         settings
             .define(Definition::boolean(
                 "utility.panic.re-enable",
@@ -371,6 +388,10 @@ impl Default for Runtime {
             parkour_tapped: false,
             aim_assist: Default::default(),
             aim_clock: None,
+            trigger_bot: Default::default(),
+            velocity: Default::default(),
+            motion_override: None,
+            explosion_reentry: false,
             hud_state: super::ui::hud_state::HudState::default(),
             gui: Gui::default(),
             suppress_game_input: false,
@@ -421,8 +442,15 @@ impl Runtime {
         if module == ModuleId::AutoFish && !enabled {
             self.cancel_auto_fish();
         }
-        if module == ModuleId::AimAssist && !enabled {
-            self.reset_aim_assist();
+        if !enabled {
+            match module {
+                ModuleId::AimAssist => self.reset_aim_assist(),
+                ModuleId::TriggerBot => {
+                    self.trigger_bot.reset();
+                }
+                ModuleId::Velocity => self.reset_velocity(),
+                _ => {}
+            }
         }
         self.dirty = true;
         self.notify(format!(
@@ -457,6 +485,12 @@ impl Runtime {
         }
         if id.starts_with("combat.aim-assist.") {
             self.reset_aim_assist();
+        }
+        if id.starts_with("combat.trigger-bot.") {
+            self.trigger_bot.reset();
+        }
+        if id.starts_with("combat.velocity.") {
+            self.reset_velocity();
         }
         self.dirty = true;
         Ok(())
@@ -861,6 +895,97 @@ impl Runtime {
         self.aim_assist.reset();
         self.aim_clock = None;
     }
+    /// Disable, setting change and session cleanup for the combat modules.
+    /// TriggerBot's synthetic press is a click, so releasing it needs no
+    /// host action.
+    fn reset_combat(&mut self) {
+        self.reset_aim_assist();
+        self.trigger_bot.reset();
+        self.reset_velocity();
+    }
+    fn reset_velocity(&mut self) {
+        self.velocity.reset();
+        self.motion_override = None;
+    }
+    /// The replacement for the local player's last motion packet, and the
+    /// motion that packet set.
+    pub fn set_motion_override(&mut self, replacement: [f64; 3], received: [f64; 3]) {
+        self.motion_override = Some((replacement, received));
+    }
+    pub fn take_motion_override(&mut self) -> Option<([f64; 3], [f64; 3])> {
+        self.motion_override.take()
+    }
+    /// Marks the next explosion as Velocity's own re-dispatch.
+    pub fn set_explosion_reentry(&mut self) {
+        self.explosion_reentry = true;
+    }
+    pub fn take_explosion_reentry(&mut self) -> bool {
+        std::mem::take(&mut self.explosion_reentry)
+    }
+    pub fn velocity_active(&mut self) -> bool {
+        let active = self.enabled(ModuleId::Velocity) && self.session.in_world();
+        if !active {
+            self.reset_velocity();
+        }
+        active
+    }
+    pub fn velocity_motion(
+        &mut self,
+        facing: super::modules::combat::velocity::Facing,
+        water: bool,
+        motion: [f64; 3],
+    ) -> super::modules::combat::velocity::Decision {
+        let options = super::modules::combat::velocity::Options::read(&self.settings);
+        self.velocity.entity_motion(&options, facing, water, motion)
+    }
+    pub fn velocity_explosion(
+        &mut self,
+        facing: super::modules::combat::velocity::Facing,
+        water: bool,
+        push: [f64; 3],
+    ) -> super::modules::combat::velocity::Decision {
+        let options = super::modules::combat::velocity::Options::read(&self.settings);
+        self.velocity.explosion(&options, facing, water, push)
+    }
+    pub fn velocity_tick(&mut self, water: bool, velocity: [f64; 3]) -> Option<[f64; 3]> {
+        if !self.velocity_active() {
+            return None;
+        }
+        let options = super::modules::combat::velocity::Options::read(&self.settings);
+        self.velocity.tick(&options, water, velocity)
+    }
+    /// Monotonic milliseconds for module timers.
+    pub fn now_ms(&self) -> u64 {
+        self.macro_origin.elapsed().as_millis() as u64
+    }
+    pub fn trigger_bot_active(&mut self) -> bool {
+        let active = self.enabled(ModuleId::TriggerBot) && self.session.interactive();
+        if !active {
+            self.trigger_bot.reset();
+        }
+        active
+    }
+    pub fn trigger_bot_tick(
+        &mut self,
+        tick: &super::modules::combat::trigger_bot::Tick,
+    ) -> super::modules::combat::trigger_bot::Effects {
+        let options = super::modules::combat::trigger_bot::Options::read(&self.settings);
+        let people = self.target_people();
+        self.trigger_bot.tick(&options, tick, &people)
+    }
+    /// The attack button changed; true swallows the activation click.
+    pub fn trigger_bot_input(
+        &mut self,
+        tick: &super::modules::combat::trigger_bot::Tick,
+        pressed: bool,
+    ) -> bool {
+        if !self.enabled(ModuleId::TriggerBot) {
+            return false;
+        }
+        let options = super::modules::combat::trigger_bot::Options::read(&self.settings);
+        let people = self.target_people();
+        self.trigger_bot.input(&options, tick, pressed, &people)
+    }
     /// The local friend (when "Use Friends" is on) and enemy name lists.
     pub fn target_people(&self) -> super::targeting::filter::NameLists {
         let names = |relation: &str| -> Vec<String> {
@@ -1061,7 +1186,7 @@ impl Runtime {
             });
         }
         self.reset_auto_tool();
-        self.reset_aim_assist();
+        self.reset_combat();
         self.cancel_inventory();
         self.cancel_auto_fish();
         self.combat_guard.reset();
@@ -1428,7 +1553,10 @@ impl Runtime {
                 | ModuleId::Panic
                 | ModuleId::StorageEsp
                 | ModuleId::Parkour
-                | ModuleId::AimAssist => continue,
+                | ModuleId::AimAssist
+                | ModuleId::SafeWalk
+                | ModuleId::TriggerBot
+                | ModuleId::Velocity => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {
@@ -1764,6 +1892,29 @@ mod tests {
         assert_eq!(runtime.people().len(), 2);
         runtime.remove_person("friends", "player").unwrap();
         assert_eq!(runtime.people().len(), 1);
+    }
+
+    #[test]
+    fn combat_module_cleanup_is_per_module() {
+        let mut runtime = Runtime::default();
+        runtime.set_enabled(ModuleId::Velocity, true);
+        runtime.set_motion_override([0.0; 3], [0.4, 0.3, 0.4]);
+        // A disabled AimAssist resets itself every frame; Velocity keeps its state.
+        assert!(!runtime.aim_assist_active());
+        assert!(!runtime.trigger_bot_active());
+        runtime.set_enabled(ModuleId::TriggerBot, true);
+        runtime.set_enabled(ModuleId::TriggerBot, false);
+        assert_eq!(
+            runtime.take_motion_override(),
+            Some(([0.0; 3], [0.4, 0.3, 0.4]))
+        );
+        runtime.set_motion_override([0.0; 3], [0.4, 0.3, 0.4]);
+        runtime.set_enabled(ModuleId::Velocity, false);
+        assert_eq!(runtime.take_motion_override(), None);
+        runtime.set_enabled(ModuleId::Velocity, true);
+        runtime.set_motion_override([0.0; 3], [0.4, 0.3, 0.4]);
+        runtime.session_change(CleanupReason::OpenWorld);
+        assert_eq!(runtime.take_motion_override(), None);
     }
 
     #[test]
