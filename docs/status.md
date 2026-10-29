@@ -15,7 +15,7 @@ profile persistence and GUI access:
 | --- | --- |
 | HUD | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
 | Render | NoHurtCam, Fullbright, Clear Water, StorageESP (partial chest/furnace outlines) |
-| Inventory / world / utility | AutoTool, AutoArmor, Refill, ChestSteal, FastPlace, AutoFish, NoJumpDelay, NoClickDelay |
+| Inventory / world / utility | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal, FastPlace, AutoFish, NoJumpDelay, NoClickDelay |
 
 The local foundation includes typed settings/editors, chord/held bindings,
 local profiles and friends/enemies, text/clipboard/IME editing, local macro

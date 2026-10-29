@@ -302,3 +302,19 @@ integrated attempt failed because its block-targeting call ran before the
 server's block update arrived; the final scenario uses a fixed camera and was
 rerun in a fresh home. These tests do not validate furnace, occluded storage,
 other features or reference parity.
+
+## AutoTotem survival transaction baseline
+
+Added a host-connected AutoTotem baseline. It observes the actual offhand,
+opens the survival player inventory when configured, and swaps the first
+available totem through the normal menu engine using the shared container
+claim, cursor fingerprint and revision gate. It closes only an inventory it
+opened itself. Inventory-only and open/close options and a delay range are
+persisted. Creative is guarded out. Silent opening, randomized slot choice,
+extra timing randomization, the count display, and actions without a visible
+inventory remain unfinished; this is not full reference parity.
+
+Validation: 53 runtime tests, 4 audit tests and 53 emitted-payload tests passed;
+formatting and all-target Clippy passed. Exact native stage/audit and pinned
+client check results are recorded with this milestone. No game scenario was
+run, so the feature remains implemented-core.

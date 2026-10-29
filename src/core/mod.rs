@@ -34,6 +34,7 @@ pub enum ModuleId {
     ArmorStatus,
     PotionEffects,
     AutoArmor,
+    AutoTotem,
     Refill,
     ChestSteal,
     FastPlace,
@@ -59,6 +60,7 @@ impl ModuleId {
             Self::ArmorStatus => "hud.armor",
             Self::PotionEffects => "hud.potions",
             Self::AutoArmor => "inventory.auto-armor",
+            Self::AutoTotem => "inventory.auto-totem",
             Self::Refill => "inventory.refill",
             Self::ChestSteal => "world.chest-steal",
             Self::FastPlace => "world.fast-place",
@@ -84,6 +86,7 @@ impl ModuleId {
             Self::ArmorStatus => "Armor Status",
             Self::PotionEffects => "Potion Effects",
             Self::AutoArmor => "AutoArmor",
+            Self::AutoTotem => "AutoTotem",
             Self::Refill => "Refill",
             Self::ChestSteal => "ChestSteal",
             Self::FastPlace => "FastPlace",
@@ -97,7 +100,7 @@ impl ModuleId {
             Self::StorageEsp => "StorageESP",
         }
     }
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
@@ -108,6 +111,7 @@ impl ModuleId {
         Self::ArmorStatus,
         Self::PotionEffects,
         Self::AutoArmor,
+        Self::AutoTotem,
         Self::Refill,
         Self::ChestSteal,
         Self::FastPlace,
@@ -139,7 +143,7 @@ impl ModuleId {
             "Render"
         } else if matches!(
             self,
-            Self::AutoArmor | Self::Refill | Self::AutoFish | Self::Panic
+            Self::AutoArmor | Self::AutoTotem | Self::Refill | Self::AutoFish | Self::Panic
         ) {
             "Utility"
         } else {
@@ -187,6 +191,7 @@ pub struct Runtime {
     fish_hooked_entity: Option<(u32, i32)>,
     macro_use_lease: Option<Lease>,
     auto_armor: super::modules::utility::auto_armor::AutoArmor,
+    auto_totem: super::modules::utility::auto_totem::AutoTotem,
     refill: super::modules::utility::refill::Refill,
     chest_steal: super::modules::utility::chest_steal::ChestSteal,
     tool_lease: Option<Lease>,
@@ -475,6 +480,7 @@ impl Default for Runtime {
             fish_hooked_entity: None,
             macro_use_lease: None,
             auto_armor: Default::default(),
+            auto_totem: Default::default(),
             refill: Default::default(),
             chest_steal: Default::default(),
             tool_lease: None,
@@ -533,7 +539,7 @@ impl Runtime {
             .enabled = enabled;
         if matches!(
             module,
-            ModuleId::AutoArmor | ModuleId::Refill | ModuleId::ChestSteal
+            ModuleId::AutoArmor | ModuleId::AutoTotem | ModuleId::Refill | ModuleId::ChestSteal
         ) && !enabled
         {
             self.cancel_inventory();
@@ -1484,6 +1490,7 @@ impl Runtime {
                 ModuleId::NoHurtCamera
                 | ModuleId::AutoTool
                 | ModuleId::AutoArmor
+                | ModuleId::AutoTotem
                 | ModuleId::Refill
                 | ModuleId::ChestSteal
                 | ModuleId::FastPlace
