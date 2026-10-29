@@ -2,6 +2,7 @@ use crate::game::vape_rs::ui::{
     HudPanel,
     gui::Rect,
     hud::{Command, biome_title},
+    resource_names::resource_translation_key,
 };
 use horizon_client::hud::HudBatch;
 
@@ -10,7 +11,10 @@ pub(super) fn biome(game: &crate::game::Game<'_>, position: [f64; 3]) -> String 
     game.world
         .chunks
         .get(&(x >> 4, z >> 4))
-        .map(|chunk| biome_title(&game.res.biomes().get(chunk.biome(x, y, z)).name))
+        .map(|chunk| {
+            let name = &game.res.biomes().get(chunk.biome(x, y, z)).name;
+            horizon_client::lang::get_or(&resource_translation_key("biome", name), &biome_title(name))
+        })
         .unwrap_or_default()
 }
 pub(super) fn snapshot(
@@ -62,7 +66,10 @@ pub(super) fn snapshot(
             let icon = horizon_client::hud_overlays::EffectIcon::from(effect);
             PotionView {
                 id: icon.id,
-                name: biome_title(effect.id),
+                name: horizon_client::lang::get_or(
+                    &resource_translation_key("effect", effect.id),
+                    &biome_title(effect.id),
+                ),
                 duration: effect.duration,
                 maximum: effect.duration,
                 negative: !icon.beneficial,

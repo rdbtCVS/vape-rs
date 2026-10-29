@@ -318,3 +318,10 @@ Validation: 53 runtime tests, 4 audit tests and 53 emitted-payload tests passed;
 formatting and all-target Clippy passed. Exact native stage/audit and pinned
 client check results are recorded with this milestone. No game scenario was
 run, so the feature remains implemented-core.
+
+
+## HUD resource-name localization
+
+The coordinates biome and potion effect labels now resolve their resource keys through Horizon's active language, falling back to readable resource IDs if a translation is absent. Namespace handling is covered by a focused runtime test. This is a partial localization improvement, not full HUD or client localization; translated glyph coverage and real host language scenarios remain open.
+
+Validation: formatting and Clippy (all targets, warnings denied) passed; 50 runtime tests, 4 audit tests and 50 emitted payload tests passed. Exact native staging/audit passed (22 HEAD hooks, one owned state and nine support modules), and the pinned client cargo check passed. No game or visual scenario was run. ClientSettings, Text GUI, icons, typography and Windows date conventions remain unfinished.
