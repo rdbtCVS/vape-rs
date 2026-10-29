@@ -215,3 +215,17 @@ Close-out verification: 48 runtime tests and 4 audit tests passed; workspace for
 In response to the user's usability/testing question, rebuilt the current native client from the close-out runtime (source commit 3f0462a). Exact staging/audit passed again; optimized fast-profile build passed (1m17s compile, existing 17 dead-code warnings). This replaces the older executable under target/host-cargo/fast/horizon-client. No new game execution or visual/gameplay validation is claimed.
 
 Added tools/play.py as a visible manual entry point using the existing NativeSession isolation. Each invocation allocates fresh homes and working directory under target/scenarios/manual-*, uses approved prepared resources read-only, opens a normal survival world, retains its log/world/preferences for inspection, and closes only its owned process. Optional --in-frame and --creative are available; the three inventory automation modules require survival. CLI help passed. The development build has audio/controllers disabled. README and docs/status.md now include the exact launch command and controls. Evidence: docs/evidence/manual-playtest-build.json.
+
+## Inventory consumable Refill fidelity batch
+
+Corrected Refill hotbar-clear allow-list handling to retain one stack per item,
+initialized scatter's random state so it does not remain zero, and wait for an
+empty user cursor before starting a new transaction. Existing revision and
+container claims still govern each click. The optional reference double click,
+custom item matching, remaining inventory modules, and host scenarios remain
+open. No new module or full port is claimed.
+
+Validation: 51 runtime and 4 audit tests passed; 51 emitted payload tests,
+formatting and Clippy (all targets, warnings denied) passed. Exact native
+stage/audit passed with 22 hooks, one state and nine support modules; the pinned
+client cargo check passed. No game execution was performed.

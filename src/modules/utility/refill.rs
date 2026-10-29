@@ -88,6 +88,10 @@ impl Refill {
                 .into_iter()
                 .collect();
         }
+        // Never start a new transaction with a user-owned cursor stack.
+        if snapshot.carried.is_some() {
+            return Vec::new();
+        }
         let mut sources: Vec<&Slot> = snapshot
             .slots(|r| r == SlotRole::Main)
             .filter(|s| s.item.as_ref().is_some_and(|i| heal(i, options.kind)))
@@ -98,11 +102,21 @@ impl Refill {
         if options.scatter {
             self.shuffle(&mut sources);
         }
+        let mut retained = BTreeSet::new();
         let targets: Vec<&Slot> = (0..9)
             .filter_map(|n| snapshot.hotbar(n))
-            .filter(|s| {
-                s.item.is_none()
-                    || (options.hotbar_clear && junk(s.item.as_ref().unwrap(), options))
+            .filter(|s| match &s.item {
+                None => true,
+                Some(item) if options.hotbar_clear => {
+                    if heal(item, options.kind) {
+                        false
+                    } else if options.allowed.contains(&item.fingerprint.id) {
+                        !retained.insert(item.fingerprint.id.clone())
+                    } else {
+                        true
+                    }
+                }
+                Some(_) => false,
             })
             .collect();
         let (Some(source), Some(target)) = (sources.first(), targets.first()) else {
@@ -138,6 +152,12 @@ impl Refill {
             .collect()
     }
     fn shuffle(&mut self, slots: &mut Vec<&Slot>) {
+        if self.seed == 0 {
+            self.seed = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos() as u64)
+                | 1;
+        }
         for n in (1..slots.len()).rev() {
             self.seed ^= self.seed << 13;
             self.seed ^= self.seed >> 7;
@@ -153,6 +173,97 @@ fn heal(item: &Item, kind: Kind) -> bool {
             | (Some(Healing::Soup), Kind::Both | Kind::Soup)
     )
 }
-fn junk(item: &Item, options: &Options) -> bool {
-    !heal(item, options.kind) && !options.allowed.contains(&item.fingerprint.id)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::inventory::types::{Fingerprint, ItemClass};
+
+    fn item(id: &str, healing: Option<Healing>) -> Item {
+        Item {
+            fingerprint: Fingerprint {
+                id: id.into(),
+                count: 1,
+                damage: 0,
+                tag_hash: 0,
+            },
+            max_count: 64,
+            max_damage: 0,
+            armor: None,
+            class: ItemClass::Other,
+            score: 0.0,
+            healing,
+            harmful_splash: false,
+        }
+    }
+    fn snapshot() -> Snapshot {
+        let mut slots: Vec<_> = (0..9)
+            .map(|n| Slot {
+                index: n as u16,
+                role: SlotRole::Hotbar(n),
+                item: Some(item("sword", None)),
+            })
+            .collect();
+        slots.push(Slot {
+            index: 9,
+            role: SlotRole::Main,
+            item: Some(item("pot", Some(Healing::Potion))),
+        });
+        Snapshot {
+            session: 1,
+            container_id: 0,
+            revision: 1,
+            slots,
+            carried: None,
+            screen_open: true,
+            is_player_inventory: true,
+            is_chest: false,
+            chest_title_standard: false,
+        }
+    }
+    #[test]
+    fn whitelist_retains_one_stack_and_replaces_duplicate() {
+        let mut refill = Refill::default();
+        let mut options = Options {
+            hotbar_clear: true,
+            ..Options::default()
+        };
+        options.allowed.insert("sword".into());
+        let mut snap = snapshot();
+        assert!(
+            matches!(refill.step(&snap, &options).as_slice(), [Effect::Request(r)] if r.slot == 9 && r.click == Click::Pickup)
+        );
+        snap.revision += 1;
+        snap.carried = snap.slot(9).unwrap().item.clone();
+        snap.slots.last_mut().unwrap().item = None;
+        assert!(
+            matches!(refill.step(&snap, &options).as_slice(), [Effect::Request(r)] if r.slot == 1)
+        );
+    }
+    #[test]
+    fn mode_and_user_cursor_prevent_new_actions() {
+        let mut refill = Refill::default();
+        let mut snap = snapshot();
+        snap.slots[0].item = None;
+        snap.carried = Some(item("held", None));
+        assert!(refill.step(&snap, &Options::default()).is_empty());
+        snap.carried = None;
+        let options = Options {
+            kind: Kind::Soup,
+            ..Options::default()
+        };
+        assert!(refill.step(&snap, &options).is_empty());
+        assert!(matches!(
+            refill.step(&snap, &options).as_slice(),
+            [Effect::CloseInventory, Effect::Disable]
+        ));
+    }
+    #[test]
+    fn scatter_initializes_nonzero_state() {
+        let mut refill = Refill::default();
+        let snap = snapshot();
+        let mut slots: Vec<_> = snap.slots.iter().collect();
+        refill.shuffle(&mut slots);
+        assert_ne!(refill.seed, 0);
+    }
 }
