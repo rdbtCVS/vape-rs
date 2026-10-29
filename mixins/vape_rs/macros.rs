@@ -42,7 +42,7 @@ pub fn use_once(game: &mut Game<'_>) {
         remote.input.press(horizon_client::interaction_input::Button::Use);
     } else if game.using.is_none() {
         if let Err(error) = game.use_with_hand() {
-            with_client(game.__horizon_mixins_vape_rs_client(), |r| r.notify(format!("Automatic item use failed: {error}")));
+            with_client(&game.__horizon_mixins_vape_rs_client(), |r| r.notify(format!("Automatic item use failed: {error}")));
         }
         game.use_delay = 4;
     }

@@ -417,3 +417,16 @@ Validation: fmt, Clippy, 102 runtime + 4 audit tests and 102 payload tests pass.
 TriggerBot first scored 7/12: on this main a NoAI zombie burns in daylight, and Fire Resistance did not stop that damage. The scene now runs at night with `spawn_mobs` off.
 
 Failing: the GUI, HUD editor and HUD detail scenarios fail in the same way on the previous pin, so they were already stale (GUI clicks and drags at fixed coordinates no longer have the expected effect). The text editor scenario under `xvfb-run` also fails at a GUI-dependent step; it was not re-run on the previous pin. Evidence: docs/evidence/repin-main.json.
+
+## Shippable .hnmod on the published mixin tool (2026-10-29)
+
+At the user's request, the project now builds as a `.hnmod` that Horizon's launcher can build. This settles the open packaging decision (docs/decisions.md).
+
+- The tool pin moved to published, unpatched horizon-mixins main `07dab17`. At Horizon `cc7bcbf` it plans all 26 hooks; the four macro-target rejections recorded earlier no longer occur. The lifetime-state patch, the PR #2 pin and `tools/stock_bundle.py` are removed. CI builds the bundle instead of the patch test.
+- The runtime owner is the `client-owner` support module: one `Arc<Mutex<Runtime>>` per thread behind the unchanged accessor, which now returns the `Arc` by value. The stock tool cannot put state on `Game<'_>`, and no lifetime-free Game field has a struct-literal constructor it could extend. The audit now rejects any owned state; its state stripper and test are gone (3 audit tests).
+- The mod id is `vape_rs`: the registry's ids refuse hyphens. The settings folder is still `native-mods/vape-rs`.
+- `tools/bundle.py` now emits `dist/vape_rs-0.1.0-dev.hnmod` (42 source files), and Horizon's own `cargo horizon-mod check` accepts it. The new `tools/launcher_build.py` follows the launcher's `native_mods::build` from the `.hnmod`: `cargo install --git` of the pinned tool with Rust 1.99.1, the GitHub archive of `cc7bcbf`, apply, and a release build with `horizon-client/mods`. `VAPE_RS_BUILD=launcher` makes the scenario tools run that executable.
+
+Validation: fmt, Clippy, 102 runtime + 3 audit tests and 102 payload tests pass. Stage/audit: 26 HEAD hooks and 14 support modules on `07dab17`; host check and fast build pass. The launcher-route release build passes smoke 27/27. On the fast build: smoke 27/27, LAN 16/16, lifecycle, profile, AimAssist 14/14, TriggerBot 12/12, SafeWalk 13/13, Velocity 10/10. Evidence: docs/evidence/hnmod-packaging.json.
+
+Not covered: an actual installed `horizon-launcher native-build` run (it writes to a real launcher home), Windows and macOS, and a tagged Horizon pin for a public release. The GUI, HUD editor and HUD detail scenarios were already stale before this change and were not rerun.

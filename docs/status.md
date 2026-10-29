@@ -44,10 +44,18 @@ Unconnected groundwork present in source (no module uses it yet):
 
 ## Evidence and limits
 
-- Current tree: **102 runtime tests + 4 audit tests** and 102 emitted-payload
+- Current tree: **102 runtime tests + 3 audit tests** and 102 emitted-payload
   tests pass; fmt and Clippy (all targets, warnings denied) pass; exact
-  native stage/audit passes with **26 HEAD hooks, one owned state and 13
-  support modules**; host check and fast build pass.
+  native stage/audit passes with **26 HEAD hooks and 14 support modules (no
+  owned state)** on published horizon-mixins `07dab17`; host check and fast
+  build pass.
+- **Packaging** ([hnmod-packaging.json](evidence/hnmod-packaging.json)):
+  `tools/bundle.py` emits `dist/vape_rs-0.1.0-dev.hnmod`, and Horizon's registry
+  check accepts it. `tools/launcher_build.py` builds it along the launcher's
+  route (published tool via `cargo install --git`, GitHub source archive,
+  release profile with `mods`, Rust 1.99.1). Smoke passed 27/27 on that
+  executable. Not yet run through an actual `horizon-launcher native-build`
+  install.
 - **Combat/movement round** ([combat-movement-round.json](evidence/combat-movement-round.json),
   [aim-assist.json](evidence/aim-assist.json)), fresh isolated homes:
   AimAssist 14/14, TriggerBot 12/12, SafeWalk 13/13 and Velocity 10/10, each
@@ -155,18 +163,16 @@ RightClicker.
    shader-pack brightness inputs.
 7. **Validation after implementation:** fresh isolated integrated-server scenarios for every compile-only module, then remote/LAN cases,
    visual comparisons, interruption/cleanup checks and performance.
-8. **Distribution:** published horizon-mixins rejects the Game-owned state
-   and four macro-target hooks. A stock-tool variant type-checks without them
-   ([repin-packaging-eval.json](evidence/repin-packaging-eval.json)). Choose the
-   owner (user decision), retarget the four hooks, then prove an installed
-   launcher build. Cross-platform builds, provenance and release gates remain
-   open.
+8. **Distribution:** the `.hnmod` builds on the published tool, with a
+   per-thread runtime owner (docs/decisions.md, 2026-10-29). Still open: a run
+   through an actual installed `horizon-launcher native-build`, Windows/macOS
+   builds, a tagged Horizon pin for a public release, provenance, the release
+   gates and registry submission.
 
 ## Reproduction and resources
 
-Horizon is pinned to `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main at 2026-10-29 22:01, untagged); Minecraft 26.3 / protocol 777. Mixin PR #2 base is
-`29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed checked-in
-lifetime-state patch. See compatibility.json and README.md for commands.
+Horizon is pinned to `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main at 2026-10-29 22:01, untagged); Minecraft 26.3 / protocol 777. horizon-mixins is
+published main `07dab17387480ac03829584d9d1ee9912c9bb515`, unpatched. See compatibility.json and README.md for commands.
 
 Prepared resource directory located for this workspace:
 

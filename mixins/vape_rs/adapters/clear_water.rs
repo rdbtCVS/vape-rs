@@ -7,7 +7,7 @@ fn clear_water(
 ) -> core::ops::ControlFlow<FogData> {
     use crate::game::vape_rs::core::{ModuleId, with_client};
     let enabled = game.player.is_some() && game.title.is_none()
-        && with_client(game.__horizon_mixins_vape_rs_client(), |r| r.enabled(ModuleId::ClearWater));
+        && with_client(&game.__horizon_mixins_vape_rs_client(), |r| r.enabled(ModuleId::ClearWater));
     if !enabled || game.camera_fluid(camera.to_array()) != horizon_client::camera::CameraFluid::Water
         || game.potions.effects.get("blindness").is_some() || game.potions.effects.get("darkness").is_some()
     { return core::ops::ControlFlow::Continue(()); }

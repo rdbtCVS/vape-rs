@@ -36,6 +36,6 @@ jobs:
           git -C target/upstream/horizon-mixins checkout --detach "$(python3 -c 'import json; print(json.load(open("compatibility.json"))["horizon_mixins_revision"])')"
           cargo +1.95.0 fetch --locked --manifest-path target/upstream/horizon-mixins/Cargo.toml
       - run: cargo run -p xtask --locked --offline -- stage target/upstream/horizon
-      - run: cargo +1.95.0 test --locked --offline --manifest-path target/mixin-source/Cargo.toml -p horizon-mixins-cli --test integration lifetime_state
+      - run: python3 tools/bundle.py
       - run: cargo fetch --locked --manifest-path target/horizon/modded/Cargo.toml
       - run: cargo run -p xtask --locked --offline -- check target/upstream/horizon

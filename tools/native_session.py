@@ -8,12 +8,20 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / 'target/host-cargo/fast/horizon-client'
+# VAPE_RS_BUILD=launcher runs the client tools/launcher_build.py built from the
+# .hnmod the way Horizon's launcher does; the default is xtask's fast build.
+LAUNCHER = os.environ.get('VAPE_RS_BUILD') == 'launcher'
+if LAUNCHER:
+    BINARY = ROOT / 'target/launcher-build/target/release/horizon-client'
+    BUILD_MANIFEST = ROOT / 'target/launcher-build/vape-rs-build.json'
+else:
+    BINARY = ROOT / 'target/host-cargo/fast/horizon-client'
+    BUILD_MANIFEST = ROOT / 'target/host-cargo/fast/vape-rs-build.json'
+# The launcher builds only the client; horizon-ctl is not modded.
 CTL = ROOT / 'target/host-cargo/fast/horizon-ctl'
-BUILD_MANIFEST = ROOT / 'target/host-cargo/fast/vape-rs-build.json'
 # Fields that must match the current sources; commit/dirty are informational.
-IDENTITY_KEYS = ('bundle_sha256', 'horizon_revision', 'horizon_mixins_revision',
-                 'horizon_mixins_patches', 'profile', 'features')
+IDENTITY_KEYS = ('bundle_sha256', 'horizon_revision', 'horizon_mixins_revision') + (
+    () if LAUNCHER else ('horizon_mixins_patches', 'profile', 'features'))
 
 
 class StaleBuild(RuntimeError):
@@ -33,7 +41,8 @@ def verify_build(allow_stale=False):
         problems.append('no build identity beside the executable (built before identities, '
                         'or the last build failed)')
     if built:
-        for path, key in ((BINARY, 'executable_sha256'), (CTL, 'control_sha256')):
+        checks = ((BINARY, 'executable_sha256'),) + (() if LAUNCHER else ((CTL, 'control_sha256'),))
+        for path, key in checks:
             digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
             if built.get(key) != digest:
                 problems.append(f'{path.name} differs from the one its identity describes')

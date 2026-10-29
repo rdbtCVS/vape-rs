@@ -1,5 +1,5 @@
 [mod]
-id = "vape-rs"
+id = "vape_rs"
 version = "0.1.0-dev"
 priority = 100
 
@@ -114,16 +114,11 @@ helper = "adapters/frame.rs"
 bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
 
 
-[[state]]
-id = "client"
-target = "horizon_client::game::Game"
-ty = "crate::game::vape_rs::core::Client"
-initial = "::core::default::Default::default()"
-
-[[state.constructor]]
-target = "horizon_client::game::Game<'_>::new"
-selector = "Game"
-require = 1
+[[module]]
+id = "client-owner"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_client_owner"
+source = "client_owner.rs"
 
 [[injection]]
 id = "session-world-open"

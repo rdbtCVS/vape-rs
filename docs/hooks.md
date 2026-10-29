@@ -1,8 +1,8 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **26 HEAD hooks, one Game-owned state, 13 support modules**. Horizon `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main, 2026-10-29); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
+Current audited configuration: **26 HEAD hooks, 14 support modules, no owned state**. Horizon `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main, 2026-10-29); published, unpatched horizon-mixins main `07dab17387480ac03829584d9d1ee9912c9bb515`, the pin the `.hnmod` names.
 
-The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers, modules and owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
+The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers and modules, rejects any owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
 ## Hooks
 
@@ -41,26 +41,27 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | Name | Host insertion file | Editable source |
 | --- | --- | --- |
 | `vape_rs` | `crates/horizon-client/src/game.rs` | `src/lib.rs` (expanded to `runtime.rs`) |
-| `vape_hud` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/hud_painter.rs` |
-| `vape_camera` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/camera.rs` |
-| `vape_inventory` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/inventory.rs` |
-| `vape_transactions` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape-rs/transactions.rs` |
-| `vape_macros` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape-rs/macros.rs` |
-| `vape_fast_place` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/fast_place.rs` |
-| `vape_auto_fish` | `crates/horizon-client/src/game/fishing.rs` | `mixins/vape-rs/auto_fish.rs` |
-| `vape_world_lines` | `crates/horizon-client/src/game/fishing.rs` | `mixins/vape-rs/world_lines.rs` |
-| `vape_input_delays` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/input_delays.rs` |
-| `vape_parkour` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/parkour.rs` |
-| `vape_combat` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/combat.rs` |
-| `vape_safe_walk` | `crates/horizon-client/src/motion.rs` | `mixins/vape-rs/safe_walk.rs` |
+| `vape_hud` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/hud_painter.rs` |
+| `vape_camera` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/camera.rs` |
+| `vape_inventory` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/inventory.rs` |
+| `vape_transactions` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/transactions.rs` |
+| `vape_macros` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/macros.rs` |
+| `vape_fast_place` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/fast_place.rs` |
+| `vape_auto_fish` | `crates/horizon-client/src/game/fishing.rs` | `mixins/vape_rs/auto_fish.rs` |
+| `vape_world_lines` | `crates/horizon-client/src/game/fishing.rs` | `mixins/vape_rs/world_lines.rs` |
+| `vape_input_delays` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/input_delays.rs` |
+| `vape_parkour` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/parkour.rs` |
+| `vape_combat` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/combat.rs` |
+| `vape_safe_walk` | `crates/horizon-client/src/motion.rs` | `mixins/vape_rs/safe_walk.rs` |
+| `vape_client_owner` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/client_owner.rs` |
 
-The runtime source is deterministically expanded from src/lib.rs. Each Game owns one Arc<Mutex<Runtime>>; there is no process/thread singleton. Adapters release runtime borrows before calling host actions. Session generations invalidate stale entity, slot, container and hook observations. Transient state never enters local profiles.
+The runtime source is deterministically expanded from src/lib.rs. The published tool can't add a field to `Game<'_>`, so `vape_client_owner` keeps one Arc<Mutex<Runtime>> per thread behind the same `__horizon_mixins_vape_rs_client` accessor. Only the window thread's client Game uses it; hooks return before using it on a server or dedicated Game, and that thread drops its unused runtime when it ends. Adapters release runtime borrows before calling host actions. Session generations invalidate stale entity, slot, container and hook observations. Transient state never enters local profiles.
 
 Native input/menu effects use Horizon’s normal action paths. Macro, fishing, tool and container ownership is coordinated per client. Server/dedicated simulation is guarded out. The GUI owns a Paused screen and completes closing on a later frame so a close click cannot attack.
 
 BlockOverlay drafts under docs/drafts are unregistered and excluded from the runtime payload. Their outline/fill integration requirements are recorded in docs/specs/block-overlay.md. No full BlockOverlay implementation is claimed.
 
-Current evidence and remaining validation are in [status.md](status.md) and [progress.md](progress.md). Public packaging remains gated until a published mixin-tool pin contains the required state patch.
+Current evidence and remaining validation are in [status.md](status.md) and [progress.md](progress.md). `tools/bundle.py` packages the `.hnmod`; `tools/launcher_build.py` builds it along the launcher's route (README).
 
 Live entity snapshots come from `vape_combat::snapshot`: alive `Game::mobs` (remote players included, named through `remote_player_names`) and, when hosting LAN, the guests. Positions are interpolated at `clock.fraction()`, ids are paired with the session epoch, and line-of-sight raycasts (`MobWorld::line_of_sight`) run only when a filter needs them. The pure filter/sort/rotation code is in `src/targeting`. AimAssist and TriggerBot consume it; Velocity reads the nearby-player facing from the same mobs. TriggerBot attacks through `vape_macros::attack_once`: the remote interaction queue, or the integrated tick's attack clicks.
 

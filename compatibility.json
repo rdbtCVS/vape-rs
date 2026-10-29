@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "horizon_revision": "cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1",
-  "horizon_mixins_revision": "29a8f8f84b253ea89422c0049ff5e8bfda36f1fb",
+  "horizon_mixins_revision": "07dab17387480ac03829584d9d1ee9912c9bb515",
   "minecraft": "26.3",
   "protocol": 777,
   "rust": "1.99.0",
@@ -28,20 +28,13 @@
   "validated_platforms": [],
   "horizon_mixins_source": {
     "repository": "https://github.com/horizon-rust/horizon-mixins",
-    "pull_request": "https://github.com/horizon-rust/horizon-mixins/pull/2",
-    "note": "PR #2 base plus checked-in development patch for lifetime-owned state; launcher packaging gated until tool pin is published upstream."
+    "branch": "main",
+    "note": "Published upstream main, unpatched; the launcher builds this exact commit from the .hnmod's mixins pin."
   },
   "runtime_dependencies": {
     "serde_json": "1.0.151 (already declared and locked in horizon-client)",
     "chrono": "0.4.42 (already declared and locked in horizon-client; HUD clock only)"
   },
-  "horizon_mixins_patches": [
-    {
-      "path": "tools/mixin-patches/0001-lifetime-state.patch",
-      "sha256": "daad889706fa6b363cae2ef1e478ecddb2b7c05175483f5938c93bca65d6cf60",
-      "development_commit": "e83e49f4ceca0dbb3156617d6d86f3996c2341cc"
-    }
-  ],
   "native_hooks_api": 2,
   "horizon_branch": "main (untagged; user request 2026-10-29)"
 }

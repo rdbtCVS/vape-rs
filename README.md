@@ -17,14 +17,13 @@ cargo run -p xtask --locked --offline -- payload-test
 
 The AST packer reads conventional Rust module files under src and emits one source-only payload plus a content-hash source map under target. The emitted payload's tests compile in an isolated Cargo fixture with its committed lockfile. The runtime uses serde_json 1.0.151 and the native clock adapter uses chrono, both already declared and locked in the pinned host; staging verifies that contract and never injects a dependency.
 
-The mixin pin currently uses [upstream PR #2](https://github.com/horizon-rust/horizon-mixins/pull/2), authorized for development before merge. The exact base commit remains fixed in compatibility.json; merging the PR does not automatically change this pin. Staging also applies the reviewed, SHA-256 pinned patch under tools/mixin-patches for lifetime-owned state and preserved constructors. These patches are exported from local development commit e83e49f4ceca0dbb3156617d6d86f3996c2341cc. `xtask stage` reconstructs them from the clean base; it never builds a dirty development checkout. Distribution is gated until a published tool pin contains this support: the launcher cannot apply tool patches from a mod bundle. `tools/bundle.py` rejects that incompatible package.
+The mixin tool is pinned to published, unpatched horizon-mixins main (`07dab17`, compatibility.json), the same commit the `.hnmod` names, so the launcher builds exactly what development stages. The published tool can't add a field to `Game<'_>`, so the runtime is owned per thread by the `client-owner` support module; only the window thread's client Game uses it.
 
 For native staging, review the pinned mixin sources before building them:
 
 ```sh
 git clone https://github.com/horizon-rust/horizon-mixins target/upstream/horizon-mixins
-git -C target/upstream/horizon-mixins fetch origin 29a8f8f84b253ea89422c0049ff5e8bfda36f1fb
-git -C target/upstream/horizon-mixins checkout --detach 29a8f8f84b253ea89422c0049ff5e8bfda36f1fb
+git -C target/upstream/horizon-mixins checkout --detach 07dab17387480ac03829584d9d1ee9912c9bb515
 cargo +1.95.0 fetch --locked --manifest-path target/upstream/horizon-mixins/Cargo.toml
 cargo run -p xtask --locked --offline -- stage ../horizon
 cargo fetch --locked --manifest-path target/horizon/modded/Cargo.toml
@@ -42,7 +41,7 @@ The compatible prepared resource directory located for this workspace is:
 <launcher-dir>/versions/nightly-2026-10-28-9b772b2/.local/horizon-client/26.3
 ```
 
-Use it read-only; every executable game run must use fresh isolated homes and working directory through tools/native_session.py. `xtask build` writes `target/host-cargo/fast/vape-rs-build.json` beside the executable (bundle hash, Horizon/mixin pins, tool patches, profile/features, cargo version, executable hash, source commit/dirty flag). `play.py` and every scenario refuse to launch an executable whose identity is missing or differs from the current sources (`--allow-stale` overrides with a warning), and copy the identity into the session as build.json. Post-merge scenarios: `tools/smoke_scenario.py` and `tools/lan_scenario.py` (two owned processes over localhost LAN); see docs/evidence/postmerge-validation.json. For a visible manual test in a new disposable survival world:
+Use it read-only; every executable game run must use fresh isolated homes and working directory through tools/native_session.py. `xtask build` writes `target/host-cargo/fast/vape-rs-build.json` beside the executable (bundle hash, Horizon/mixin pins, profile/features, cargo version, executable hash, source commit/dirty flag). `play.py` and every scenario refuse to launch an executable whose identity is missing or differs from the current sources (`--allow-stale` overrides with a warning), and copy the identity into the session as build.json. Post-merge scenarios: `tools/smoke_scenario.py` and `tools/lan_scenario.py` (two owned processes over localhost LAN); see docs/evidence/postmerge-validation.json. For a visible manual test in a new disposable survival world:
 
 ```sh
 python3 tools/play.py
@@ -70,7 +69,24 @@ python3 tools/scenario.py /absolute/path/to/prepared/26.3
 
 It uses a fresh working directory and isolated homes for each run, then captures input/HUD states and quits the test game. Screenshots require visual inspection; successful commands alone do not establish rendering parity.
 
-`python3 tools/bundle.py` is gated while development tool patches are required. Once a published compatible tool pin is recorded, it produces a deterministic source-only `.hnmod` and SHA-256 in dist without upstream game source or resources. Current development uses `xtask stage`; no compatible distributable is claimed. Installation through the launcher's native-mod build route and cross-platform support remain unvalidated. Native mods run with full OS privileges; installation uses the launcher's explicit native-code trust step.
+## Packaging and installing the .hnmod
+
+```sh
+python3 tools/bundle.py                 # dist/vape_rs-<version>.hnmod and .sha256
+python3 -I tools/launcher_build.py      # optional: build it the way the launcher does
+VAPE_RS_BUILD=launcher python3 tools/smoke_scenario.py /path/to/prepared/26.3
+```
+
+`bundle.py` packs the source-only bundle: `horizon-native.json` plus `mixins/vape_rs/` (only `.rs` and `.toml`, no game source or resources), with fixed timestamps so the same sources give the same bytes. The mod id is `vape_rs`, because the registry's ids allow only lowercase letters, digits and `_`. Horizon's own registry check accepts it (`cargo horizon-mod check dist/vape_rs-0.1.0-dev.hnmod`, built from the pinned Horizon). `launcher_build.py` follows the launcher's `native_mods::build` under target/launcher-build: it unpacks with the registry's path rules, runs `cargo install --git` for horizon-mixins at the bundle's pin, downloads GitHub's archive of the pinned Horizon commit, applies the mods, and builds `--profile release --features horizon-client/mods` with the launcher's Rust 1.99.1. `VAPE_RS_BUILD=launcher` makes the scenario tools run that executable.
+
+To play it with Horizon's launcher (0.2.27 or later, with an installed Nightly for Minecraft 26.3 to reuse the game files of):
+
+```sh
+mkdir -p ~/vape_rs && cd ~/vape_rs && unzip /path/to/vape_rs-0.1.0-dev.hnmod
+horizon-launcher native-build ~/vape_rs --trust-native-code
+```
+
+The launcher builds the game on Horizon `cc7bcbf` (the bundle pins it; the first build downloads Rust and takes 20 to 30 minutes) and points its "Native mods" instance at the result. Native mods run with your full OS privileges; read the source before trusting it. Settings are kept in the instance's `native-mods/vape-rs` folder. Only the Linux x86-64 build route has been exercised; Windows and macOS are untested.
 
 ## Tracking work
 

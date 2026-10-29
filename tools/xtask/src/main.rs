@@ -148,10 +148,10 @@ fn pack(root: &Path) -> Result<PathBuf> {
     let mut sources = BTreeMap::new();
     let file = expand(&root.join("src/lib.rs"), root, &mut sources)?;
     let payload = prettyplease::unparse(&file);
-    let bundle = root.join("target/bundle/mixins/vape-rs");
-    copy_sources(&root.join("mixins/vape-rs"), &bundle)?;
+    let bundle = root.join("target/bundle/mixins/vape_rs");
+    copy_sources(&root.join("mixins/vape_rs"), &bundle)?;
     for path in tree_hashes(&bundle)?.keys() {
-        if path != Path::new("runtime.rs") && !root.join("mixins/vape-rs").join(path).is_file() {
+        if path != Path::new("runtime.rs") && !root.join("mixins/vape_rs").join(path).is_file() {
             return Err(format!(
                 "stale generated bundle file {}; remove target/bundle and repack",
                 path.display()
@@ -167,7 +167,7 @@ fn pack(root: &Path) -> Result<PathBuf> {
         return Err("native manifest compatibility differs from compatibility.json".into());
     }
     write_changed(&bundle.join("runtime.rs"), payload.as_bytes())?;
-    let native = json!({"schema":1,"id":"vape-rs","version":manifest["mod"]["version"].as_str(),
+    let native = json!({"schema":1,"id":"vape_rs","version":manifest["mod"]["version"].as_str(),
         "game":config["minecraft"],"horizon":config["horizon_revision"],"mixins":config["horizon_mixins_revision"]});
     write_changed(
         &root.join("target/bundle/horizon-native.json"),
@@ -461,7 +461,7 @@ fn audit(root: &Path) -> Result<()> {
     let config = config(root)?;
     // Compare the plan with the packed bundle it was made from, not the live
     // sources: edits made while a stage runs must not affect its audit.
-    let bundle = root.join("target/bundle/mixins/vape-rs");
+    let bundle = root.join("target/bundle/mixins/vape_rs");
     let pristine = root.join("target/horizon/pristine");
     let staged = root.join("target/horizon/modded");
     audit_hashes(&pristine, &config)?;
@@ -515,45 +515,13 @@ fn audit(root: &Path) -> Result<()> {
     {
         return Err("unexpected bridge edits".into());
     }
-    let state_declarations = manifest
-        .get("state")
-        .and_then(toml::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let states = plan["states"].as_array().ok_or("missing planned states")?;
-    if states.len() != state_declarations.len() || states.len() > 1 {
-        return Err("unexpected state plan shape".into());
-    }
-    if let Some(state) = states.first() {
-        let declaration = &state_declarations[0];
-        for key in ["target", "ty", "initial"] {
-            if state[key]
-                .as_str()
-                .map(|s| s.split_whitespace().collect::<String>())
-                != declaration[key]
-                    .as_str()
-                    .map(|s| s.split_whitespace().collect::<String>())
-            {
-                return Err(format!("state {key} differs from declaration").into());
-            }
-        }
-        if declaration["id"].as_str() != Some("client")
-            || declaration["target"].as_str() != Some("horizon_client::game::Game")
-            || declaration["constructor"].as_array().map(Vec::len) != Some(1)
-            || declaration["constructor"][0]["target"].as_str()
-                != Some("horizon_client::game::Game<'_>::new")
-            || declaration["constructor"][0]["selector"].as_str() != Some("Game")
-            || declaration["constructor"][0]["require"].as_integer() != Some(1)
-            || state["name"] != "__horizon_mixins_vape_rs_client"
-            || state["lifetimes"]
-                .as_str()
-                .map(|s| s.split_whitespace().collect::<String>())
-                != Some("<'a>".into())
-            || state["constructors"].as_array().map(Vec::len) != Some(1)
-            || state["file"] != "crates/horizon-client/src/game.rs"
-        {
-            return Err("unexpected client state declaration or plan".into());
-        }
+    // The runtime's owner is a support module; the published tool adds no state.
+    if manifest.get("state").is_some()
+        || plan
+            .get("states")
+            .is_some_and(|s| s.as_array().is_none_or(|s| !s.is_empty()))
+    {
+        return Err("unexpected owned state".into());
     }
     let mut expected = Vec::new();
     for declaration in declarations {
@@ -644,9 +612,6 @@ fn audit(root: &Path) -> Result<()> {
             modified.items.remove(index);
             removals += 1;
         }
-        if path == "crates/horizon-client/src/game.rs" && !states.is_empty() {
-            removals += strip_client_state(&mut modified)?;
-        }
         stripper.visit_file_mut(&mut modified);
         removals += stripper.removed;
         // Normalize token formatting inside macro token streams, as the transformer does.
@@ -665,10 +630,11 @@ fn audit(root: &Path) -> Result<()> {
             return Err(format!("unexpected transformed AST changes: {path}").into());
         }
     }
-    if removals != injections.len() + modules.len() + states.len() * 4 {
+    if removals != injections.len() + modules.len() {
         return Err(format!(
-            "expected {} hooks and one module, removed {removals}",
-            injections.len()
+            "expected {} hooks and {} modules, removed {removals}",
+            injections.len(),
+            modules.len()
         )
         .into());
     }
@@ -683,98 +649,11 @@ fn audit(root: &Path) -> Result<()> {
         }
     }
     println!(
-        "audit: original AST restored after removing exactly {} HEAD hooks, {} owned state and {} support modules; other inputs unchanged",
+        "audit: original AST restored after removing exactly {} HEAD hooks and {} support modules; other inputs unchanged",
         injections.len(),
-        states.len(),
         modules.len()
     );
     Ok(())
-}
-
-fn strip_client_state(file: &mut syn::File) -> Result<usize> {
-    let field_owner: syn::ItemStruct = syn::parse_quote!(
-        struct Expected {
-            __horizon_mixins_vape_rs_client: crate::game::vape_rs::core::Client,
-        }
-    );
-    let field = field_owner.fields.iter().next().unwrap();
-    let owner = file
-        .items
-        .iter_mut()
-        .find_map(|i| match i {
-            Item::Struct(s) if s.ident == "Game" => Some(s),
-            _ => None,
-        })
-        .ok_or("missing Game state owner")?;
-    let syn::Fields::Named(fields) = &mut owner.fields else {
-        return Err("Game has no named fields".into());
-    };
-    if fields.named.last() != Some(field) {
-        return Err("exact final owned state field missing".into());
-    }
-    fields.named.pop();
-    let expected: syn::File = syn::parse_quote! {
-        pub(crate) fn __horizon_mixins_vape_rs_client_init() -> crate::game::vape_rs::core::Client { ::core::default::Default::default() }
-        impl<'a> Game<'a> {
-            pub fn __horizon_mixins_vape_rs_client(&self) -> &crate::game::vape_rs::core::Client { &self.__horizon_mixins_vape_rs_client }
-            pub fn __horizon_mixins_vape_rs_client_mut(&mut self) -> &mut crate::game::vape_rs::core::Client { &mut self.__horizon_mixins_vape_rs_client }
-        }
-    };
-    for item in expected.items {
-        let normalized = syn::parse_file(&prettyplease::unparse(&syn::File {
-            shebang: None,
-            attrs: vec![],
-            items: vec![item],
-        }))?
-        .items
-        .remove(0);
-        let index = file
-            .items
-            .iter()
-            .position(|i| i == &normalized)
-            .ok_or("exact owned state initializer/accessors missing")?;
-        file.items.remove(index);
-    }
-    struct Literal {
-        removed: usize,
-        invalid: bool,
-    }
-    impl VisitMut for Literal {
-        fn visit_expr_struct_mut(&mut self, expr: &mut syn::ExprStruct) {
-            if expr.path.is_ident("Game") {
-                let expected: syn::FieldValue = syn::parse_quote!(__horizon_mixins_vape_rs_client: crate::game::__horizon_mixins_vape_rs_client_init());
-                if expr.fields.last() == Some(&expected) {
-                    expr.fields.pop();
-                    self.removed += 1;
-                } else {
-                    self.invalid = true;
-                }
-            }
-            syn::visit_mut::visit_expr_struct_mut(self, expr);
-        }
-    }
-    let mut literals = Literal {
-        removed: 0,
-        invalid: false,
-    };
-    for item in &mut file.items {
-        if let Item::Impl(owner) = item {
-            let ty = &owner.self_ty;
-            if quote!(#ty).to_string().replace(' ', "") == "Game<'a>" {
-                for method in &mut owner.items {
-                    if let syn::ImplItem::Fn(method) = method
-                        && method.sig.ident == "new"
-                    {
-                        literals.visit_block_mut(&mut method.block);
-                    }
-                }
-            }
-        }
-    }
-    if literals.removed != 1 || literals.invalid {
-        return Err("unexpected Game constructor state edits".into());
-    }
-    Ok(4)
 }
 
 fn canonical_statement(statement: &syn::Stmt) -> String {
@@ -1014,43 +893,5 @@ mod tests {
         strip.visit_file_mut(&mut file);
         assert_eq!(strip.removed, 0);
         assert_eq!(file, before);
-    }
-    fn state_fixture() -> syn::File {
-        let file: syn::File = syn::parse_quote! {
-            struct Game<'a> { host: &'a str, __horizon_mixins_vape_rs_client: crate::game::vape_rs::core::Client }
-            impl<'a> Game<'a> { fn new(host: &'a str) -> Self { record_host_constructor(); Game { host, __horizon_mixins_vape_rs_client: crate::game::__horizon_mixins_vape_rs_client_init() } } }
-            pub(crate) fn __horizon_mixins_vape_rs_client_init() -> crate::game::vape_rs::core::Client { ::core::default::Default::default() }
-            impl<'a> Game<'a> {
-                pub fn __horizon_mixins_vape_rs_client(&self) -> &crate::game::vape_rs::core::Client { &self.__horizon_mixins_vape_rs_client }
-                pub fn __horizon_mixins_vape_rs_client_mut(&mut self) -> &mut crate::game::vape_rs::core::Client { &mut self.__horizon_mixins_vape_rs_client }
-            }
-        };
-        syn::parse_file(&prettyplease::unparse(&file)).unwrap()
-    }
-    #[test]
-    fn state_audit_restores_original_constructor_and_rejects_changed_initializers() {
-        let mut file = state_fixture();
-        assert_eq!(strip_client_state(&mut file).unwrap(), 4);
-        let expected: syn::File = syn::parse_quote! {
-            struct Game<'a> { host: &'a str, }
-            impl<'a> Game<'a> { fn new(host: &'a str) -> Self { record_host_constructor(); Game { host, } } }
-        };
-        assert_eq!(
-            prettyplease::unparse(&file),
-            prettyplease::unparse(&expected)
-        );
-        let source = prettyplease::unparse(&state_fixture());
-        let mut changed = syn::parse_file(&source.replace(
-            "::core::default::Default::default()",
-            "unexpected_initializer()",
-        ))
-        .unwrap();
-        assert!(strip_client_state(&mut changed).is_err());
-        let mut changed = syn::parse_file(&source.replace(
-            "crate::game::__horizon_mixins_vape_rs_client_init()",
-            "unexpected_initializer()",
-        ))
-        .unwrap();
-        assert!(strip_client_state(&mut changed).is_err());
     }
 }
