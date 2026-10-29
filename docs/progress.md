@@ -221,3 +221,10 @@ Added tools/play.py as a visible manual entry point using the existing NativeSes
 Added Panic as a bindable Utility module, retaining the existing F10 default. The reference's optional Re-enable setting records the active modules and restores them on the next activation; a module change or session/profile transition clears the pending restore. Panic remains momentary, and imported profile state cannot trigger it. Reference default visibility remains open. No other HUD family modules, Text GUI or ClientSettings fidelity are claimed in this batch.
 
 Validation: workspace formatting and Clippy (all targets, warnings denied) passed; 49 runtime and 4 audit tests passed, including a new restoration/invalidation case. Final payload tests passed (49); exact native stage/audit passed (22 HEAD hooks, one owned state, nine support modules), and the pinned client cargo check passed. No game executable or real host scenario was run, so Panic is implemented-core, not validated.
+
+
+## HUD resource-name localization
+
+The coordinates biome and potion effect labels now resolve their resource keys through Horizon's active language, falling back to readable resource IDs if a translation is absent. Namespace handling is covered by a focused runtime test. This is a partial localization improvement, not full HUD or client localization; translated glyph coverage and real host language scenarios remain open.
+
+Validation: formatting and Clippy (all targets, warnings denied) passed; 50 runtime tests, 4 audit tests and 50 emitted payload tests passed. Exact native staging/audit passed (22 HEAD hooks, one owned state and nine support modules), and the pinned client cargo check passed. No game or visual scenario was run. ClientSettings, Text GUI, icons, typography and Windows date conventions remain unfinished.

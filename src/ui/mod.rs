@@ -2,6 +2,7 @@ pub mod clock;
 pub mod gui;
 pub mod hud;
 pub mod hud_state;
+pub mod resource_names;
 
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
