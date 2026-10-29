@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **22 HEAD hooks, one Game-owned state, 9 support modules**. Horizon `e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083`; mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
+Current audited configuration: **23 HEAD hooks, one Game-owned state, 10 support modules**. Horizon `e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083`; mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers, modules and owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
@@ -31,6 +31,8 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `clear-water` | `horizon_client::game::render_tick::Game<'_>::frame_fog` | Cancellable HEAD. Cancellable underwater fog helper retaining pinned native fog inputs/math. |
 | `fish-hook-data` | `horizon_client::game::fishing::Game<'_>::remote_hook_data` | Observes only own-hook DATA_HOOKED_ENTITY into session-owned state; original packet handling continues. |
 
+| `world-lines-hook` | `horizon_client::game::fishing::Game<'_>::fishing_line` | Cancellable HEAD. Preserves fishing lines and adds depth-tested StorageESP outlines when enabled. |
+
 ## Support modules
 
 | Name | Host insertion file | Editable source |
@@ -43,6 +45,7 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_macros` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape-rs/macros.rs` |
 | `vape_fast_place` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/fast_place.rs` |
 | `vape_auto_fish` | `crates/horizon-client/src/game/fishing.rs` | `mixins/vape-rs/auto_fish.rs` |
+| `vape_world_lines` | `crates/horizon-client/src/game/fishing.rs` | `mixins/vape-rs/world_lines.rs` |
 | `vape_input_delays` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/input_delays.rs` |
 
 The runtime source is deterministically expanded from src/lib.rs. Each Game owns one Arc<Mutex<Runtime>>; there is no process/thread singleton. Adapters release runtime borrows before calling host actions. Session generations invalidate stale entity, slot, container and hook observations. Transient state never enters local profiles.

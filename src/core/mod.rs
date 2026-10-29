@@ -44,6 +44,7 @@ pub enum ModuleId {
     NoClickDelay,
     Sprint,
     Panic,
+    StorageEsp,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -68,6 +69,7 @@ impl ModuleId {
             Self::NoClickDelay => "legit.no-click-delay",
             Self::Sprint => "combat.sprint",
             Self::Panic => "utility.panic",
+            Self::StorageEsp => "render.storage-esp",
         }
     }
     pub fn name(self) -> &'static str {
@@ -92,9 +94,10 @@ impl ModuleId {
             Self::NoClickDelay => "NoClickDelay",
             Self::Sprint => "Sprint",
             Self::Panic => "Panic",
+            Self::StorageEsp => "StorageESP",
         }
     }
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
@@ -115,6 +118,7 @@ impl ModuleId {
         Self::NoClickDelay,
         Self::Sprint,
         Self::Panic,
+        Self::StorageEsp,
     ];
     fn position(self) -> (f64, f64) {
         match self {
@@ -131,7 +135,7 @@ impl ModuleId {
     pub fn category(self) -> &'static str {
         if matches!(self, Self::AutoTool | Self::ChestSteal | Self::FastPlace) {
             "World"
-        } else if self == Self::Fullbright {
+        } else if matches!(self, Self::Fullbright | Self::StorageEsp) {
             "Render"
         } else if matches!(
             self,
@@ -407,6 +411,9 @@ impl Default for Runtime {
             )
             .when("utility.auto-fish.refill-rods", json!(true)),
         ] {
+            settings.define(definition).unwrap();
+        }
+        for definition in super::modules::render::storage_esp::definitions() {
             settings.define(definition).unwrap();
         }
         for definition in inventory_runtime::definitions() {
@@ -1486,7 +1493,8 @@ impl Runtime {
                 | ModuleId::NoJumpDelay
                 | ModuleId::NoClickDelay
                 | ModuleId::Sprint
-                | ModuleId::Panic => continue,
+                | ModuleId::Panic
+                | ModuleId::StorageEsp => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

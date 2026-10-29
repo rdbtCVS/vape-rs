@@ -271,3 +271,34 @@ Validation: workspace formatting and Clippy (all targets, warnings denied) passe
 Reviewed MouseDelayFix against the pinned host's current-orientation attack rays and classified its 1.8.9-specific interpolated-look workaround as not applicable. Classified ScoreboardVisibleScorePredicate as an internal helper rather than a separate module; its owner filtering remains required by the unfinished Scoreboard. Details and limits are in docs/specs/hud-triage.md. No HUD module is newly registered and no host scenario or visual parity is claimed.
 
 Validation: workspace fmt and all-target Clippy passed; 51 runtime and 4 audit tests passed, as did 51 emitted-payload tests. Exact staging and audit passed with 22 HEAD hooks, one owned state and nine support modules. Pinned-client cargo check passed. No executable game scenario was run.
+
+## World-line host integration and partial StorageESP
+
+Registered an initial StorageESP module with real loaded block-entity
+enumeration and chest/furnace color and toggle settings. A cancellable HEAD on
+`Game::fishing_line` preserves the pinned host fishing lines and appends
+world-space outlines to the real renderer's depth-tested line batch. The
+normal module registry, binds, profiles and panic apply. The specification in
+`docs/specs/storage-esp-baseline.md` records the copied host source hash and
+substantial missing behavior. This is an initial partial module, not parity:
+fill and through-wall rendering, other containers and controls, open-chest
+handling, model bounds, and double-chest behavior remain open. All other
+requested render modules, entity/camera snapshots, text/quads and collision
+queries remain unfinished; no shared targeting adapter was introduced.
+
+Validation: 53 standalone runtime tests, four audit tests, 53 emitted-payload
+tests, formatting, and workspace Clippy with warnings denied passed. Exact
+native stage/audit passed with 23 HEAD hooks, one owned state and ten support
+modules; pinned host client cargo check passed. The initial flattened-payload
+import failed the host check and was corrected before the successful rerun.
+
+The optimized pinned client and control tool built successfully. Fresh isolated
+resource-backed integrated-server and in-frame chest scenarios both completed
+and exited cleanly; enabled captures visibly showed the outline, and the
+integrated disabled capture showed its removal after the binding toggle.
+Artifacts remain under `target/scenarios/storage-esp-nlz84kyn` and
+`target/scenarios/storage-esp-znyv8l1n`; they are not committed. The first
+integrated attempt failed because its block-targeting call ran before the
+server's block update arrived; the final scenario uses a fixed camera and was
+rerun in a fresh home. These tests do not validate furnace, occluded storage,
+other features or reference parity.
