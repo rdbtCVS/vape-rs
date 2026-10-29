@@ -815,13 +815,54 @@ impl VisitMut for Strip {
     }
 }
 
+/// Identity of what a host build of the current sources contains: the packed
+/// bundle (runtime payload, adapters, manifest), compatibility pins and build
+/// options. Source commit and dirty state are informational only.
+fn identity(root: &Path) -> Result<Value> {
+    let bundle = pack(root)?;
+    let config = config(root)?;
+    let files: BTreeMap<String, String> = tree_hashes(bundle.parent().unwrap().parent().unwrap())?
+        .into_iter()
+        .map(|(path, digest)| (path.to_string_lossy().into_owned(), digest))
+        .collect();
+    let git = |args: &[&str]| -> Result<String> {
+        Ok(
+            String::from_utf8(capture(Command::new("git").arg("-C").arg(root).args(args))?)?
+                .trim()
+                .to_owned(),
+        )
+    };
+    Ok(json!({
+        "schema": 1,
+        "bundle_sha256": hash(&serde_json::to_vec(&files)?),
+        "horizon_revision": config["horizon_revision"],
+        "horizon_mixins_revision": config["horizon_mixins_revision"],
+        "horizon_mixins_patches": config["horizon_mixins_patches"],
+        "profile": "fast",
+        "features": "--no-default-features",
+        "source_commit": git(&["rev-parse", "HEAD"])?,
+        "source_dirty": !git(&["status", "--porcelain", "--untracked-files=no"])?.is_empty(),
+    }))
+}
+
 fn host(root: &Path, mode: &str, horizon: &Path) -> Result<()> {
+    let manifest = root.join("target/host-cargo/fast/vape-rs-build.json");
+    let identity = if mode == "build" {
+        // A failed build must not leave a manifest describing the old binary
+        // as current; tools refuse to launch an executable without one.
+        if manifest.exists() {
+            fs::remove_file(&manifest)?;
+        }
+        Some(identity(root)?)
+    } else {
+        None
+    };
     let stage = stage(root, horizon)?;
     let log = root.join(format!("target/host-{mode}.log"));
     let output = fs::File::create(&log)?;
     let mut command = Command::new("cargo");
     command
-        .current_dir(stage)
+        .current_dir(&stage)
         .arg(mode)
         .args([
             "--locked",
@@ -844,7 +885,23 @@ fn host(root: &Path, mode: &str, horizon: &Path) -> Result<()> {
         .stdout(Stdio::from(output.try_clone()?))
         .stderr(Stdio::from(output));
     println!("host {mode}: {}", log.display());
-    checked(&mut command)
+    let cargo = String::from_utf8(capture(
+        Command::new("cargo").current_dir(&stage).arg("--version"),
+    )?)?;
+    checked(&mut command)?;
+    if let Some(mut identity) = identity {
+        let executable = root.join("target/host-cargo/fast/horizon-client");
+        identity["cargo"] = json!(cargo.trim());
+        identity["executable_sha256"] = json!(hash(&fs::read(&executable)?));
+        identity["built_unix"] = json!(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs()
+        );
+        write_changed(&manifest, &serde_json::to_vec_pretty(&identity)?)?;
+        println!("build identity: {}", manifest.display());
+    }
+    Ok(())
 }
 
 fn run() -> Result<()> {
@@ -861,8 +918,9 @@ fn run() -> Result<()> {
         "stage" => println!("{}", stage(&root, &horizon)?.display()),
         "audit" => audit(&root)?,
         "check" | "build" | "test" => host(&root, action, &horizon)?,
+        "identity" => println!("{}", serde_json::to_string_pretty(&identity(&root)?)?),
         _ => println!(
-            "cargo run -p xtask -- pack|payload-test|stage|audit|check|build|test [horizon-git-path]"
+            "cargo run -p xtask -- pack|payload-test|stage|audit|check|build|test|identity [horizon-git-path]"
         ),
     }
     Ok(())

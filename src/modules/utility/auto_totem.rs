@@ -1,5 +1,5 @@
 use super::super::super::inventory::{
-    planner::Gate,
+    planner::{Gate, Outcome},
     types::{Click, Request, SlotRole, Snapshot},
 };
 
@@ -21,6 +21,10 @@ impl AutoTotem {
         self.gate.clear();
         self.opened = false;
     }
+    /// Whether this planner opened the screen that is currently shown.
+    pub fn opened(&self) -> bool {
+        self.opened
+    }
     pub fn active(&self) -> bool {
         self.opened || self.gate.pending().is_some()
     }
@@ -37,8 +41,19 @@ impl AutoTotem {
             self.cancel();
             return None;
         }
-        if !self.gate.acknowledge(snapshot) {
-            return None;
+        match self.gate.observe(snapshot) {
+            Outcome::Waiting => return None,
+            Outcome::Invalidated => {
+                self.cancel();
+                return None;
+            }
+            Outcome::Idle | Outcome::Applied | Outcome::Failed(_) => {}
+        }
+        // After a no-op swap nothing changed, so the same swap would repeat.
+        // Wind down (closing an inventory this module opened) until the
+        // content differs.
+        if self.gate.stalled(snapshot) {
+            return self.wind_down(snapshot, close);
         }
         let equipped = snapshot
             .slot(504)?
@@ -46,20 +61,18 @@ impl AutoTotem {
             .as_ref()
             .is_some_and(|i| i.fingerprint.id == "minecraft:totem_of_undying");
         if equipped {
-            if self.opened && close && snapshot.is_player_inventory {
-                self.opened = false;
-                return Some(Effect::CloseInventory);
-            }
-            self.opened = false;
-            return None;
+            return self.wind_down(snapshot, close);
         }
-        let source = snapshot
+        let Some(source) = snapshot
             .slots(|role| matches!(role, SlotRole::Main | SlotRole::Hotbar(_)))
             .find(|slot| {
                 slot.item
                     .as_ref()
                     .is_some_and(|i| i.fingerprint.id == "minecraft:totem_of_undying")
-            })?;
+            })
+        else {
+            return self.wind_down(snapshot, close);
+        };
         if !snapshot.is_player_inventory {
             if !inventory_only && open && !snapshot.screen_open {
                 self.opened = true;
@@ -76,6 +89,10 @@ impl AutoTotem {
                 Request::for_slot(snapshot, source, Click::SwapOffhand),
             )
             .map(Effect::Request)
+    }
+    fn wind_down(&mut self, snapshot: &Snapshot, close: bool) -> Option<Effect> {
+        let opened = std::mem::take(&mut self.opened);
+        (opened && close && snapshot.is_player_inventory).then_some(Effect::CloseInventory)
     }
 }
 
@@ -123,6 +140,7 @@ mod tests {
             is_player_inventory: true,
             is_chest: false,
             chest_title_standard: true,
+            observed: std::time::Instant::now(),
         }
     }
     #[test]
@@ -140,6 +158,34 @@ mod tests {
         assert!(module.step(&s, false, true, true).is_none());
         s.revision += 1;
         s.slots[1].item = Some(item("minecraft:totem_of_undying"));
+        assert!(module.step(&s, false, true, true).is_none());
+        assert!(!module.active());
+    }
+    #[test]
+    fn no_op_swap_closes_its_inventory_and_does_not_reopen() {
+        use crate::inventory::planner::DEADLINE;
+        let mut module = AutoTotem::default();
+        let mut s = snapshot();
+        s.screen_open = false;
+        s.is_player_inventory = false;
+        assert!(matches!(
+            module.step(&s, false, true, true),
+            Some(Effect::OpenInventory)
+        ));
+        s.screen_open = true;
+        s.is_player_inventory = true;
+        assert!(matches!(
+            module.step(&s, false, true, true),
+            Some(Effect::Request(_))
+        ));
+        s.observed += DEADLINE;
+        assert!(matches!(
+            module.step(&s, false, true, true),
+            Some(Effect::CloseInventory)
+        ));
+        assert!(!module.active());
+        s.screen_open = false;
+        s.is_player_inventory = false;
         assert!(module.step(&s, false, true, true).is_none());
         assert!(!module.active());
     }

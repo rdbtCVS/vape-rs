@@ -1,4 +1,5 @@
 """Owned native game process with disposable working directory and homes."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -7,10 +8,50 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+BINARY = ROOT / 'target/host-cargo/fast/horizon-client'
+BUILD_MANIFEST = ROOT / 'target/host-cargo/fast/vape-rs-build.json'
+# Fields that must match the current sources; commit/dirty are informational.
+IDENTITY_KEYS = ('bundle_sha256', 'horizon_revision', 'horizon_mixins_revision',
+                 'horizon_mixins_patches', 'profile', 'features')
+
+
+class StaleBuild(RuntimeError):
+    pass
+
+
+def verify_build(allow_stale=False):
+    """Return the executable's build identity after checking it against the
+    current sources. Raises StaleBuild unless allow_stale is set."""
+    if not BINARY.is_file():
+        raise StaleBuild('no executable; build first: cargo run -p xtask --locked --offline -- build')
+    problems = []
+    try:
+        built = json.loads(BUILD_MANIFEST.read_text())
+    except (OSError, ValueError):
+        built = {}
+        problems.append('no build identity beside the executable (built before identities, '
+                        'or the last build failed)')
+    if built:
+        digest = hashlib.sha256(BINARY.read_bytes()).hexdigest()
+        if built.get('executable_sha256') != digest:
+            problems.append('executable differs from the one its identity describes')
+        current = json.loads(subprocess.run(
+            ['cargo', 'run', '-q', '-p', 'xtask', '--locked', '--offline', '--', 'identity'],
+            cwd=ROOT, check=True, capture_output=True, text=True).stdout)
+        for key in IDENTITY_KEYS:
+            if built.get(key) != current.get(key):
+                problems.append(f'{key}: built {built.get(key)!r}, sources {current.get(key)!r}')
+    if problems and not allow_stale:
+        raise StaleBuild('executable does not match current sources; rebuild with '
+                         'cargo run -p xtask --locked --offline -- build\n  ' + '\n  '.join(problems))
+    for problem in problems:
+        print(f'warning: stale build: {problem}', flush=True)
+    return {**built, 'stale': problems}
 
 
 class NativeSession:
-    def __init__(self, resources, prefix='scenario-', in_frame=False):
+    def __init__(self, resources, prefix='scenario-', in_frame=False, allow_stale=False):
+        self.build = verify_build(allow_stale)
         self.resources = Path(resources).resolve(strict=True)
         if json.loads((self.resources / 'horizon-resources.json').read_text()).get('minecraft') != '26.3':
             raise ValueError('prepared Minecraft 26.3 resources required')
@@ -31,6 +72,7 @@ class NativeSession:
         self.log = None
         self.commands = []
         self.current = self.root / 'game/native-mods/vape-rs/current.json'
+        (self.root / 'build.json').write_text(json.dumps(self.build, indent=2) + '\n')
         print(self.root, flush=True)
 
     def __enter__(self):
@@ -55,13 +97,15 @@ class NativeSession:
             raise RuntimeError(f'{args}: {result.stdout} {result.stderr}')
         return json.loads(result.stdout)
 
-    def launch(self):
+    def launch(self, creative=True, world='NativeScenario', extra=()):
         if self.process is not None:
             raise RuntimeError('close the owned process before restarting')
-        game = ROOT / 'target/host-cargo/fast/horizon-client'
-        args = [str(game), '--resources', str(self.resources), '--world', 'NativeScenario',
-                '--creative', '--offscreen', '--width', '800', '--height', '600',
-                '--render-distance', '2', '--no-pause', '--control-socket', str(self.socket)]
+        args = [str(BINARY), '--resources', str(self.resources),
+                *(('--world', world) if world else ()), '--offscreen', '--width', '800', '--height', '600',
+                '--render-distance', '2', '--no-pause', '--control-socket', str(self.socket),
+                *extra]
+        if creative:
+            args.append('--creative')
         if self.in_frame:
             args.append('--in-frame')
         self.socket.unlink(missing_ok=True)

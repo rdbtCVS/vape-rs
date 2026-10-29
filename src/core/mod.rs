@@ -4,7 +4,10 @@ pub mod lifecycle;
 pub mod macro_runtime;
 pub mod movement_input;
 pub mod profiles;
+mod registry;
 pub mod settings;
+
+pub use registry::ModuleId;
 
 use super::actions::{Coordinator, HotbarSlot, Lease, Owner, Resource, SlotChange};
 use super::input::{BindingMode, KeyAction, MultiBinding};
@@ -22,155 +25,6 @@ use std::{
     collections::{BTreeMap, VecDeque},
     path::PathBuf,
 };
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum ModuleId {
-    Coordinates,
-    Fps,
-    Compass,
-    NoHurtCamera,
-    AutoTool,
-    Clock,
-    Keystrokes,
-    ArmorStatus,
-    PotionEffects,
-    AutoArmor,
-    AutoTotem,
-    Refill,
-    ChestSteal,
-    FastPlace,
-    Fullbright,
-    ClearWater,
-    AutoFish,
-    NoJumpDelay,
-    NoClickDelay,
-    Sprint,
-    Panic,
-    StorageEsp,
-    Parkour,
-}
-impl ModuleId {
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::Coordinates => "hud.coordinates",
-            Self::Fps => "hud.fps",
-            Self::Compass => "hud.compass",
-            Self::NoHurtCamera => "render.no-hurt-camera",
-            Self::AutoTool => "world.auto-tool",
-            Self::Clock => "hud.clock",
-            Self::Keystrokes => "hud.keystrokes",
-            Self::ArmorStatus => "hud.armor",
-            Self::PotionEffects => "hud.potions",
-            Self::AutoArmor => "inventory.auto-armor",
-            Self::AutoTotem => "inventory.auto-totem",
-            Self::Refill => "inventory.refill",
-            Self::ChestSteal => "world.chest-steal",
-            Self::FastPlace => "world.fast-place",
-            Self::Fullbright => "render.fullbright",
-            Self::ClearWater => "render.clear-water",
-            Self::AutoFish => "utility.auto-fish",
-            Self::NoJumpDelay => "legit.no-jump-delay",
-            Self::NoClickDelay => "legit.no-click-delay",
-            Self::Sprint => "combat.sprint",
-            Self::Panic => "utility.panic",
-            Self::StorageEsp => "render.storage-esp",
-            Self::Parkour => "world.parkour",
-        }
-    }
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Coordinates => "Coords",
-            Self::Fps => "FPS",
-            Self::Compass => "Compass",
-            Self::NoHurtCamera => "NoHurtCam",
-            Self::AutoTool => "AutoTool",
-            Self::Clock => "Clock",
-            Self::Keystrokes => "Keystrokes",
-            Self::ArmorStatus => "Armor Status",
-            Self::PotionEffects => "Potion Effects",
-            Self::AutoArmor => "AutoArmor",
-            Self::AutoTotem => "AutoTotem",
-            Self::Refill => "Refill",
-            Self::ChestSteal => "ChestSteal",
-            Self::FastPlace => "FastPlace",
-            Self::Fullbright => "Fullbright",
-            Self::ClearWater => "Clear Water",
-            Self::AutoFish => "AutoFish",
-            Self::NoJumpDelay => "NoJumpDelay",
-            Self::NoClickDelay => "NoClickDelay",
-            Self::Sprint => "Sprint",
-            Self::Panic => "Panic",
-            Self::StorageEsp => "StorageESP",
-            Self::Parkour => "Parkour",
-        }
-    }
-    pub const ALL: [Self; 23] = [
-        Self::Coordinates,
-        Self::Fps,
-        Self::Compass,
-        Self::NoHurtCamera,
-        Self::AutoTool,
-        Self::Clock,
-        Self::Keystrokes,
-        Self::ArmorStatus,
-        Self::PotionEffects,
-        Self::AutoArmor,
-        Self::AutoTotem,
-        Self::Refill,
-        Self::ChestSteal,
-        Self::FastPlace,
-        Self::Fullbright,
-        Self::ClearWater,
-        Self::AutoFish,
-        Self::NoJumpDelay,
-        Self::NoClickDelay,
-        Self::Sprint,
-        Self::Panic,
-        Self::StorageEsp,
-        Self::Parkour,
-    ];
-    fn position(self) -> (f64, f64) {
-        match self {
-            Self::Coordinates => (8.0, 8.0),
-            Self::Fps => (8.0, 36.0),
-            Self::Compass => (46.0, 200.0),
-            Self::Clock => (250.0, 8.0),
-            Self::Keystrokes => (8.0, 120.0),
-            Self::ArmorStatus => (330.0, 100.0),
-            Self::PotionEffects => (240.0, 180.0),
-            _ => (8.0, 8.0),
-        }
-    }
-    pub fn category(self) -> &'static str {
-        if matches!(
-            self,
-            Self::AutoTool | Self::ChestSteal | Self::FastPlace | Self::Parkour
-        ) {
-            "World"
-        } else if matches!(self, Self::Fullbright | Self::StorageEsp) {
-            "Render"
-        } else if matches!(
-            self,
-            Self::AutoArmor | Self::AutoTotem | Self::Refill | Self::AutoFish | Self::Panic
-        ) {
-            "Utility"
-        } else {
-            "Legit"
-        }
-    }
-    pub fn is_panel(self) -> bool {
-        matches!(
-            self,
-            Self::Coordinates
-                | Self::Fps
-                | Self::Compass
-                | Self::Clock
-                | Self::Keystrokes
-                | Self::ArmorStatus
-                | Self::PotionEffects
-        )
-    }
-}
 
 #[derive(Debug)]
 pub struct ToolAction {
@@ -195,7 +49,7 @@ pub struct Runtime {
     actions: Coordinator,
     auto_tool: auto_tool::AutoTool,
     auto_fish: super::modules::utility::auto_fish::AutoFish,
-    auto_fish_pending: Option<super::inventory::types::Request>,
+    auto_fish_gate: super::inventory::planner::Gate,
     fish_hooked_entity: Option<(u32, i32)>,
     macro_use_lease: Option<Lease>,
     auto_armor: super::modules::utility::auto_armor::AutoArmor,
@@ -222,8 +76,9 @@ pub struct Runtime {
     notes: VecDeque<String>,
     gamma: super::modules::render::fullbright::Gamma,
     brightness_reset: bool,
-    sprint_input_owned: bool,
-    parkour_input_owned: bool,
+    /// The single writer of synthetic movement keys for this client.
+    movement: movement_input::Writer,
+    parkour_tapped: bool,
     hud_state: super::ui::hud_state::HudState,
     pub gui: Gui,
     suppress_game_input: bool,
@@ -244,12 +99,7 @@ impl Default for Runtime {
                         max_entries: 8,
                         max_chars: 64,
                     },
-                    json!(match module {
-                        ModuleId::Coordinates => vec!["F8"],
-                        ModuleId::Fps => vec!["F9"],
-                        ModuleId::Panic => vec!["F10"],
-                        _ => vec![],
-                    }),
+                    json!(module.default_binds()),
                 ),
                 Definition::choice(
                     &format!("{prefix}.activation"),
@@ -485,7 +335,7 @@ impl Default for Runtime {
             actions: Coordinator::default(),
             auto_tool: auto_tool::AutoTool::default(),
             auto_fish: Default::default(),
-            auto_fish_pending: None,
+            auto_fish_gate: Default::default(),
             fish_hooked_entity: None,
             macro_use_lease: None,
             auto_armor: Default::default(),
@@ -512,8 +362,8 @@ impl Default for Runtime {
             notes: VecDeque::new(),
             gamma: Default::default(),
             brightness_reset: false,
-            sprint_input_owned: false,
-            parkour_input_owned: false,
+            movement: movement_input::Writer::default(),
+            parkour_tapped: false,
             hud_state: super::ui::hud_state::HudState::default(),
             gui: Gui::default(),
             suppress_game_input: false,
@@ -524,11 +374,12 @@ impl Default for Runtime {
     }
 }
 impl Runtime {
-    pub fn replace_parkour_input_owner(&mut self, owned: bool) -> bool {
-        std::mem::replace(&mut self.parkour_input_owned, owned)
+    /// Parkour taps jump for one tick at a time; returns the previous tick's tap.
+    pub fn replace_parkour_tap(&mut self, tapped: bool) -> bool {
+        std::mem::replace(&mut self.parkour_tapped, tapped)
     }
-    pub fn replace_sprint_input_owner(&mut self, owned: bool) -> bool {
-        std::mem::replace(&mut self.sprint_input_owned, owned)
+    pub fn movement(&mut self) -> &mut movement_input::Writer {
+        &mut self.movement
     }
     pub fn enabled(&self, module: ModuleId) -> bool {
         self.modules[&module].enabled
@@ -1615,10 +1466,21 @@ mod tests {
             first.settings().get("combat.sprint.cancel-invis"),
             Some(&json!(false))
         );
-        assert!(!first.replace_sprint_input_owner(true));
-        assert!(!second.replace_sprint_input_owner(false));
-        assert!(first.replace_sprint_input_owner(false));
-        assert!(!first.replace_sprint_input_owner(false));
+        use movement_input::{Axis, HostView, Overrides, Owner, Request};
+        let mut requests = Overrides::default();
+        requests.request(Request {
+            axis: Axis::Sprint,
+            owner: Owner::Sprint,
+            priority: 1,
+            pressed: true,
+        });
+        let view = HostView::default();
+        assert_eq!(
+            first.movement().resolve(&requests, &view),
+            [(Axis::Sprint, true)]
+        );
+        assert!(first.movement().owns(Axis::Sprint));
+        assert!(!second.movement().owns(Axis::Sprint));
     }
 
     #[test]

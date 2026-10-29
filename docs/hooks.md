@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **23 HEAD hooks, one Game-owned state, 11 support modules**. Horizon `e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083`; mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
+Current audited configuration: **23 HEAD hooks, one Game-owned state, 11 support modules**. Horizon `9669600c389ad6d205db4ec0bb061935f2a38d0c` (`nightly-source/2026-10-28-9669600`); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers, modules and owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
@@ -14,8 +14,8 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `control-key-names` | `horizon_client::game::control::key_code` | Cancellable HEAD. Supplies missing mod/editor control-key names; continues original parser otherwise. |
 | `gui-events` | `horizon_client::game::<Game<'_> as ApplicationHandler>::window_event` | Owned-window pointer, text, IME and focus events. |
 | `gui-render` | `horizon_client::game::debug_keys::Game<'_>::draw_debug_overlay` | Paints the owned local GUI through the host atlas. |
-| `game-key-capture` | `horizon_client::game::Game<'_>::mapped_key` | Cancellable HEAD. Consumes handled gameplay key presses; releases retain cleanup. |
-| `control-key-capture` | `horizon_client::game::control::Game<'_>::control_key_down` | Cancellable HEAD. Same isolation for controlled key events. |
+| `game-key-capture` | `horizon_client::game::Game<'_>::mapped_key` | Cancellable HEAD (`adapters/mapped_key.rs`, binds `key`, `pressed`). Consumes handled gameplay key presses; otherwise records the canonical key event (rebound key, controller, socket) for the movement writer. |
+| `control-key-capture` | `horizon_client::game::control::Game<'_>::control_key_down` | Cancellable HEAD (`adapters/control_key.rs`, binds `key`). Same isolation for socket key presses; records keys inserted outside the toggle mappings for the movement writer. |
 | `mouse-bind` | `horizon_client::game::Game<'_>::play_mouse` | Cancellable HEAD. Physical mouse bindings/CPS/macros; consumes handled presses. |
 | `client-frame` | `horizon_client::game::Game<'_>::hud` | Owned GUI/save lifecycle; brightness, macros, inventory and fishing advance while menus pause world ticks. |
 | `session-world-open` | `horizon_client::game::Game<'_>::open_world` | Session invalidation before the native world/connection/dimension/respawn boundary. |
@@ -59,6 +59,4 @@ Current evidence and remaining validation are in [status.md](status.md) and [pro
 
 The targeting/rotation primitives under `src/targeting` are pure and currently have no host hook or live snapshot adapter. They do not alter the hook counts above.
 
-Sprint uses the existing `client-tick` hook and `vape_input_delays` support module to supply the host's normal sprint key state; its per-client flag tracks the synthetic key for cleanup. This is a baseline, not the planned general movement-input owner.
-
-Parkour currently runs from the existing client-tick hook, querying host collision shapes and briefly injecting the jump key. This adapter is experimental and has not had host gameplay scenarios.
+Movement keys have one writer: `vape_input_delays::movement`, called from `client-tick` before local and remote movement, and from `client-frame` on screen/pause/unfocused frames. It reads the host's canonical key set and toggle mappings, resolves the per-tick requests from Sprint and Parkour (`vape_parkour::edge_ahead` answers the host collision query) through `core::movement_input::Writer`, and writes only the axes that differ from the user's state, or that it owned and must hand back. Host events reach the writer through the two key-capture adapters above. Host scenarios: docs/evidence/postmerge-validation.json.

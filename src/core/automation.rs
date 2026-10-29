@@ -1,7 +1,10 @@
 // Shared action claims for native automation producers.
 use super::super::{
     actions::{Owner, Resource},
-    inventory::types::{Request, Snapshot},
+    inventory::{
+        planner::Outcome,
+        types::{Request, Snapshot},
+    },
     modules::utility::auto_fish::{Context, Effect, Options, Rod},
 };
 use super::{ModuleId, Runtime};
@@ -20,11 +23,14 @@ impl Runtime {
     }
     pub fn cancel_auto_fish(&mut self) {
         self.auto_fish.cancel();
-        self.auto_fish_pending = None;
+        self.auto_fish_gate.clear();
         self.actions.release_owner(Owner("utility.auto-fish"));
     }
-    pub fn auto_fish_queued(&mut self, request: Request) {
-        self.auto_fish_pending = Some(request);
+    /// Tracks a rod quick-move the host has just submitted from `snapshot`.
+    pub fn auto_fish_queued(&mut self, snapshot: &Snapshot, request: Request) {
+        if self.auto_fish_gate.issue(snapshot, request).is_none() {
+            self.cancel_auto_fish();
+        }
     }
     pub fn auto_fish_step(
         &mut self,
@@ -32,22 +38,28 @@ impl Runtime {
         options: Options,
         snapshot: Option<&Snapshot>,
     ) -> Option<Effect> {
-        if self.auto_fish_pending.is_some() && !context.inventory_open {
+        if self.auto_fish_gate.pending().is_some() && !context.inventory_open {
             self.cancel_auto_fish();
             self.set_enabled(ModuleId::AutoFish, false);
             return None;
         }
-        if let Some(request) = &self.auto_fish_pending {
-            let snapshot = snapshot?;
-            if request.session != snapshot.session || request.container_id != snapshot.container_id
-            {
-                self.cancel_auto_fish();
-                return None;
+        if self.auto_fish_gate.pending().is_some() {
+            match self.auto_fish_gate.observe(snapshot?) {
+                Outcome::Waiting => return None,
+                Outcome::Invalidated => {
+                    self.cancel_auto_fish();
+                    return None;
+                }
+                // The rod could not be moved (for example, a full hotbar).
+                // Retrying would repeat the same no-op, so stop instead of
+                // keeping the inventory and container claim.
+                Outcome::Failed(_) => {
+                    self.cancel_auto_fish();
+                    self.set_enabled(ModuleId::AutoFish, false);
+                    return None;
+                }
+                Outcome::Idle | Outcome::Applied => {}
             }
-            if request.revision == snapshot.revision {
-                return None;
-            }
-            self.auto_fish_pending = None;
         }
         let epoch = self.session.epoch();
         for resource in [Resource::Hotbar, Resource::UseItem] {

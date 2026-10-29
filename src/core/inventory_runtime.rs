@@ -17,11 +17,18 @@ pub enum InventoryEffect {
     OpenInventory,
     CloseInventory,
 }
+/// Longest time a selected planner may hold the container claim without
+/// emitting an effect. Planner clicks resolve within the gate deadline and
+/// configured delays are far shorter; exceeding this is a planner defect,
+/// which the scheduler recovers from instead of starving other automation.
+pub const STALL_LIMIT: Duration = Duration::from_secs(5);
+
 #[derive(Debug)]
 pub struct Scheduler {
     due: Option<Instant>,
     seed: u64,
     active: Option<ModuleId>,
+    progress: Option<Instant>,
     cursor: u8,
 }
 impl Default for Scheduler {
@@ -30,6 +37,7 @@ impl Default for Scheduler {
             due: None,
             seed: 0x56a9,
             active: None,
+            progress: None,
             cursor: 0,
         }
     }
@@ -38,19 +46,29 @@ impl Scheduler {
     pub fn clear(&mut self) {
         self.due = None;
         self.active = None;
+        self.progress = None;
     }
-    fn ready(&self) -> bool {
-        self.due.is_none_or(|due| Instant::now() >= due)
+    fn ready(&self, now: Instant) -> bool {
+        self.due.is_none_or(|due| now >= due)
     }
     fn active(&self) -> Option<ModuleId> {
         self.active
     }
-    fn select(&mut self, module: ModuleId) {
+    fn select(&mut self, module: ModuleId, now: Instant) {
+        if self.active != Some(module) {
+            self.progress = Some(now);
+        }
         self.active = Some(module);
     }
+    fn progressed(&mut self, now: Instant) {
+        self.progress = Some(now);
+    }
+    fn stalled(&self, now: Instant) -> bool {
+        self.progress
+            .is_some_and(|since| now.saturating_duration_since(since) > STALL_LIMIT)
+    }
     fn release(&mut self) {
-        self.due = None;
-        self.active = None;
+        self.clear();
     }
     fn choose(&mut self, enabled: [bool; 4]) -> Option<ModuleId> {
         let modules = [
@@ -68,13 +86,13 @@ impl Scheduler {
         }
         None
     }
-    fn wait(&mut self, range: (u64, u64)) {
+    fn wait(&mut self, now: Instant, range: (u64, u64)) {
         self.seed ^= self.seed << 13;
         self.seed ^= self.seed >> 7;
         self.seed ^= self.seed << 17;
         let (min, max) = (range.0.min(range.1), range.0.max(range.1));
         let ms = min + self.seed % (max - min + 1);
-        self.due = Some(Instant::now() + Duration::from_millis(ms));
+        self.due = Some(now + Duration::from_millis(ms));
     }
 }
 
@@ -227,11 +245,22 @@ impl Runtime {
             self.cancel_inventory();
             return Vec::new();
         }
-        self.inventory_schedule.select(module);
+        let now = snapshot.observed;
+        self.inventory_schedule.select(module, now);
+        if self.inventory_schedule.stalled(now) {
+            let owned_screen =
+                self.auto_armor.opened() || self.auto_totem.opened() || self.refill.opened();
+            self.cancel_inventory();
+            return if owned_screen && snapshot.screen_open {
+                vec![InventoryEffect::CloseInventory]
+            } else {
+                Vec::new()
+            };
+        }
         // A pending request remains owned by this module. Its next planner
         // observation is also delayed: no same-frame follow-up can mistake a
         // local prediction for server acceptance.
-        if !self.inventory_schedule.ready() {
+        if !self.inventory_schedule.ready(now) {
             return Vec::new();
         }
         let (effect, delay, active) = match module {
@@ -301,11 +330,12 @@ impl Runtime {
             _ => unreachable!("inventory module registry"),
         };
         if let Some(effect) = effect {
-            self.inventory_schedule.wait(delay);
+            self.inventory_schedule.wait(now, delay);
+            self.inventory_schedule.progressed(now);
             return vec![effect];
         }
         if active {
-            self.inventory_schedule.wait(delay);
+            self.inventory_schedule.wait(now, delay);
         } else {
             self.inventory_schedule.release();
         }
@@ -403,4 +433,168 @@ fn chest_effect(effect: Vec<chest_steal::Effect>) -> Option<InventoryEffect> {
         chest_steal::Effect::Request(r) => InventoryEffect::Request(r),
         chest_steal::Effect::Close => InventoryEffect::CloseInventory,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::inventory::{
+        planner::{DEADLINE, tests::item},
+        types::{ArmorSlot, Click, Item, Slot, SlotRole},
+    };
+    use super::*;
+
+    fn helmet(score: f32) -> Item {
+        Item {
+            armor: Some(ArmorSlot::Head),
+            score,
+            max_count: 1,
+            ..item("minecraft:iron_helmet", 1)
+        }
+    }
+    /// Survival inventory with every main/hotbar slot full, a worse helmet
+    /// equipped and a better one in the inventory: removing the equipped
+    /// helmet by quick-move can never succeed.
+    fn full_inventory(runtime: &Runtime, at: Instant, open: bool) -> Snapshot {
+        let mut slots: Vec<Slot> = (0..36u16)
+            .map(|index| Slot {
+                index,
+                item: Some(item("minecraft:stone", 64)),
+                role: if index < 9 {
+                    SlotRole::Hotbar(index as u8)
+                } else {
+                    SlotRole::Main
+                },
+            })
+            .collect();
+        slots[20].item = Some(helmet(3.0));
+        slots.push(Slot {
+            index: 500,
+            item: Some(helmet(1.0)),
+            role: SlotRole::Armor(ArmorSlot::Head),
+        });
+        slots.push(Slot {
+            index: 504,
+            item: None,
+            role: SlotRole::Other,
+        });
+        Snapshot {
+            session: runtime.session().epoch().value(),
+            container_id: 0,
+            revision: 11,
+            slots,
+            carried: None,
+            screen_open: open,
+            is_player_inventory: open,
+            is_chest: false,
+            chest_title_standard: true,
+            observed: at,
+        }
+    }
+
+    #[test]
+    fn no_op_armor_click_is_abandoned_and_releases_the_container() {
+        let mut runtime = Runtime::default();
+        runtime
+            .set_setting("inventory.auto-armor.inventory-only", json!(false))
+            .unwrap();
+        runtime.set_enabled(ModuleId::AutoArmor, true);
+        let t = Instant::now();
+        assert_eq!(
+            runtime.inventory_step(&full_inventory(&runtime, t, false)),
+            vec![InventoryEffect::OpenInventory]
+        );
+        let t = t + Duration::from_millis(200);
+        let opened = full_inventory(&runtime, t, true);
+        let effects = runtime.inventory_step(&opened);
+        assert!(matches!(
+            effects.as_slice(),
+            [InventoryEffect::Request(Request {
+                slot: 500,
+                click: Click::QuickMove,
+                ..
+            })]
+        ));
+        // The host performs the click; nothing changes because there is no room.
+        let mut now = t;
+        let mut closed = false;
+        while now < t + DEADLINE + Duration::from_millis(400) {
+            now += Duration::from_millis(50);
+            let effects = runtime.inventory_step(&full_inventory(&runtime, now, true));
+            assert!(
+                !effects
+                    .iter()
+                    .any(|e| matches!(e, InventoryEffect::Request(_))),
+                "the no-op must not be retried"
+            );
+            if effects == [InventoryEffect::CloseInventory] {
+                closed = true;
+                break;
+            }
+            assert!(
+                now < t + DEADLINE + Duration::from_millis(350),
+                "still waiting"
+            );
+        }
+        assert!(closed, "AutoArmor closes the inventory it opened");
+        // Back in game with unchanged content: no reopen, no retained claim.
+        for _ in 0..5 {
+            now += Duration::from_millis(250);
+            assert!(
+                runtime
+                    .inventory_step(&full_inventory(&runtime, now, false))
+                    .is_empty()
+            );
+            assert!(!runtime.inventory_busy());
+        }
+    }
+
+    #[test]
+    fn stalled_planner_does_not_starve_other_inventory_modules() {
+        let mut runtime = Runtime::default();
+        runtime.set_enabled(ModuleId::AutoArmor, true);
+        runtime.set_enabled(ModuleId::AutoTotem, true);
+        let t = Instant::now();
+        let mut snapshot = full_inventory(&runtime, t, true);
+        snapshot.slots[30].item = Some(item("minecraft:totem_of_undying", 1));
+        // Round-robin starts with AutoArmor; its no-op click times out.
+        let mut now = t;
+        let mut seen_totem = false;
+        for _ in 0..80 {
+            snapshot.observed = now;
+            for effect in runtime.inventory_step(&snapshot) {
+                if let InventoryEffect::Request(r) = effect
+                    && r.click == Click::SwapOffhand
+                {
+                    assert_eq!(r.slot, 30);
+                    seen_totem = true;
+                }
+            }
+            if seen_totem {
+                break;
+            }
+            now += Duration::from_millis(50);
+        }
+        assert!(
+            seen_totem,
+            "AutoTotem gets the container after AutoArmor fails"
+        );
+        assert!(now <= t + DEADLINE + Duration::from_millis(600));
+    }
+
+    #[test]
+    fn watchdog_recovers_a_planner_that_never_resolves() {
+        let mut runtime = Runtime::default();
+        runtime.set_enabled(ModuleId::ChestSteal, true);
+        let t = Instant::now();
+        let mut snapshot = full_inventory(&runtime, t, true);
+        // A selected module that keeps reporting itself active without ever
+        // emitting an effect is cancelled after STALL_LIMIT.
+        runtime.inventory_schedule.select(ModuleId::ChestSteal, t);
+        runtime.chest_steal.cancel();
+        snapshot.observed = t + STALL_LIMIT + Duration::from_millis(1);
+        runtime.inventory_schedule.due = Some(snapshot.observed + Duration::from_secs(60));
+        assert!(runtime.inventory_step(&snapshot).is_empty());
+        assert!(runtime.inventory_schedule.active().is_none());
+        assert!(!runtime.inventory_busy());
+    }
 }

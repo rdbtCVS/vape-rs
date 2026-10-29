@@ -1,23 +1,23 @@
 {
   "schema": 1,
-  "horizon_revision": "e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083",
+  "horizon_revision": "9669600c389ad6d205db4ec0bb061935f2a38d0c",
   "horizon_mixins_revision": "29a8f8f84b253ea89422c0049ff5e8bfda36f1fb",
   "minecraft": "26.3",
   "protocol": 777,
   "rust": "1.99.0",
   "mixin_rust": "1.95.0",
   "source_hashes": {
-    "crates/horizon-client/src/game.rs": "a3c244394f77ee91b3ba8fc23a36f3888d6868f0a4f4da0c0ac0ce790a19dd31",
-    "crates/horizon-client/src/game/extras.rs": "44d241af0e685ee4cf1d4766c3cc5435dfe0b94f14cc76653facfa54f097e05a",
+    "crates/horizon-client/src/game.rs": "18493677fd76b3816d11297e07ac8a54d3901abcc9e4fb5d14f49286eae47987",
+    "crates/horizon-client/src/game/extras.rs": "dea869aac17a7bf9fec3bc2a99a8421d14cba305cfeed3059eaf30fc4b54de05",
     "crates/horizon-client/src/hud.rs": "fb5c77f5364b3ff888144755f796c1cfb747a1afcb90ce0790201df35a2f0ca8",
     "crates/horizon-client/src/game/mod_input.rs": "3e4fffb0ebefe395167bee609bc8570606140fa085dcaf4ff21a58265b9dfa5e",
     "crates/horizon-core/src/version.rs": "7a6cd0ca8f69b22d70ffc63e16e0b2872f3b128b25deb6604aa493d5ca2177ef",
     "crates/horizon-client/src/game/debug_keys.rs": "c3e562bc75eac6a6fbea7ed6ea4094090622d3aeec25355baa6352cc657f4254",
-    "crates/horizon-client/src/game/control.rs": "24bb4cfb64c5f2f56f35687c63f7490d1a5e7d13d8638b3296cf97a672ee2889",
-    "crates/horizon-client/src/game/remote.rs": "faeabdbe1c81202566b220828d6b3c78adc1e543ebebc90c060704d06d61d12d",
+    "crates/horizon-client/src/game/control.rs": "8d72b2d9cb2f7bc5886575a6d46d583e3ac38196da328594d96e93ea7ba5303e",
+    "crates/horizon-client/src/game/remote.rs": "44aab2174c24721dd39cceea543b9455822cd9278d324e12bd34ad9386603536",
     "crates/horizon-client/src/game/screens.rs": "06f49c056f21e058c9a0bfb15fada4492bc662d08433352c2cc107a0f5a13c58",
     "crates/horizon-client/src/game/fov.rs": "a64f8c183d608695a0fe8029e4f91c98fbcd2f3c7d7cd6adc089cdd0f1794a14",
-    "crates/horizon-client/src/game/sculk.rs": "3dc59ef4ee09b70a4c3ca8ee1d61805d0214081cf40a3e6fcc466a0bbf868747",
+    "crates/horizon-client/src/game/sculk.rs": "58a2de0276001e1c7bb1b70cca49152c5a5d085025a9b49b1b1ed2d5bc134075",
     "crates/horizon-client/src/game/render_tick.rs": "3ff4df23e3e2e86ecc07fa0e8a6a9ecba2806b3bba742fd47134ad531aea8968",
     "crates/horizon-client/src/game/fishing.rs": "0b45a5abf73f1124168741ce94fd89d46ecea55fee9f1a0a2af4fdd020b39006"
   },
@@ -38,5 +38,7 @@
       "sha256": "daad889706fa6b363cae2ef1e478ecddb2b7c05175483f5938c93bca65d6cf60",
       "development_commit": "e83e49f4ceca0dbb3156617d6d86f3996c2341cc"
     }
-  ]
+  ],
+  "horizon_nightly_tag": "nightly-source/2026-10-28-9669600",
+  "native_hooks_api": 1
 }

@@ -1,5 +1,5 @@
 use super::super::super::inventory::{
-    planner::Gate,
+    planner::{Gate, Outcome},
     types::{ArmorSlot, Click, Request, Slot, SlotRole, Snapshot},
 };
 
@@ -40,6 +40,10 @@ impl AutoArmor {
         self.opened = false;
         self.close_after = false;
     }
+    /// Whether this planner opened the screen that is currently shown.
+    pub fn opened(&self) -> bool {
+        self.opened
+    }
     pub fn active(&self) -> bool {
         self.gate.pending().is_some() || self.opened || self.close_after
     }
@@ -56,6 +60,30 @@ impl AutoArmor {
             self.gate.clear();
             return Vec::new();
         }
+        let outcome = self.gate.observe(snapshot);
+        if outcome == Outcome::Waiting {
+            return Vec::new();
+        }
+        if outcome == Outcome::Invalidated {
+            self.cancel();
+            return Vec::new();
+        }
+        // The next click this planner would make. A stalled gate means the
+        // previous click changed nothing, so it would only repeat; treat that
+        // like having nothing to do instead of holding the inventory open.
+        let next = (!self.gate.stalled(snapshot))
+            .then(|| next_request(snapshot, options))
+            .flatten();
+        let Some(request) = next else {
+            if (self.close_after || self.opened) && snapshot.screen_open {
+                self.close_after = false;
+                self.opened = false;
+                return vec![Effect::CloseInventory];
+            }
+            self.close_after = false;
+            self.opened = false;
+            return Vec::new();
+        };
         if !snapshot.is_player_inventory {
             if options.inventory_only {
                 self.gate.clear();
@@ -67,42 +95,39 @@ impl AutoArmor {
             }
             return Vec::new();
         }
-        if !self.gate.acknowledge(snapshot) {
-            return Vec::new();
-        }
-        let Some((armor, candidate)) = best(snapshot, options.check_durability) else {
-            if self.close_after && snapshot.screen_open {
-                self.close_after = false;
-                self.opened = false;
-                return vec![Effect::CloseInventory];
+        let equipping = request.click == Click::QuickMove
+            && snapshot
+                .slot(request.slot)
+                .is_some_and(|slot| !matches!(slot.role, SlotRole::Armor(_)));
+        match self.gate.issue(snapshot, request) {
+            Some(request) => {
+                if equipping {
+                    self.close_after = self.opened;
+                }
+                vec![Effect::Request(request)]
             }
-            return Vec::new();
-        };
-        let equipped = snapshot.slots(|role| role == SlotRole::Armor(armor)).next();
-        let mut out = Vec::new();
-        if let Some(equipped) = equipped.filter(|s| s.item.is_some()) {
+            None => Vec::new(),
+        }
+    }
+}
+/// Removes a worse equipped piece first, then equips the best candidate.
+fn next_request(snapshot: &Snapshot, options: Options) -> Option<Request> {
+    let (armor, candidate) = best(snapshot, options.check_durability)?;
+    let equipped = snapshot
+        .slots(|role| role == SlotRole::Armor(armor))
+        .next()
+        .filter(|s| s.item.is_some());
+    Some(match equipped {
+        Some(equipped) => {
             let click = if options.drop_equipped {
                 Click::Throw
             } else {
                 Click::QuickMove
             };
-            if let Some(request) = self
-                .gate
-                .issue(snapshot, Request::for_slot(snapshot, equipped, click))
-            {
-                out.push(Effect::Request(request));
-            }
-            return out;
+            Request::for_slot(snapshot, equipped, click)
         }
-        if let Some(request) = self.gate.issue(
-            snapshot,
-            Request::for_slot(snapshot, candidate, Click::QuickMove),
-        ) {
-            out.push(Effect::Request(request));
-            self.close_after = self.opened;
-        }
-        out
-    }
+        None => Request::for_slot(snapshot, candidate, Click::QuickMove),
+    })
 }
 fn best(snapshot: &Snapshot, durability: bool) -> Option<(ArmorSlot, &Slot)> {
     let mut result: Option<(ArmorSlot, &Slot)> = None;

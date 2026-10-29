@@ -1,5 +1,5 @@
 // Bounded host-owned inventory snapshots and optimistic container requests.
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Instant};
 
 pub const MAX_SLOTS: usize = 256;
 
@@ -78,8 +78,33 @@ pub struct Snapshot {
     pub is_player_inventory: bool,
     pub is_chest: bool,
     pub chest_title_standard: bool,
+    /// Monotonic time the host copied this state; bounds transaction waits.
+    pub observed: Instant,
 }
 impl Snapshot {
+    /// Content identity of every slot and the cursor, independent of menu id
+    /// and protocol revision. Two snapshots with equal digests show the same
+    /// items in the same slots.
+    pub fn digest(&self) -> u64 {
+        fn mix(h: u64, bytes: &[u8]) -> u64 {
+            bytes
+                .iter()
+                .fold(h, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x100000001b3))
+        }
+        fn item(h: u64, item: Option<&Item>) -> u64 {
+            let Some(item) = item else {
+                return mix(h, &[0]);
+            };
+            let f = &item.fingerprint;
+            let h = mix(mix(h, &[1]), f.id.as_bytes());
+            let h = mix(mix(h, &[f.count]), &f.damage.to_le_bytes());
+            mix(h, &f.tag_hash.to_le_bytes())
+        }
+        let h = self.slots.iter().fold(0xcbf29ce484222325, |h, slot| {
+            item(mix(h, &slot.index.to_le_bytes()), slot.item.as_ref())
+        });
+        item(h, self.carried.as_ref())
+    }
     pub fn validate(&self) -> Result<(), String> {
         if self.slots.len() > MAX_SLOTS {
             return Err("inventory snapshot has too many slots".into());

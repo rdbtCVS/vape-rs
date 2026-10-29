@@ -1,5 +1,5 @@
 use super::super::super::inventory::{
-    planner::Gate,
+    planner::{Gate, Outcome},
     types::{Click, ItemClass, Request, Slot, SlotRole, Snapshot},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -58,7 +58,21 @@ impl ChestSteal {
             self.cancel();
             return vec![Effect::Close];
         }
-        if !self.gate.acknowledge(snapshot) {
+        match self.gate.observe(snapshot) {
+            Outcome::Waiting => return Vec::new(),
+            Outcome::Invalidated => {
+                self.cancel();
+                return Vec::new();
+            }
+            // A quick-move that moved nothing means the player inventory has
+            // no room for it; the remaining queue would fail the same way.
+            Outcome::Failed(_) => self.queued.clear(),
+            Outcome::Idle | Outcome::Applied => {}
+        }
+        if self.gate.stalled(snapshot) {
+            if !options.keep_open {
+                self.closing = true;
+            }
             return Vec::new();
         }
         if self.queued.is_empty() {
@@ -128,4 +142,69 @@ fn select(snapshot: &Snapshot, options: &Options) -> Vec<u16> {
         }
     }
     best.into_values().map(|(slot, _)| slot.index).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::inventory::planner::{DEADLINE, tests::item};
+
+    fn chest() -> Snapshot {
+        let slots = (0..3u16)
+            .map(|n| Slot {
+                index: 300 + n,
+                item: Some(item("minecraft:stone", 64)),
+                role: SlotRole::Container,
+            })
+            .collect();
+        Snapshot {
+            session: 1,
+            container_id: 3,
+            revision: 5,
+            slots,
+            carried: None,
+            screen_open: true,
+            is_player_inventory: false,
+            is_chest: true,
+            chest_title_standard: true,
+            observed: std::time::Instant::now(),
+        }
+    }
+
+    #[test]
+    fn full_inventory_stops_the_pass_instead_of_waiting() {
+        let mut steal = ChestSteal::default();
+        let options = Options::default();
+        let mut s = chest();
+        assert!(
+            matches!(steal.step(&s, &options).as_slice(), [Effect::Request(r)] if r.slot == 300)
+        );
+        s.observed += DEADLINE;
+        assert!(steal.step(&s, &options).is_empty());
+        assert!(matches!(
+            steal.step(&s, &options).as_slice(),
+            [Effect::Close]
+        ));
+        assert!(!steal.active());
+    }
+
+    #[test]
+    fn keep_open_goes_idle_while_nothing_changes() {
+        let mut steal = ChestSteal::default();
+        let options = Options {
+            keep_open: true,
+            ..Options::default()
+        };
+        let mut s = chest();
+        assert_eq!(steal.step(&s, &options).len(), 1);
+        s.revision += 1;
+        assert!(steal.step(&s, &options).is_empty());
+        assert!(!steal.active());
+        assert!(steal.step(&s, &options).is_empty());
+        // Room appears (another slot changed): the pass resumes.
+        s.slots[2].item = None;
+        assert!(
+            matches!(steal.step(&s, &options).as_slice(), [Effect::Request(r)] if r.slot == 300)
+        );
+    }
 }

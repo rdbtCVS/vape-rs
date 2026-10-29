@@ -1,9 +1,10 @@
 # Current implementation handoff
 
-Updated 2026-10-29 after the parallel implementation round (combat/movement,
-render, inventory and HUD/UI workers) was merged into main. **The full plan is
-not complete.** AI behavior and the online product are excluded; all other
-retained scope remains open as listed below.
+Updated 2026-10-29 after the post-merge validation round: Horizon re-pin,
+bounded inventory transactions, a single movement-input writer, build
+identities and the first resource-backed scenarios for the merged modules.
+**The full plan is not complete.** AI behavior and the online product are
+excluded; all other retained scope remains open as listed below.
 
 ## Connected native implementation
 
@@ -34,27 +35,41 @@ Unconnected groundwork present in source (no module uses it yet):
   `src/modules/combat/click_timing.rs` (unit-tested only).
 - World render: world-space line/box primitives and bounded projectile
   prediction with caller-supplied collision (`src/modules/render/world.rs`).
-- Movement: an initial movement-request resolver used by Sprint; not yet a
-  general multi-input arbiter.
+- Movement: `core::movement_input::Writer` is now the single writer of
+  synthetic movement keys (Sprint and Parkour use it). Competing-module
+  priorities for SafeWalk/KeepSprint/WTap and analog controller movement are
+  still open.
 
 ## Evidence and limits
 
-- Integrated main (after all merges): **67 runtime tests + 4 audit tests** and
-  67 emitted-payload tests pass; formatting and Clippy (all targets, warnings
-  denied) pass; exact native stage/audit passes with **23 HEAD hooks, one owned
-  state and 11 support modules**; the pinned client cargo check passes. See
-  [parallel-round-integration.json](evidence/parallel-round-integration.json).
-- **StorageESP** is the only module from this round with resource-backed host
-  scenarios: fresh isolated integrated-server and in-frame runs showed a chest
-  outline, and the integrated-server capture confirmed it clears when disabled.
-- Sprint, Parkour, AutoTotem, Panic, the Refill fixes and localization have
-  compile/unit evidence only. No ledger row is `validated` from compilation.
-- Earlier resource-backed foundation/GUI/lifecycle/HUD/NoHurtCam/AutoTool
-  scenarios remain the other host evidence; they are specific slices, not full
-  reference parity. [hooks.md](hooks.md) lists every current target and module.
-- Ledger: 34 implemented-core, 13 excluded-approved, 2 not-applicable-reviewed
-  (MouseDelayFix, scoreboard predicate; see [hud-triage.md](specs/hud-triage.md)),
-  423 not-started. 0 validated.
+- Current tree: **85 runtime tests + 4 audit tests** and 85 emitted-payload
+  tests pass; formatting and Clippy (all targets, warnings denied) pass; exact
+  native stage/audit passes with **23 HEAD hooks, one owned state and 11
+  support modules** on the new pin; the optimized client was rebuilt and its
+  build identity recorded.
+- **Post-merge scenarios** on that exact build
+  ([postmerge-validation.json](evidence/postmerge-validation.json)), fresh
+  isolated homes each: integrated server 27/27, in-frame 27/27, controlled LAN
+  (two owned processes on localhost) 16/16. Covered: Sprint, a controller-held
+  sprint surviving Sprint disable, pause-menu release, Parkour edge jump,
+  AutoArmor equip and full-inventory no-op recovery with upgrade once room
+  appears, AutoTotem acting after that no-op, Panic disable/restore,
+  death/respawn, and disconnect/reconnect with the server keeping the swapped
+  items. The scenarios found and fixed an AutoArmor scoring bug (vanilla
+  slot-group armor modifiers were ignored).
+- Not covered: window focus loss (the socket can't unfocus the window), real
+  keyboard rebinding events (controller and socket paths were covered),
+  switching between two worlds, and third-party servers.
+- StorageESP, AutoTool, GUI/profile/HUD editing, lifecycle and NoHurtCam keep
+  their earlier scenarios. Refill, ChestSteal, AutoFish, FastPlace, Fullbright,
+  Clear Water, the delay removals and localization still have compile/unit
+  evidence only.
+- Ledger: 5 integrated (Sprint, Parkour, AutoTotem, AutoArmor, Panic), 29
+  implemented-core, 13 excluded-approved, 2 not-applicable-reviewed, 0
+  validated. The new `kind` column splits the 423 not-started rows into 88
+  modules, 159 submodes, 27 submodules and 5 client rows, plus 144 helper rows
+  that are tracked under their owners ([decisions](decisions.md)).
+- [hooks.md](hooks.md) lists every current target and module.
 
 Concrete implementation milestones:
 
@@ -78,23 +93,41 @@ Concrete implementation milestones:
 | `340eb44` | MouseDelayFix / scoreboard predicate triage |
 | `60c6775` | Clicker Normal/Extra timing primitives |
 | `bcd854f` | Experimental Parkour and movement-request resolver |
+| (this round) | Re-pin to Nightly 9669600, bounded inventory gate, movement writer, build identity, post-merge + LAN scenarios, ledger kinds, registry/GUI split |
 
 ## Open dependencies and next work
 
 Per area, in dependency order. None of these are blocked externally except
 where stated; they are unfinished implementation.
 
+**Next parallel round: one foundation plus its first consumer per worker.**
+Each worker delivers the shared piece, one observable module that uses it,
+interruption cleanup and a fresh-home scenario. They add only a line to
+`src/core/registry.rs` and their own files.
+
+| Worker | Foundation | First consumer | Then unlocks |
+| --- | --- | --- | --- |
+| A | Live entity snapshots (id+session, box, health, armor, team, line of sight) shared with rendering, plus one rotation owner through the host look path | AimAssist | TriggerBot, clickers, KillAura, SilentAura PID, ESP/Tracers inputs |
+| B | Inbound/outbound packet boundary hook (typed, bounded, session-invalidated) | Velocity | JumpReset, KnockbackDelay, Blink, FakeLag, Backtrack |
+| C | Movement-writer priorities and remaining axes (sneak/strafe suppression, analog stick) | SafeWalk | KeepSprint, WTap, NoSlowdown, AutoLadder, Scaffold |
+| D | Camera/projection plus world text/quads through the host renderer | Nametags | ESP 2D/3D, Tracers, StorageESP fill/through-wall, Trajectories |
+
+Before that round: retarget `client-tick`/`client-frame`/`client-hud` onto the
+stable hook points where order allows. Resolve the packaging owner decision
+(user) in docs/decisions.md.
+
 1. **Combat / targeting:** live entity snapshots (position, box, health,
    armor, team, line of sight), reference score calculation, a single-writer
    rotation owner through the host look path, and attack/use scheduling on top
    of the existing click timing. Then AimAssist, TriggerBot, Left/RightClicker,
    HitSelect, BlockHit, Reach, Hitboxes, KillAura (non-AI), SilentAura PID,
-   AntiBot and the remaining combat rows.
+   AntiBot and the remaining combat rows. (Worker A above.)
 2. **Movement / packets:** complete shared movement-input arbitration, then
    SafeWalk, KeepSprint, WTap, NoSlowdown, AutoLadder; an inbound/outbound
    packet hook for Velocity, JumpReset, KnockbackDelay, Blink, FakeLag,
    Backtrack; then NoFall, Speed, Fly, Timer, Scaffold modes, Clutch, MLG,
-   Freecam and the remaining world/utility rows. Parkour needs host scenarios.
+   Freecam and the remaining world/utility rows. Parkour has an integrated
+   and in-frame scenario; a LAN case is still open.
 3. **Render:** connect camera/projection, world text/quads, entity snapshots
    and collision queries; finish StorageESP (fill, through-wall, all container
    types); then ESP (3D/2D/outline/skeleton), Tracers, Nametags, ItemESP,
@@ -107,7 +140,8 @@ where stated; they are unfinished implementation.
    ThrowPot, ThrowDebuff, AntiDebuff, AutoHeal, ArmorSwitch, Refill pots/soup
    modes and double-click, InvWalk, NoItemRelease. AutoTotem still lacks silent
    opening, random slot, extra timing variance, count display and
-   inventory-free operation, and needs a survival scenario.
+   inventory-free operation. Refill/ChestSteal/AutoFish need host scenarios
+   for the bounded-gate recovery.
 5. **HUD / UI:** ClientSettings (floating/integrated/none), Text GUI and module
    list, ModuleDisplayInfo; the HUD-module family (Freelook, Time/Weather
    Changer, Reach Display, Scoreboard, Inventory Blur, Motion Blur, Block Hit
@@ -120,14 +154,17 @@ where stated; they are unfinished implementation.
 7. **Validation after implementation:** fresh isolated integrated-server and
    in-frame scenarios for every compile-only module, then remote/LAN cases,
    visual comparisons, interruption/cleanup checks and performance.
-8. **Distribution:** launcher/public packaging is gated until a published mixin
-   pin includes the required lifetime-state patch. Cross-platform builds,
-   installation/provenance and release gates remain open.
+8. **Distribution:** published horizon-mixins rejects the Game-owned state
+   and four macro-target hooks. A stock-tool variant type-checks without them
+   ([repin-packaging-eval.json](evidence/repin-packaging-eval.json)). Choose the
+   owner (user decision), retarget the four hooks, then prove an installed
+   launcher build. Cross-platform builds, provenance and release gates remain
+   open.
 
 ## Reproduction and resources
 
-Horizon stays pinned to `e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083`;
-Minecraft 26.3 / protocol 777. Mixin PR #2 base is
+Horizon is pinned to `9669600c389ad6d205db4ec0bb061935f2a38d0c`
+(`nightly-source/2026-10-28-9669600`); Minecraft 26.3 / protocol 777. Mixin PR #2 base is
 `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed checked-in
 lifetime-state patch. See compatibility.json and README.md for commands.
 
@@ -145,9 +182,13 @@ in the adjacent Horizon checkout are not used or overwritten.
 
 ## Trying the development build
 
-The current client was rebuilt successfully for manual testing; evidence:
-[manual-playtest-build.json](evidence/manual-playtest-build.json). No game was
-launched as part of that build. This development build disables audio/controllers.
+`xtask build` records the build identity beside the executable
+(`target/host-cargo/fast/vape-rs-build.json`). `play.py` and the scenario tools
+refuse to launch an executable that wasn't built from the current sources and
+pins (`--allow-stale` overrides with a warning). The last recorded build is the
+one in [postmerge-validation.json](evidence/postmerge-validation.json). This
+development build disables audio/controllers; the virtual control-socket pad
+still works.
 
 Run `python3 tools/play.py` from the project root; rebuild after source changes with
 `cargo run -p xtask --locked --offline -- build`. It opens the visible native
@@ -158,7 +199,7 @@ creative (inventory automation requires survival). Quit the window normally;
 the test instance and game.log are retained. No normal player worlds/settings
 are used. Right Shift opens the GUI, F8/F9 toggle coordinates/FPS and F10 is panic.
 
-GUI/profile/HUD editing, AutoTool and the partial StorageESP have real host
-evidence. Treat the newer inventory, macro, fishing, Sprint, Parkour, AutoTotem
-and Panic features as experimental until their resource-backed validation pass. BlockOverlay and the rest of the unfinished
+GUI/profile/HUD editing, AutoTool, the partial StorageESP, Sprint, Parkour,
+AutoArmor, AutoTotem and Panic have real host evidence. Treat Refill,
+ChestSteal, macros and fishing as experimental until their scenarios run. BlockOverlay and the rest of the unfinished
 plan are not available by enabling hidden options.

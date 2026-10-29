@@ -4,7 +4,7 @@ version = "0.1.0-dev"
 priority = 100
 
 [compatibility]
-horizon_revision = "e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083"
+horizon_revision = "9669600c389ad6d205db4ec0bb061935f2a38d0c"
 
 [[module]]
 id = "runtime"
@@ -76,16 +76,23 @@ id = "game-key-capture"
 target = "horizon_client::game::Game<'_>::mapped_key"
 kind = "HEAD"
 cancellable = true
-helper = "adapters/key_capture.rs"
-bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+helper = "adapters/mapped_key.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "key", ty = "winit::keyboard::KeyCode", value = "key" },
+  { name = "pressed", ty = "bool", value = "pressed" },
+]
 
 [[injection]]
 id = "control-key-capture"
 target = "horizon_client::game::control::Game<'_>::control_key_down"
 kind = "HEAD"
 cancellable = true
-helper = "adapters/key_capture.rs"
-bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+helper = "adapters/control_key.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "key", ty = "winit::keyboard::KeyCode", value = "key" },
+]
 
 [[injection]]
 id = "mouse-bind"

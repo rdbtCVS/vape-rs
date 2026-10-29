@@ -131,7 +131,7 @@ pub(crate) fn auto_fish(game: &mut Game<'_>) {
         && !game.spectator();
     let client = game.__horizon_mixins_vape_rs_client().clone();
     // Take the host snapshot before locking the runtime. The runtime gate
-    // waits for a changed authoritative revision after it queues a request.
+    // waits, with a deadline, for the queued click's visible effect.
     let snapshot = crate::game::remote::vape_transactions::snapshot(game);
     let remote_target = game
         .hook
@@ -195,7 +195,7 @@ pub(crate) fn auto_fish(game: &mut Game<'_>) {
             if !crate::game::remote::vape_transactions::submit(game, &request) {
                 with_client(&client, |runtime| runtime.cancel_auto_fish());
             } else {
-                with_client(&client, |runtime| runtime.auto_fish_queued(request));
+                with_client(&client, |runtime| runtime.auto_fish_queued(snapshot, request));
             }
         }
         Some(Effect::CloseInventory) => {

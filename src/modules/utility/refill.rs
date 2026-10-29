@@ -1,5 +1,5 @@
 use super::super::super::inventory::{
-    planner::Gate,
+    planner::{Gate, Outcome},
     types::{Click, Healing, Item, Request, Slot, SlotRole, Snapshot},
 };
 use std::collections::BTreeSet;
@@ -44,6 +44,10 @@ pub struct Refill {
     queued: Vec<(u16, Click)>,
 }
 impl Refill {
+    /// Whether this planner opened the screen that is currently shown.
+    pub fn opened(&self) -> bool {
+        self.opened
+    }
     pub fn active(&self) -> bool {
         self.gate.pending().is_some() || !self.queued.is_empty() || self.opened || self.done
     }
@@ -73,8 +77,21 @@ impl Refill {
             }
             return Vec::new();
         }
-        if !self.gate.acknowledge(snapshot) {
-            return Vec::new();
+        match self.gate.observe(snapshot) {
+            Outcome::Waiting => return Vec::new(),
+            Outcome::Invalidated => {
+                self.cancel();
+                return vec![Effect::Disable];
+            }
+            // A click in a multi-click swap did nothing: abandon the rest of
+            // the sequence and finish (close and disable) on the next step.
+            // Closing the inventory returns any cursor stack through the host.
+            Outcome::Failed(_) => {
+                self.queued.clear();
+                self.done = true;
+                return Vec::new();
+            }
+            Outcome::Idle | Outcome::Applied => {}
         }
         if let Some((slot, click)) = self.queued.first().copied() {
             self.queued.remove(0);
@@ -219,6 +236,7 @@ mod tests {
             is_player_inventory: true,
             is_chest: false,
             chest_title_standard: false,
+            observed: std::time::Instant::now(),
         }
     }
     #[test]
@@ -257,6 +275,29 @@ mod tests {
             refill.step(&snap, &options).as_slice(),
             [Effect::CloseInventory, Effect::Disable]
         ));
+    }
+    #[test]
+    fn failed_click_abandons_the_swap_and_finishes() {
+        use crate::inventory::planner::DEADLINE;
+        let mut refill = Refill::default();
+        let options = Options {
+            hotbar_clear: true,
+            ..Options::default()
+        };
+        let mut snap = snapshot();
+        assert!(matches!(
+            refill.step(&snap, &options).as_slice(),
+            [Effect::Request(_)]
+        ));
+        // The pickup visibly does nothing until the deadline.
+        snap.observed += DEADLINE;
+        assert!(refill.step(&snap, &options).is_empty());
+        assert!(refill.queued.is_empty(), "the rest of the swap is dropped");
+        assert!(matches!(
+            refill.step(&snap, &options).as_slice(),
+            [Effect::CloseInventory, Effect::Disable]
+        ));
+        assert!(!refill.active());
     }
     #[test]
     fn scatter_initializes_nonzero_state() {

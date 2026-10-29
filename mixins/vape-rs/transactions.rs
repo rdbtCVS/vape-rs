@@ -50,8 +50,11 @@ fn score(stack: &ItemStack, info: Option<&horizon_client::items::ItemInfo>) -> f
     let armor = info
         .modifiers
         .iter()
+        // Vanilla armor modifiers name the piece's own slot group (`head`,
+        // `chest`...), not `armor`; count every group that applies when worn.
         .filter_map(|(attribute, _, amount, _, group)| {
-            (group == "armor" || group == "any").then_some((attribute.as_str(), *amount))
+            (group == "armor" || group == "any" || info.equip_slot.as_deref() == Some(group))
+                .then_some((attribute.as_str(), *amount))
         })
         .fold(0.0, |total, (attribute, amount)| {
             total
@@ -218,6 +221,7 @@ pub fn snapshot(game: &Game<'_>) -> Option<Snapshot> {
         is_player_inventory: screen_open && !is_chest,
         is_chest,
         chest_title_standard,
+        observed: std::time::Instant::now(),
     };
     out.validate().ok()?;
     Some(out)

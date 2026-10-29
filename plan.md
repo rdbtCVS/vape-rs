@@ -1,6 +1,6 @@
 # Vape-rs: complete Rust reimplementation for Horizon
 
-Written 2026-10-28; updated during implementation. This remains the complete implementation plan, not a completion report. Current code, evidence, open dependencies and next steps are summarized in [docs/status.md](docs/status.md); chronological milestone results are in [docs/progress.md](docs/progress.md). Twenty-three modules (several partial or experimental) and the local client foundation are connected, while the complete feature ledger and release gates remain unfinished. The user requested implementation-first batches with testing afterward; recent compile-only evidence must not be treated as gameplay/visual validation.
+Written 2026-10-28; updated during implementation. This remains the complete implementation plan, not a completion report. Current code, evidence, open dependencies and next steps are summarized in [docs/status.md](docs/status.md); chronological milestone results are in [docs/progress.md](docs/progress.md). Twenty-three modules (several partial or experimental) and the local client foundation are connected, while the complete feature ledger and release gates remain unfinished. The user requested implementation-first batches with testing afterward; recent compile-only evidence must not be treated as gameplay/visual validation. Keep the validation gap bounded: each batch rebuilds the executable and runs at least one fresh-home scenario per newly connected module.
 
 ## 1. Objective and user decisions
 
@@ -41,7 +41,7 @@ Do not delete the Java reference repository. The finished vape-rs distribution m
 Observed reference revisions:
 
 - Vape-v4: `3d600a48106822755cea2d633062e5ab1f383d48`, project version `4.21.43`.
-- Local Horizon: `e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083`.
+- Local Horizon at planning: `e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083`. Current pin (2026-10-29): `9669600c389ad6d205db4ec0bb061935f2a38d0c` (`nightly-source/2026-10-28-9669600`); see docs/decisions.md.
 - Local launcher's default horizon-mixins pin: `0500ff24aa5933fca95a877ef41125353c4b4fe3`.
 - The native template's demonstrated Horizon pin is older: `028f60881678a9a0e3e198f693a82858fa475c76`. Its selectors are examples, not validated selectors for the local Horizon revision.
 

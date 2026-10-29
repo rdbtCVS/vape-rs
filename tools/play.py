@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 import subprocess
 
-from native_session import NativeSession, ROOT
+from native_session import BINARY, NativeSession, StaleBuild
 
 DEFAULT_RESOURCES = Path(
     '<launcher-dir>/versions/'
@@ -20,16 +20,21 @@ def main():
                         help='use the alternative in-frame single-player path')
     parser.add_argument('--creative', action='store_true',
                         help='start in creative; inventory automation requires survival')
+    parser.add_argument('--allow-stale', action='store_true',
+                        help='launch even if the executable was not built from the current sources')
     args = parser.parse_args()
-    binary = ROOT / 'target/host-cargo/fast/horizon-client'
-    if not binary.is_file():
-        parser.error('build first: cargo run -p xtask --locked --offline -- build')
     try:
-        session = NativeSession(args.resources, prefix='manual-', in_frame=args.in_frame)
-    except (OSError, ValueError) as error:
+        session = NativeSession(args.resources, prefix='manual-', in_frame=args.in_frame,
+                                allow_stale=args.allow_stale)
+    except (OSError, ValueError, StaleBuild) as error:
         parser.error(str(error))
+    build = session.build
+    print(f"Build: sources {build.get('source_commit', '?')[:10]}"
+          f"{' (dirty)' if build.get('source_dirty') else ''}, Horizon "
+          f"{build.get('horizon_revision', '?')[:10]}, bundle {build.get('bundle_sha256', '?')[:12]}"
+          f"{' — STALE' if build['stale'] else ''}", flush=True)
     with session:
-        command = [str(binary), '--resources', str(session.resources),
+        command = [str(BINARY), '--resources', str(session.resources),
                    '--world', 'VapeManual', '--width', '1280', '--height', '720',
                    '--render-distance', '6', '--control-socket', str(session.socket)]
         if args.in_frame:

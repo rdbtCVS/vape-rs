@@ -50,4 +50,9 @@ fn frame(game: &mut crate::game::Game<'_>) {
     crate::game::remote::vape_macros::frame(game);
     crate::game::remote::vape_transactions::dispatch(game);
     crate::game::fishing::vape_auto_fish::auto_fish(game);
+    // Paused worlds and screens stop ticks; hand synthetic movement keys back
+    // without waiting for the next tick.
+    if !game.focused || game.screen != crate::game::Screen::Playing || game.title.is_some() {
+        crate::game::vape_input_delays::movement(game, false);
+    }
 }
