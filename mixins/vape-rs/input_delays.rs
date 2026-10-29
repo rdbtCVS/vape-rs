@@ -60,7 +60,12 @@ pub(crate) fn sprint(game: &mut crate::game::Game<'_>) {
         && game.server_packs.prompt.is_none() && !game.spectator()
         && game.player.as_ref().is_some_and(|player| player.health.health() > 0.0)
         && !(cancel_invis && invisible);
-    if active && !game.keys.contains(&KeyCode::ControlLeft) {
+    use crate::game::vape_rs::core::movement_input::{Axis, Overrides, Owner, Request};
+    let mut overrides = Overrides::default();
+    if active {
+        overrides.request(Request { axis: Axis::Sprint, owner: Owner::Sprint, priority: 1, pressed: true });
+    }
+    if overrides.resolve(Axis::Sprint, game.keys.contains(&KeyCode::ControlLeft)) && !game.keys.contains(&KeyCode::ControlLeft) {
         game.keys.insert(KeyCode::ControlLeft);
         with_client(&client, |runtime| { runtime.replace_sprint_input_owner(true); });
     }

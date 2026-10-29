@@ -2,6 +2,7 @@ pub mod automation;
 pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
+pub mod movement_input;
 pub mod profiles;
 pub mod settings;
 
@@ -43,6 +44,7 @@ pub enum ModuleId {
     NoJumpDelay,
     NoClickDelay,
     Sprint,
+    Parkour,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -66,6 +68,7 @@ impl ModuleId {
             Self::NoJumpDelay => "legit.no-jump-delay",
             Self::NoClickDelay => "legit.no-click-delay",
             Self::Sprint => "combat.sprint",
+            Self::Parkour => "world.parkour",
         }
     }
     pub fn name(self) -> &'static str {
@@ -89,9 +92,10 @@ impl ModuleId {
             Self::NoJumpDelay => "NoJumpDelay",
             Self::NoClickDelay => "NoClickDelay",
             Self::Sprint => "Sprint",
+            Self::Parkour => "Parkour",
         }
     }
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
@@ -111,6 +115,7 @@ impl ModuleId {
         Self::NoJumpDelay,
         Self::NoClickDelay,
         Self::Sprint,
+        Self::Parkour,
     ];
     fn position(self) -> (f64, f64) {
         match self {
@@ -125,7 +130,10 @@ impl ModuleId {
         }
     }
     pub fn category(self) -> &'static str {
-        if matches!(self, Self::AutoTool | Self::ChestSteal | Self::FastPlace) {
+        if matches!(
+            self,
+            Self::AutoTool | Self::ChestSteal | Self::FastPlace | Self::Parkour
+        ) {
             "World"
         } else if self == Self::Fullbright {
             "Render"
@@ -197,6 +205,7 @@ pub struct Runtime {
     gamma: super::modules::render::fullbright::Gamma,
     brightness_reset: bool,
     sprint_input_owned: bool,
+    parkour_input_owned: bool,
     hud_state: super::ui::hud_state::HudState,
     pub gui: Gui,
     suppress_game_input: bool,
@@ -472,6 +481,7 @@ impl Default for Runtime {
             gamma: Default::default(),
             brightness_reset: false,
             sprint_input_owned: false,
+            parkour_input_owned: false,
             hud_state: super::ui::hud_state::HudState::default(),
             gui: Gui::default(),
             suppress_game_input: false,
@@ -482,6 +492,9 @@ impl Default for Runtime {
     }
 }
 impl Runtime {
+    pub fn replace_parkour_input_owner(&mut self, owned: bool) -> bool {
+        std::mem::replace(&mut self.parkour_input_owned, owned)
+    }
     pub fn replace_sprint_input_owner(&mut self, owned: bool) -> bool {
         std::mem::replace(&mut self.sprint_input_owned, owned)
     }
@@ -1422,7 +1435,8 @@ impl Runtime {
                 | ModuleId::AutoFish
                 | ModuleId::NoJumpDelay
                 | ModuleId::NoClickDelay
-                | ModuleId::Sprint => continue,
+                | ModuleId::Sprint
+                | ModuleId::Parkour => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

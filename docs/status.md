@@ -128,3 +128,5 @@ Pure candidate filtering, five sort modes and bounded rotation math have been ad
 ## Sprint input baseline
 
 Sprint is registered with its Cancel Invis setting and feeds the host's sprint key at the existing client tick hook. It is an experimental input baseline: scaffold and shared movement arbitration, exact reference conditions, controlled-input interference and real host scenarios remain open. See [sprint-core.json](evidence/sprint-core.json). The targeting foundation remains unconnected.
+
+Parkour has an experimental host collision/jump adapter; see [progress](progress.md) and [compile evidence](evidence/parkour-compile.json). Its gameplay scenarios, controller input and shared input arbitration remain open.

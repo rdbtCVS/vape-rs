@@ -279,3 +279,9 @@ id = "input-delays"
 file = "crates/horizon-client/src/game.rs"
 name = "vape_input_delays"
 source = "input_delays.rs"
+
+[[module]]
+id = "parkour"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_parkour"
+source = "parkour.rs"
