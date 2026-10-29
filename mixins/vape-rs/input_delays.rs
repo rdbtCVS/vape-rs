@@ -40,3 +40,28 @@ pub(crate) fn input_delays(game: &mut crate::game::Game<'_>) {
         game.clicks.miss_time = 0;
     }
 }
+
+// Feed the same key state consumed by both local and remote movement ticks.
+// Remember ownership so disabling does not release a physically held key.
+pub(crate) fn sprint(game: &mut crate::game::Game<'_>) {
+    use winit::keyboard::KeyCode;
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let (enabled, cancel_invis, previous) = with_client(&client, |runtime| {
+        let enabled = runtime.enabled(ModuleId::Sprint);
+        let cancel = runtime.settings().get("combat.sprint.cancel-invis")
+            .and_then(serde_json::Value::as_bool).unwrap_or(false);
+        (enabled, cancel, runtime.replace_sprint_input_owner(false))
+    });
+    let physical = game.physical_keys.contains(&KeyCode::ControlLeft);
+    if previous && !physical { game.keys.remove(&KeyCode::ControlLeft); }
+    let invisible = game.potions.effects.list.iter().any(|effect| effect.id == "invisibility");
+    let active = enabled && game.focused && game.screen == crate::game::Screen::Playing
+        && game.title.is_none() && game.sleeping.is_none() && !game.dialog_open()
+        && game.server_packs.prompt.is_none() && !game.spectator()
+        && game.player.as_ref().is_some_and(|player| player.health.health() > 0.0)
+        && !(cancel_invis && invisible);
+    if active && !game.keys.contains(&KeyCode::ControlLeft) {
+        game.keys.insert(KeyCode::ControlLeft);
+        with_client(&client, |runtime| { runtime.replace_sprint_input_owner(true); });
+    }
+}

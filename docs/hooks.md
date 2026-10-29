@@ -54,3 +54,5 @@ BlockOverlay drafts under docs/drafts are unregistered and excluded from the run
 Current evidence and remaining validation are in [status.md](status.md) and [progress.md](progress.md). Public packaging remains gated until a published mixin-tool pin contains the required state patch.
 
 The targeting/rotation primitives under `src/targeting` are pure and currently have no host hook or live snapshot adapter. They do not alter the hook counts above.
+
+Sprint uses the existing `client-tick` hook and `vape_input_delays` support module to supply the host's normal sprint key state; its per-client flag tracks the synthetic key for cleanup. This is a baseline, not the planned general movement-input owner.

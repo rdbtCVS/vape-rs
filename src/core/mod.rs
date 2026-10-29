@@ -42,6 +42,7 @@ pub enum ModuleId {
     AutoFish,
     NoJumpDelay,
     NoClickDelay,
+    Sprint,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -64,6 +65,7 @@ impl ModuleId {
             Self::AutoFish => "utility.auto-fish",
             Self::NoJumpDelay => "legit.no-jump-delay",
             Self::NoClickDelay => "legit.no-click-delay",
+            Self::Sprint => "combat.sprint",
         }
     }
     pub fn name(self) -> &'static str {
@@ -86,9 +88,10 @@ impl ModuleId {
             Self::AutoFish => "AutoFish",
             Self::NoJumpDelay => "NoJumpDelay",
             Self::NoClickDelay => "NoClickDelay",
+            Self::Sprint => "Sprint",
         }
     }
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
@@ -107,6 +110,7 @@ impl ModuleId {
         Self::AutoFish,
         Self::NoJumpDelay,
         Self::NoClickDelay,
+        Self::Sprint,
     ];
     fn position(self) -> (f64, f64) {
         match self {
@@ -192,6 +196,7 @@ pub struct Runtime {
     notes: VecDeque<String>,
     gamma: super::modules::render::fullbright::Gamma,
     brightness_reset: bool,
+    sprint_input_owned: bool,
     hud_state: super::ui::hud_state::HudState,
     pub gui: Gui,
     suppress_game_input: bool,
@@ -338,6 +343,13 @@ impl Default for Runtime {
                 .expect("static AutoTool definition");
         }
         settings
+            .define(Definition::boolean(
+                "combat.sprint.cancel-invis",
+                "Cancel Invis",
+                false,
+            ))
+            .unwrap();
+        settings
             .define(Definition::choice(
                 "world.fast-place.held-item",
                 "Held Item",
@@ -459,6 +471,7 @@ impl Default for Runtime {
             notes: VecDeque::new(),
             gamma: Default::default(),
             brightness_reset: false,
+            sprint_input_owned: false,
             hud_state: super::ui::hud_state::HudState::default(),
             gui: Gui::default(),
             suppress_game_input: false,
@@ -469,6 +482,9 @@ impl Default for Runtime {
     }
 }
 impl Runtime {
+    pub fn replace_sprint_input_owner(&mut self, owned: bool) -> bool {
+        std::mem::replace(&mut self.sprint_input_owned, owned)
+    }
     pub fn enabled(&self, module: ModuleId) -> bool {
         self.modules[&module].enabled
     }
@@ -1405,7 +1421,8 @@ impl Runtime {
                 | ModuleId::ClearWater
                 | ModuleId::AutoFish
                 | ModuleId::NoJumpDelay
-                | ModuleId::NoClickDelay => continue,
+                | ModuleId::NoClickDelay
+                | ModuleId::Sprint => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {
@@ -1495,6 +1512,21 @@ pub fn with_client<T>(client: &Client, action: impl FnOnce(&mut Runtime) -> T) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sprint_owner_is_per_client_and_cancel_invis_defaults_off() {
+        let mut first = Runtime::default();
+        let mut second = Runtime::default();
+        assert!(!first.enabled(ModuleId::Sprint));
+        assert_eq!(
+            first.settings().get("combat.sprint.cancel-invis"),
+            Some(&json!(false))
+        );
+        assert!(!first.replace_sprint_input_owner(true));
+        assert!(!second.replace_sprint_input_owner(false));
+        assert!(first.replace_sprint_input_owner(false));
+        assert!(!first.replace_sprint_input_owner(false));
+    }
 
     #[test]
     fn client_ownership_is_independent_and_temporary_handles_preserve_it() {

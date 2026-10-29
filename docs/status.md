@@ -124,3 +124,7 @@ plan are not available by enabling hidden options.
 ## Partial targeting groundwork
 
 Pure candidate filtering, five sort modes and bounded rotation math have been added; see [targeting-foundation.json](evidence/targeting-foundation.json). They are not connected to live entities or player rotation, and no new combat or movement module is registered. Native snapshots, scoring, visibility, input/action dispatch and host scenarios remain the next dependency work.
+
+## Sprint input baseline
+
+Sprint is registered with its Cancel Invis setting and feeds the host's sprint key at the existing client tick hook. It is an experimental input baseline: scaffold and shared movement arbitration, exact reference conditions, controlled-input interference and real host scenarios remain open. See [sprint-core.json](evidence/sprint-core.json). The targeting foundation remains unconnected.
