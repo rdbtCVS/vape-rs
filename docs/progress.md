@@ -227,3 +227,21 @@ Validation: workspace fmt and Clippy passed; 51 runtime and 4 audit tests passed
 Registered Sprint and its default-off Cancel Invis setting. The existing client tick adapter feeds the host sprint key used by local and remote movement, tracks its per-client synthetic ownership and preserves a physically held key during cleanup. Host sprint eligibility and movement remain in the normal native path. This is an incomplete baseline: shared movement arbitration, Scaffold integration, reference condition parity and controlled-input interactions remain open. No live targeting/rotation snapshots or other requested modules were added.
 
 Validation: workspace formatting and Clippy (all targets, warnings denied) passed; 52 runtime and 4 audit tests passed, including a focused per-client ownership/defaults test; 52 emitted runtime tests passed. Exact stage/audit passed with 22 hooks, one state and nine support modules; pinned client check result is recorded in docs/evidence/sprint-core.json. No executable build or resource-backed scenario was run. Sprint is implemented-core only; no full port or host validation is claimed.
+
+## World render foundation batch
+
+Added host-independent world-space line/box primitives and a bounded projectile
+integrator. The integrator applies the reference's 0.99f drag before gravity,
+accepts a host collision query, stops at the returned impact and caps work at
+4096 steps. Returning the impact position instead of the reference's
+post-collision full-step vertex is an intentional modern interpretation; the
+caller must select the nearest block/entity impact. This is a foundation only:
+there is no native line adapter, entity/block snapshot, world-text or filled
+geometry path, projectile launch/collision adapter, module registration or
+visual validation. None of the assigned feature rows has been promoted.
+
+Validation: 52 runtime tests (including four new focused cases), four audit
+unit tests, 52 emitted-payload tests, rustfmt and workspace Clippy with warnings
+denied passed. Exact native stage/audit passed (22 HEAD hooks, one owned state, nine support
+modules); the pinned client cargo check passed. No game executable or resource-backed scenario ran.
+BlockOverlay's transparent-fill boundary remains unresolved.
