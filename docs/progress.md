@@ -265,3 +265,9 @@ client cargo check passed. No game execution was performed.
 Added Panic as a bindable Utility module, retaining the existing F10 default. The reference's optional Re-enable setting records the active modules and restores them on the next activation; a module change or session/profile transition clears the pending restore. Panic remains momentary, and imported profile state cannot trigger it. Reference default visibility remains open. No other HUD family modules, Text GUI or ClientSettings fidelity are claimed in this batch.
 
 Validation: workspace formatting and Clippy (all targets, warnings denied) passed; 49 runtime and 4 audit tests passed, including a new restoration/invalidation case. Final payload tests passed (49); exact native stage/audit passed (22 HEAD hooks, one owned state, nine support modules), and the pinned client cargo check passed. No game executable or real host scenario was run, so Panic is implemented-core, not validated.
+
+## HUD helper and legacy mouse triage
+
+Reviewed MouseDelayFix against the pinned host's current-orientation attack rays and classified its 1.8.9-specific interpolated-look workaround as not applicable. Classified ScoreboardVisibleScorePredicate as an internal helper rather than a separate module; its owner filtering remains required by the unfinished Scoreboard. Details and limits are in docs/specs/hud-triage.md. No HUD module is newly registered and no host scenario or visual parity is claimed.
+
+Validation: workspace fmt and all-target Clippy passed; 51 runtime and 4 audit tests passed, as did 51 emitted-payload tests. Exact staging and audit passed with 22 HEAD hooks, one owned state and nine support modules. Pinned-client cargo check passed. No executable game scenario was run.
