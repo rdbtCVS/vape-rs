@@ -263,7 +263,7 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     game.menu_ops(&[(Some(usize::from(request.slot)), if request.click == Click::SwapOffhand { 40 } else { 0 }, input)])
 }
 
-// Dispatch on frames so an in-frame inventory menu can advance while the
+// Dispatch on frames so an open inventory menu can advance while the
 // world simulation is paused. Scheduling uses monotonic time in the runtime.
 pub fn dispatch(game: &mut Game<'_>) {
     use crate::game::vape_rs::core::inventory_runtime::InventoryEffect;

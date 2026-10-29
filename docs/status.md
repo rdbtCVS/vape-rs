@@ -2,7 +2,8 @@
 
 Updated 2026-10-29 after the combat/movement round: live entity snapshots,
 the reference target filter, AimAssist (Simple), TriggerBot, SafeWalk and
-Velocity, each with fresh-home integrated and in-frame host scenarios.
+Velocity, each with fresh-home integrated-server host scenarios. Single
+player is supported and tested only on Horizon's integrated server thread.
 **The full plan is not complete.** AI behavior and the online product are
 excluded; all other retained scope remains open as listed below.
 
@@ -45,17 +46,15 @@ Unconnected groundwork present in source (no module uses it yet):
 
 - Current tree: **102 runtime tests + 4 audit tests** and 102 emitted-payload
   tests pass; fmt and Clippy (all targets, warnings denied) pass; exact
-  native stage/audit passes with **29 HEAD hooks, one owned state and 13
+  native stage/audit passes with **26 HEAD hooks, one owned state and 13
   support modules**; host check and fast build pass.
 - **Combat/movement round** ([combat-movement-round.json](evidence/combat-movement-round.json),
   [aim-assist.json](evidence/aim-assist.json)), fresh isolated homes:
   AimAssist 14/14, TriggerBot 12/12, SafeWalk 13/13 and Velocity 10/10, each
-  on both the integrated-server and in-frame paths; smoke regression 27/27.
-  The scenarios found and fixed three bugs: TriggerBot reading the server's
-  attack ticker, a shared reset that let a disabled AimAssist clear
-  Velocity every frame, and in-frame knockback bypassing packets.
+  on the integrated server; smoke regression 27/27.
+  The scenarios found and fixed two bugs: TriggerBot reading the server's attack ticker, and a shared reset that let a disabled AimAssist clear Velocity every frame. They also showed that this server sends the TNT push as a motion packet, so the explosion-packet hook is still unexercised.
 - **Post-merge scenarios** ([postmerge-validation.json](evidence/postmerge-validation.json)):
-  integrated and in-frame 27/27, controlled LAN 16/16, covering Sprint,
+  integrated 27/27, controlled LAN 16/16, covering Sprint,
   Parkour, AutoArmor, AutoTotem, Panic, death/respawn and reconnect.
 - Not covered: the new combat modules against real players, LAN guests or
   remote servers; window focus loss; real keyboard rebinding events;
@@ -94,7 +93,7 @@ Concrete implementation milestones:
 | (round) | Re-pin to Nightly 9669600, bounded inventory gate, movement writer, build identity, post-merge + LAN scenarios, ledger kinds, registry/GUI split |
 | `d146567` | Live entity snapshots, reference target filter, item-limit groups, AimAssist (Simple) |
 | `ce3dca4` | SafeWalk, TriggerBot, Velocity (server-thread path); per-module combat resets |
-| `725d322` | Velocity in-frame knockback/explosion hooks; handoff refresh |
+| `725d322` | Handoff refresh (its extra Velocity hooks were later removed with the single-player mode decision) |
 
 ## Open dependencies and next work
 
@@ -127,8 +126,7 @@ RightClicker.
 2. **Movement / packets:** movement-writer priorities, then KeepSprint, WTap,
    NoSlowdown, AutoLadder; a cancellable inbound/outbound packet boundary for
    JumpReset, KnockbackDelay, Blink, FakeLag, Backtrack; then NoFall, Speed, Fly, Timer, Scaffold modes, Clutch, MLG,
-   Freecam and the remaining world/utility rows. Parkour has an integrated
-   and in-frame scenario; a LAN case is still open.
+   Freecam and the remaining world/utility rows. Parkour has an integrated-server scenario; a LAN case is still open.
 3. **Render:** connect camera/projection, world text/quads, entity snapshots
    and collision queries; finish StorageESP (fill, through-wall, all container
    types); then ESP (3D/2D/outline/skeleton), Tracers, Nametags, ItemESP,
@@ -152,8 +150,7 @@ RightClicker.
 6. **Other fidelity:** remote AutoFish ground-state observation, creative
    inventory protocol support, precise inventory scoring parity and
    shader-pack brightness inputs.
-7. **Validation after implementation:** fresh isolated integrated-server and
-   in-frame scenarios for every compile-only module, then remote/LAN cases,
+7. **Validation after implementation:** fresh isolated integrated-server scenarios for every compile-only module, then remote/LAN cases,
    visual comparisons, interruption/cleanup checks and performance.
 8. **Distribution:** published horizon-mixins rejects the Game-owned state
    and four macro-target hooks. A stock-tool variant type-checks without them
@@ -195,7 +192,7 @@ Run `python3 tools/play.py` from the project root; rebuild after source changes 
 `cargo run -p xtask --locked --offline -- build`. It opens the visible native
 client in a fresh disposable survival instance under target/scenarios/manual-*.
 The default prepared resources are the read-only path above; a positional path
-overrides them. `--in-frame` selects the second host path; `--creative` starts
+overrides them. `--creative` starts
 creative (inventory automation requires survival). Quit the window normally;
 the test instance and game.log are retained. No normal player worlds/settings
 are used. Right Shift opens the GUI, F8/F9 toggle coordinates/FPS and F10 is panic.

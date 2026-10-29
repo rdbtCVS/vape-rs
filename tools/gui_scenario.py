@@ -6,8 +6,8 @@ from pathlib import Path
 from native_session import NativeSession
 
 
-def run(resources, in_frame=False):
-    with NativeSession(resources, 'gui-', in_frame) as session:
+def run(resources):
+    with NativeSession(resources, 'gui-') as session:
         def capture(name):
             session.capture(name)
         def click(x, y):
@@ -138,6 +138,5 @@ def run(resources, in_frame=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     args = parser.parse_args()
-    run(args.resources, args.in_frame)
+    run(args.resources)

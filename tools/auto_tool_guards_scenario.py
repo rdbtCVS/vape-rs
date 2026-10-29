@@ -7,7 +7,7 @@ import time
 from native_session import NativeSession
 
 
-def run(resources, in_frame=False):
+def run(resources):
     def seed(session, settings):
         session.seed({'schema': 1, 'modules': {'world.auto-tool': {'enabled': True}},
                       'settings': {'world.auto-tool.binds': ['KeyJ'], **settings}})
@@ -33,7 +33,7 @@ def run(resources, in_frame=False):
         return session.call('state')['selected']
     def passed(session, checks):
         (session.root / 'assertions.json').write_text(json.dumps({'passed': True, 'checks': checks}, indent=2)+'\n')
-    with NativeSession(resources, 'auto-tool-pending-', in_frame) as session:
+    with NativeSession(resources, 'auto-tool-pending-') as session:
         seed(session, {'world.auto-tool.swap-to-delay': 500, 'world.auto-tool.swap-back': True})
         prepare(session)
         session.call('mouse', 'left', 'down')
@@ -71,7 +71,7 @@ def run(resources, in_frame=False):
         assert selected(session) == after
         session.capture('next-dimension-no-replay')
         passed(session, ['disable cancels pending swap', 'menu cancels pending deadline', 'dimension transition drops old work and restoration'])
-    with NativeSession(resources, 'auto-tool-guards-', in_frame) as session:
+    with NativeSession(resources, 'auto-tool-guards-') as session:
         seed(session, {'world.auto-tool.swap-to-delay': 0, 'world.auto-tool.only-sneaking': True,
                        'world.auto-tool.not-use': True, 'world.auto-tool.not-combat': True})
         prepare(session)
@@ -106,7 +106,7 @@ def run(resources, in_frame=False):
         session.call('mouse', 'left', 'up')
         session.call('key', 'shift', 'up')
         passed(session, ['only while sneaking', 'actual item-use guard', 'recent damage guard', 'guard cooldown expires without threat'])
-    with NativeSession(resources, 'auto-tool-no-mouse-', in_frame) as session:
+    with NativeSession(resources, 'auto-tool-no-mouse-') as session:
         seed(session, {'world.auto-tool.require-mouse': False})
         prepare(session)
         before = session.call('state')['swings']
@@ -122,7 +122,7 @@ def run(resources, in_frame=False):
         ('delayed', {'world.auto-tool.instant-swap': False}, 4),
         ('enchanted', {}, 3),
     ]:
-        with NativeSession(resources, 'auto-tool-weapon-' + mode + '-', in_frame) as session:
+        with NativeSession(resources, 'auto-tool-weapon-' + mode + '-') as session:
             seed(session, {'world.auto-tool.swap-to-delay': 500, **settings})
             prepare(session, ['stick', 'wooden_sword', 'diamond_sword', 'iron_axe'])
             if mode == 'enchanted':
@@ -151,6 +151,5 @@ def run(resources, in_frame=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     args = parser.parse_args()
-    run(args.resources, args.in_frame)
+    run(args.resources)

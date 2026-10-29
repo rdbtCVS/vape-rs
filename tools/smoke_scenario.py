@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Post-merge smoke scenario for Sprint, Parkour, AutoTotem, AutoArmor and Panic.
 
-Runs in a fresh isolated survival world (integrated server, or --in-frame) and
+Runs in a fresh isolated survival world on the integrated server and
 checks host-observable results through the control socket: the canonical key
 set, sprint state, position, offhand, armor and screen. It also exercises the
 interactions the merge round left untested: controller sprint while the
@@ -77,9 +77,8 @@ def inventory(session):
     return session.call('inventory')
 
 
-def run(resources, in_frame, allow_stale):
-    prefix = 'smoke-inframe-' if in_frame else 'smoke-'
-    with NativeSession(resources, prefix, in_frame, allow_stale=allow_stale) as session:
+def run(resources, allow_stale):
+    with NativeSession(resources, 'smoke-', allow_stale=allow_stale) as session:
         checks = Checks(session.root)
         session.seed({
             'schema': 1,
@@ -257,7 +256,6 @@ def run(resources, in_frame, allow_stale):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     parser.add_argument('--allow-stale', action='store_true')
     args = parser.parse_args()
-    raise SystemExit(1 if run(args.resources, args.in_frame, args.allow_stale) else 0)
+    raise SystemExit(1 if run(args.resources, args.allow_stale) else 0)

@@ -7,8 +7,8 @@ import time
 from native_session import NativeSession
 
 
-def run(resources, in_frame=False):
-    with NativeSession(resources, 'no-hurt-camera-', in_frame) as session:
+def run(resources):
+    with NativeSession(resources, 'no-hurt-camera-') as session:
         session.seed({'schema': 1, 'modules': {'render.no-hurt-camera': {'enabled': True}},
                       'settings': {'render.no-hurt-camera.binds': ['KeyH']}})
         def damaged(previous):
@@ -63,6 +63,5 @@ def run(resources, in_frame=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     args = parser.parse_args()
-    run(args.resources, args.in_frame)
+    run(args.resources)

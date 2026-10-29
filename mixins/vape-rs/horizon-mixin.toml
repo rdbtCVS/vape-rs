@@ -144,15 +144,6 @@ bindings = [
 ]
 
 [[injection]]
-id = "session-dimension"
-target = "horizon_client::game::Game<'_>::enter_dimension"
-kind = "HEAD"
-helper = "adapters/session_dimension.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-]
-
-[[injection]]
 id = "session-respawn"
 target = "horizon_client::game::screens::Game<'_>::respawn_player"
 kind = "HEAD"
@@ -366,33 +357,4 @@ helper = "adapters/explosion_push.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "packet", ty = "&horizon_protocol::packets::play::Explode", value = "p" },
-]
-
-# In-frame worlds have no packets: the host applies the player's knockback
-# and explosion push locally. Velocity wraps both (re-entry guarded).
-[[injection]]
-id = "local-knockback"
-target = "horizon_client::game::creatures::Game<'_>::knock_back_player"
-kind = "HEAD"
-cancellable = true
-helper = "adapters/local_knockback.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "power", ty = "f64", value = "power" },
-  { name = "xd", ty = "f64", value = "xd" },
-  { name = "zd", ty = "f64", value = "zd" },
-]
-
-[[injection]]
-id = "local-explosion"
-target = "horizon_client::game::explosion::Game<'_>::explosion_hurt_player"
-kind = "HEAD"
-cancellable = true
-helper = "adapters/local_explosion.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "center", ty = "[f64; 3]", value = "center" },
-  { name = "radius", ty = "f32", value = "radius" },
-  { name = "damage_type", ty = "&str", value = "damage_type" },
-  { name = "exploding", ty = "Option<u32>", value = "exploding" },
 ]

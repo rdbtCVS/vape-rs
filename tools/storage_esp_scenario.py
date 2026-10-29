@@ -5,8 +5,8 @@ from pathlib import Path
 from native_session import NativeSession
 
 
-def run(resources, in_frame):
-    with NativeSession(resources, 'storage-esp-', in_frame) as session:
+def run(resources):
+    with NativeSession(resources, 'storage-esp-') as session:
         session.seed({'schema': 1, 'modules': {'render.storage-esp': {'enabled': True}},
                       'settings': {'render.storage-esp.binds': ['KeyJ']}})
         session.launch()
@@ -27,6 +27,5 @@ def run(resources, in_frame):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     args = parser.parse_args()
-    run(args.resources, args.in_frame)
+    run(args.resources)

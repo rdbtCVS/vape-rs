@@ -42,12 +42,12 @@ The compatible prepared resource directory located for this workspace is:
 <launcher-dir>/versions/nightly-2026-10-28-9b772b2/.local/horizon-client/26.3
 ```
 
-Use it read-only; every executable game run must use fresh isolated homes and working directory through tools/native_session.py. `xtask build` writes `target/host-cargo/fast/vape-rs-build.json` beside the executable (bundle hash, Horizon/mixin pins, tool patches, profile/features, cargo version, executable hash, source commit/dirty flag). `play.py` and every scenario refuse to launch an executable whose identity is missing or differs from the current sources (`--allow-stale` overrides with a warning), and copy the identity into the session as build.json. Post-merge scenarios: `tools/smoke_scenario.py` (add `--in-frame`) and `tools/lan_scenario.py` (two owned processes over localhost LAN); see docs/evidence/postmerge-validation.json. For a visible manual test in a new disposable survival world:
+Use it read-only; every executable game run must use fresh isolated homes and working directory through tools/native_session.py. `xtask build` writes `target/host-cargo/fast/vape-rs-build.json` beside the executable (bundle hash, Horizon/mixin pins, tool patches, profile/features, cargo version, executable hash, source commit/dirty flag). `play.py` and every scenario refuse to launch an executable whose identity is missing or differs from the current sources (`--allow-stale` overrides with a warning), and copy the identity into the session as build.json. Post-merge scenarios: `tools/smoke_scenario.py` and `tools/lan_scenario.py` (two owned processes over localhost LAN); see docs/evidence/postmerge-validation.json. For a visible manual test in a new disposable survival world:
 
 ```sh
 python3 tools/play.py
-# Optional alternative execution path or creative starting mode:
-python3 tools/play.py --in-frame
+# Optional creative starting mode:
+
 python3 tools/play.py --creative
 ```
 
@@ -65,7 +65,7 @@ The development scenario driver accepts a prepared resource directory:
 
 ```sh
 python3 tools/scenario.py /absolute/path/to/prepared/26.3
-python3 tools/scenario.py /absolute/path/to/prepared/26.3 --in-frame
+
 ```
 
 It uses a fresh working directory and isolated homes for each run, then captures input/HUD states and quits the test game. Screenshots require visual inspection; successful commands alone do not establish rendering parity.

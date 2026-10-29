@@ -6,8 +6,8 @@ from pathlib import Path
 from native_session import NativeSession
 
 
-def run(resources, in_frame=False):
-    with NativeSession(resources, 'hud-editor-', in_frame) as session:
+def run(resources):
+    with NativeSession(resources, 'hud-editor-') as session:
         session.seed({'schema': 1, 'modules': {'hud.coordinates': {'enabled': True}, 'hud.fps': {'enabled': False}},
                       'settings': {'hud.coordinates.x': 20, 'hud.coordinates.y': 25,
                                    'hud.fps.x': 250, 'hud.fps.y': 70}})
@@ -57,7 +57,7 @@ def run(resources, in_frame=False):
         assert session.saved()['settings']['hud.coordinates.scale'] == final['settings']['hud.coordinates.scale']
         session.capture('after-restart')
         (session.root / 'assertions.json').write_text(json.dumps({'passed': True, 'checks': ['HUD drag', 'bounded placement', 'screen-edge snapping', 'shift disables snapping', 'wheel scaling', 'settings navigation', 'enable/disable preview control', 'disabled previews absent from gameplay', 'position/scale survive restart']}, indent=2))
-    with NativeSession(resources, 'binding-capture-', in_frame) as session:
+    with NativeSession(resources, 'binding-capture-') as session:
         session.seed({'schema': 1, 'modules': {}, 'settings': {'hud.coordinates.binds': ['KeyW']}})
         session.launch()
         before = session.call('state')
@@ -88,6 +88,5 @@ def run(resources, in_frame=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     args = parser.parse_args()
-    run(args.resources, args.in_frame)
+    run(args.resources)

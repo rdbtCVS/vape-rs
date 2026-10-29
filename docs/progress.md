@@ -52,7 +52,7 @@ Corrected scenario isolation: for a custom executable, horizon-ctl inherits its 
 
 Validation: 13 standalone tests, emitted payload's 10 tests, 5 upstream macro integration tests, standalone fmt/Clippy, pinned host check and optimized client/ctl build passed. The exact audit removes four expected HEAD hooks and one support module and restores all original ASTs/other input hashes.
 
-Actual native game scenarios completed in fresh worlds for both default integrated-server and --in-frame paths: 20 successful control commands each, one client-start diagnostic each, seven real rendered captures each. Inspected captures demonstrate disabled defaults, actual coordinates/FPS rendering, held-key repeat suppression, F1 hide/restore, panic removal, and no toggle from a pause-screen press. Both games quit via their own control sockets. Artifacts and capture hashes are recorded in docs/evidence/pr2-native-validation.json.
+Actual native game scenarios completed in fresh worlds on the integrated server: 20 successful control commands, one client-start diagnostic, seven real rendered captures each. Inspected captures demonstrate disabled defaults, actual coordinates/FPS rendering, held-key repeat suppression, F1 hide/restore, panic removal, and no toggle from a pause-screen press. Both games quit via their own control sockets. Artifacts and capture hashes are recorded in docs/evidence/pr2-native-validation.json.
 
 Coordinates/FPS ledger rows are now `implemented-core`, not `validated`: full reference layout/typography, biome/direction details, settings/UI/persistence and complete parity remain unfinished. The source bundle was rebuilt with the exact PR head in its native manifest (7 source files, SHA-256 in the validation report). Adjacent reference checkouts remain clean.
 
@@ -68,7 +68,7 @@ Added typed boolean/number/range/choice/color/text/list definitions, conditions,
 
 Static tracing corrected binding fidelity: multiple keys are a chord, not alternatives. Core supports toggle/held chord behavior, repeat suppression, release of any member, context/focus cleanup and cleanup using the old mode when changing a binding. Module activation choices match reference TOGGLE/HELD; release-edge machinery remains internal for event/macros work. Full mouse capture and event cancellation remain open.
 
-Validation: 25 runtime tests plus 3 tooling audit tests passed, emitted payload's 25 tests passed, formatting/Clippy and exact native source audit passed, and actual pinned host check/optimized build passed. Real native profile scenarios passed in both integrated-server and --in-frame paths, including restart, chord press/release, panic persistence, unknown data preservation, and corrupt-file preservation while the client remains usable. Inspected rendered artifacts show real vertical layout, scale/color/background edits and retained settings after restart. Evidence: docs/evidence/settings-profiles-validation.json. Partial cross-cutting ledger rows are implemented-core, not validated.
+Validation: 25 runtime tests plus 3 tooling audit tests passed, emitted payload's 25 tests passed, formatting/Clippy and exact native source audit passed, and actual pinned host check/optimized build passed. Real native profile scenarios passed on the integrated server, including restart, chord press/release, panic persistence, unknown data preservation, and corrupt-file preservation while the client remains usable. Inspected rendered artifacts show real vertical layout, scale/color/background edits and retained settings after restart. Evidence: docs/evidence/settings-profiles-validation.json. Partial cross-cutting ledger rows are implemented-core, not validated.
 
 Traced client foundation/UI source contracts in docs/specs/client-foundation.md, including the actual 400×240 main frame and retained Modules/Friends/Profiles sections. Next: implement and integrate those local UI interactions, then continue the complete feature ledger and remaining plan. The full port is not complete.
 
@@ -80,7 +80,7 @@ Integrated physical text/mouse/IME events, custom HUD rendering, game/control ke
 
 The audit now checks every declaration against the plan (target, typed bindings, cancellation and exact helper source), removes all ten expected hooks and the exact support module, and compares all affected ASTs/other inputs. It requires pinned hashes for every affected source file. This avoids a hardcoded hook count as the complete port adds integrations.
 
-Validation: 29 runtime and 3 audit tests, emitted payload tests, fmt/Clippy, exact native plan/apply/audit, actual pinned client check/optimized build all passed. Actual GUI scenarios passed in both integrated-server and --in-frame paths, with 28 captures each: real setting/bind edits, local profile CRUD/import/export/load, friend/enemy edits, GUI movement/attack isolation, safe closing/reopening and restored HUD settings. Captures were inspected. A test initially called the gameplay-only `mouse` command on a paused screen; its expected host rejection was corrected to an actual outside-window pointer click. Evidence: docs/evidence/gui-foundation-validation.json.
+Validation: 29 runtime and 3 audit tests, emitted payload tests, fmt/Clippy, exact native plan/apply/audit, actual pinned client check/optimized build all passed. Actual GUI scenarios passed on the integrated server, with 28 captures: real setting/bind edits, local profile CRUD/import/export/load, friend/enemy edits, GUI movement/attack isolation, safe closing/reopening and restored HUD settings. Captures were inspected. A test initially called the gameplay-only `mouse` command on a paused screen; its expected host rejection was corrected to an actual outside-window pointer click. Evidence: docs/evidence/gui-foundation-validation.json.
 
 Adjacent Horizon HEAD advanced independently to b7df7bd9e0b2b61cebd73d88194acd0b5956c6ed during development. Staging/builds remain on the original committed e1b2b0… pin; subsequent host inspection uses that pristine export. No adjacent checkout was edited.
 
@@ -90,7 +90,7 @@ Continue immediately with the HUD drag/snap/scale editor and remaining reference
 
 Added native widget dragging, viewport bounds, screen/widget edge snapping (Shift bypass), wheel scaling, settings navigation and enable/disable controls. Disabled widgets appear only as dim editor previews using actual host values; previewing does not enable them. Placement and scale use normal settings persistence. Reference minimum FPS/coordinate panel dimensions are retained; full widget contents, typography and visual parity remain unfinished.
 
-Validation: 30 runtime + 3 audit tests, emitted payload's 30 tests, fmt/Clippy, ten-hook exact source audit, pinned host check and optimized build passed. Real HUD editor and bound-input capture scenarios passed in both integrated-server and in-frame paths, including restart persistence, Shift snapping bypass, no movement from a bound W key and no attack from a bound left mouse button. Inspected actual editor/scaled captures. Evidence: docs/evidence/hud-editor-validation.json. No row was promoted to full `validated` parity.
+Validation: 30 runtime + 3 audit tests, emitted payload's 30 tests, fmt/Clippy, ten-hook exact source audit, pinned host check and optimized build passed. Real HUD editor and bound-input capture scenarios passed on the integrated server, including restart persistence, Shift snapping bypass, no movement from a bound W key and no attack from a bound left mouse button. Inspected actual editor/scaled captures. Evidence: docs/evidence/hud-editor-validation.json. No row was promoted to full `validated` parity.
 
 Next: complete text editing/selection and modal input isolation, then remaining typed controls, widget details, shared lifecycle and the complete feature ledger. Full plan remains active.
 
@@ -118,7 +118,7 @@ Public native packaging is explicitly gated: the launcher cannot apply a develop
 
 Added typed client session epochs, generation-qualified entity handles and context/death observation. Added seven native transition hooks (open/close, dimension, respawn, join/leave and remote dimension replacement). Invalidations release held/chord state, close owned GUI when appropriate and retain ordinary toggle preferences. Profile replacement and panic use the same cleanup path. No world names/addresses are included in mod epoch diagnostics. Repeated unchanged frames do not churn generations. This establishes the lifecycle dependency; future action/rotation/inventory/packet systems still need their own cleanup integration and real scenarios.
 
-Validation: 35 runtime + 4 audit tests, 35 emitted tests, fmt/Clippy, exact 17-hook/state/module audit, pinned host check and optimized executable build passed. Actual native lifecycle scenarios passed cleanly in integrated-server and in-frame modes: Nether travel, kill/death, UI respawn, pause, save/quit and second-world open, with held FPS release, retained coordinates preference, reactivation in next world and strictly increasing epoch diagnostics. Inspected next-world capture. Evidence: docs/evidence/lifecycle-validation.json. Native manifest binding rules rejected an enum literal binding during implementation; moved constants inside small typed helpers instead of widening the binding contract.
+Validation: 35 runtime + 4 audit tests, 35 emitted tests, fmt/Clippy, exact 17-hook/state/module audit, pinned host check and optimized executable build passed. Actual native lifecycle scenarios passed cleanly on the integrated server: Nether travel, kill/death, UI respawn, pause, save/quit and second-world open, with held FPS release, retained coordinates preference, reactivation in next world and strictly increasing epoch diagnostics. Inspected next-world capture. Evidence: docs/evidence/lifecycle-validation.json. Native manifest binding rules rejected an enum literal binding during implementation; moved constants inside small typed helpers instead of widening the binding contract.
 
 Continue the shared registry/action ownership and retained UI/settings/HUD behavior, then the full inventory/combat/movement/packet/AI feature plan. No complete module/visual parity or distribution claim is made.
 
@@ -214,7 +214,7 @@ Close-out verification: 48 runtime tests and 4 audit tests passed; workspace for
 
 In response to the user's usability/testing question, rebuilt the current native client from the close-out runtime (source commit 3f0462a). Exact staging/audit passed again; optimized fast-profile build passed (1m17s compile, existing 17 dead-code warnings). This replaces the older executable under target/host-cargo/fast/horizon-client. No new game execution or visual/gameplay validation is claimed.
 
-Added tools/play.py as a visible manual entry point using the existing NativeSession isolation. Each invocation allocates fresh homes and working directory under target/scenarios/manual-*, uses approved prepared resources read-only, opens a normal survival world, retains its log/world/preferences for inspection, and closes only its owned process. Optional --in-frame and --creative are available; the three inventory automation modules require survival. CLI help passed. The development build has audio/controllers disabled. README and docs/status.md now include the exact launch command and controls. Evidence: docs/evidence/manual-playtest-build.json.
+Added tools/play.py as a visible manual entry point using the existing NativeSession isolation. Each invocation allocates fresh homes and working directory under target/scenarios/manual-*, uses approved prepared resources read-only, opens a normal survival world, retains its log/world/preferences for inspection, and closes only its owned process. Optional --creative is available; the three inventory automation modules require survival. CLI help passed. The development build has audio/controllers disabled. README and docs/status.md now include the exact launch command and controls. Evidence: docs/evidence/manual-playtest-build.json.
 
 ## Targeting and rotation primitives (partial batch)
 
@@ -293,7 +293,7 @@ modules; pinned host client cargo check passed. The initial flattened-payload
 import failed the host check and was corrected before the successful rerun.
 
 The optimized pinned client and control tool built successfully. Fresh isolated
-resource-backed integrated-server and in-frame chest scenarios both completed
+resource-backed integrated-server chest scenarios completed
 and exited cleanly; enabled captures visibly showed the outline, and the
 integrated disabled capture showed its removal after the binding toggle.
 Artifacts remain under `target/scenarios/storage-esp-nlz84kyn` and
@@ -334,7 +334,7 @@ Workspace formatting and Clippy passed; 53 runtime and 4 audit tests passed. The
 
 ## Parallel implementation round integration (2026-10-29)
 
-Ran combat/movement, render, inventory and HUD/UI workers concurrently in separate worktrees and merged their branches into main. Shipped this round: Sprint (baseline native sprint input), Panic (configurable bind and optional re-enable), partial StorageESP (depth-tested chest/furnace outlines through the world-line pipeline, with integrated-server and in-frame host scenarios), partial AutoTotem (guarded survival offhand swap), experimental Parkour (host collision query + jump input), Refill selection/scatter/cursor fixes and localized biome/potion HUD names. Added unconnected groundwork: targeting filters/sorts/rotation stepping, world line/box/projectile primitives, clicker Normal/Extra timing and an initial movement-request resolver. Triaged MouseDelayFix (not applicable on the pinned host) and the scoreboard predicate (internal helper).
+Ran combat/movement, render, inventory and HUD/UI workers concurrently in separate worktrees and merged their branches into main. Shipped this round: Sprint (baseline native sprint input), Panic (configurable bind and optional re-enable), partial StorageESP (depth-tested chest/furnace outlines through the world-line pipeline, with integrated-server host scenarios), partial AutoTotem (guarded survival offhand swap), experimental Parkour (host collision query + jump input), Refill selection/scatter/cursor fixes and localized biome/potion HUD names. Added unconnected groundwork: targeting filters/sorts/rotation stepping, world line/box/projectile primitives, clicker Normal/Extra timing and an initial movement-request resolver. Triaged MouseDelayFix (not applicable on the pinned host) and the scoreboard predicate (internal helper).
 
 Most worker assignments ended well short of scope; AimAssist, TriggerBot, both clickers, SafeWalk/KeepSprint/WTap/NoSlowdown/AutoLadder, ESP/Tracers/Nametags and the other render modules, InventoryManager and the consumable modules, ClientSettings, Text GUI and the HUD-module family remain unimplemented with no external blocker identified. docs/status.md lists the remaining work per area.
 
@@ -350,11 +350,11 @@ Inventory transactions are now bounded. The gate resolves each click by its visi
 
 Movement input has one final writer. It works from the host's canonical keys and toggle mappings, records host key events through the `mapped_key` and `control_key_down` adapters, never reads raw Left Ctrl/Space, and hands owned axes back on screens, pause and unfocused frames. Sprint and Parkour are ported onto it.
 
-`xtask build` writes a build identity beside the executable. `play.py` and all scenarios refuse stale or unidentified executables, which corrects the earlier "current client was rebuilt" ambiguity. New fresh-home scenarios: `tools/smoke_scenario.py` (integrated and in-frame) and `tools/lan_scenario.py` (controlled localhost LAN with two owned processes). They found an AutoArmor bug: vanilla armor attribute modifiers use slot groups, so every piece scored 0 and upgrades never happened. Fixed.
+`xtask build` writes a build identity beside the executable. `play.py` and all scenarios refuse stale or unidentified executables, which corrects the earlier "current client was rebuilt" ambiguity. New fresh-home scenarios: `tools/smoke_scenario.py` (integrated server) and `tools/lan_scenario.py` (controlled localhost LAN with two owned processes). They found an AutoArmor bug: vanilla armor attribute modifiers use slot groups, so every piece scored 0 and upgrades never happened. Fixed.
 
 The ledger gains a `kind` column. `tools/ledger_triage.py` resolved all 243 "inherited/HUD; review" rows from the reference text: 28 modules, 43 submodes, 27 submodules and 145 helpers. Sprint, Parkour, AutoTotem, AutoArmor and Panic move to `integrated` with state-machine/cleanup/conflict fields. None is `validated`, because reference parity remains open. The module registry is now one table (`src/core/registry.rs`; the generated values were checked identical against the old matches), and `ui/gui.rs` is split into `gui/{mod,input,render}.rs`.
 
-Validation: fmt, Clippy (all targets, warnings denied), 85 runtime + 4 audit tests, 85 emitted-payload tests. Exact stage/audit: 23 HEAD hooks, one owned state, 11 support modules. Optimized build and horizon-ctl rebuilt from the same stage. Scenarios on that build: integrated 27/27, in-frame 27/27, LAN 16/16 (docs/evidence/postmerge-validation.json). Not covered: window focus loss, real keyboard rebinding events, switching between two different worlds, and third-party servers.
+Validation: fmt, Clippy (all targets, warnings denied), 85 runtime + 4 audit tests, 85 emitted-payload tests. Exact stage/audit: 23 HEAD hooks, one owned state, 11 support modules. Optimized build and horizon-ctl rebuilt from the same stage. Scenarios on that build: integrated 27/27, LAN 16/16 (docs/evidence/postmerge-validation.json). Not covered: window focus loss, real keyboard rebinding events, switching between two different worlds, and third-party servers.
 
 Not done this round: the entity snapshot/rotation, packet, camera/world-text foundations and their consumers (next round's worker table is in docs/status.md); moving tick/frame/HUD to stable hook points; the packaging owner decision (user) and launcher install proof; and splitting `core/mod.rs` beyond the registry (1750 lines).
 
@@ -372,7 +372,7 @@ Started the next round's Worker A dependency inline. `targeting::entities` holds
 
 AimAssist's Simple mode is a step-for-step port of `AimAssistRotationSubModule`, including its forces, velocity buffers, boosts, drift and sensitivity scaling, with all reference settings and defaults. It runs from a new `aim-assist-look` HEAD on `pad_look`, between host mouse look and render, and turns through the host `Entity.turn`. Disabling it, changing a setting, a session change or a non-interactive context clears its state. Adaptive mode is not ported. Teammate and bot checks wait for AntiBot.
 
-Validation: fmt and Clippy (all targets, warnings denied) pass; 95 runtime + 4 audit tests and 95 emitted-payload tests pass. Exact stage/audit: 24 HEAD hooks, one owned state, 12 support modules. Pinned client check and fast build pass. New fresh-home `tools/aim_assist_scenario.py`: integrated 14/14 and in-frame 14/14. It covers no turn while disabled, behind a screen, with Mobs off, or without attack held under Require mouse down; turning to within 0.6 degrees of a NoAI zombie; and profile restore across a restart. Smoke regression: 27/27. Evidence: docs/evidence/aim-assist.json. Not covered: Adaptive mode, player and LAN-guest targets, remote servers, strafe increase, vertical aim, and friends, enemies and walls in the host.
+Validation: fmt and Clippy (all targets, warnings denied) pass; 95 runtime + 4 audit tests and 95 emitted-payload tests pass. Exact stage/audit: 24 HEAD hooks, one owned state, 12 support modules. Pinned client check and fast build pass. New fresh-home `tools/aim_assist_scenario.py`: integrated 14/14. It covers no turn while disabled, behind a screen, with Mobs off, or without attack held under Require mouse down; turning to within 0.6 degrees of a NoAI zombie; and profile restore across a restart. Smoke regression: 27/27. Evidence: docs/evidence/aim-assist.json. Not covered: Adaptive mode, player and LAN-guest targets, remote servers, strafe increase, vertical aim, and friends, enemies and walls in the host.
 
 Next: TriggerBot and the clickers on the same snapshot; SafeWalk through an edge back-off hook (Worker C); the packet boundary (Worker B); world text/camera (Worker D).
 
@@ -388,18 +388,18 @@ Host scenarios found two bugs, both fixed. TriggerBot initially read the integra
 
 Validation: fmt and Clippy pass; 102 runtime + 4 audit tests and 102 payload tests pass. Stage/audit: 27 HEAD hooks, one owned state, 13 support modules. Host check and fast build pass. Fresh-home scenarios on one build (docs/evidence/combat-movement-round.json):
 
-| Scenario | Integrated | In-frame |
-| --- | --- | --- |
-| TriggerBot | 12/12 | 12/12 |
-| AimAssist | 14/14 | 14/14 |
-| SafeWalk | 13/13 | 13/13 |
-| Velocity | 10/10 | **7/10 FAIL** |
-| Smoke | 27/27 | not run |
+| Scenario | Integrated |
+| --- | --- |
+| TriggerBot | 12/12 |
+| AimAssist | 14/14 |
+| SafeWalk | 13/13 |
+| Velocity | 10/10 |
+| Smoke | 27/27 |
 
-The in-frame Velocity failure is expected: in-frame knockback is applied locally by `knock_back_player`/`explosion_hurt_player` with no packets, and those aren't hooked yet. That's the next fix. AutoClicker's engine (Normal/Extra/Extra+ timing, hold/release cycle, jitter, break blocks) is drafted in `docs/drafts/clicker.rs` but not yet registered.
+AutoClicker's engine (Normal/Extra/Extra+ timing, hold/release cycle, jitter, break blocks) is drafted in `docs/drafts/clicker.rs` but not yet registered.
 
-## Velocity in-frame path (2026-10-29)
+## Single player on the integrated server only (2026-10-29)
 
-Hooked the two local knockback paths: `knock_back_player` and `explosion_hurt_player`, both cancellable HEADs. Each runs the host code once, re-entry guarded, then applies Velocity's decision to the result. LAN guest turns are skipped. Velocity is now `integrated`.
+At the user's request, the mod supports and tests single player only on Horizon's default integrated server thread. All scenarios, `play.py` and `scenario.py` lost their alternative-path options, and `native_session.py` pins `HORIZON_SERVER_THREAD=1` so an inherited environment can't switch modes. Three hooks that only ever fired on the alternative path were removed: Velocity's two local knockback hooks and `session-dimension`, whose callers run only in the server Game here. That leaves 26 HEAD hooks, one owned state and 13 support modules. Evidence, ledger and docs now record integrated-server and LAN results only.
 
-Validation: fmt, Clippy, 102 runtime + 4 audit tests and 102 payload tests pass. Stage/audit: 29 HEAD hooks, one owned state, 13 support modules. Host check and fast build pass. Velocity scenario: in-frame 10/10 (zombie 1.99 → 0.31 blocks, TNT 3.17 → 0.0) and integrated 10/10. Smoke 27/27. Evidence: docs/evidence/combat-movement-round.json. TriggerBot, AimAssist and SafeWalk were last run on the previous build; this change only adds the two hooks.
+Validation after the removal: fmt, Clippy, 102 runtime + 4 audit tests and 102 payload tests pass. Stage/audit: 26 HEAD hooks. Fast build passes. On that build: AimAssist 14/14, TriggerBot 12/12, SafeWalk 13/13, Velocity 10/10, smoke 27/27, LAN 16/16 and lifecycle 7/7. Lifecycle's dimension invalidation now comes from `session-remote-dimension`. Evidence: docs/evidence/combat-movement-round.json (`single_player_only_build`).

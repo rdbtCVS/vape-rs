@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **29 HEAD hooks, one Game-owned state, 13 support modules**. Horizon `9669600c389ad6d205db4ec0bb061935f2a38d0c` (`nightly-source/2026-10-28-9669600`); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
+Current audited configuration: **26 HEAD hooks, one Game-owned state, 13 support modules**. Horizon `9669600c389ad6d205db4ec0bb061935f2a38d0c` (`nightly-source/2026-10-28-9669600`); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers, modules and owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
@@ -20,7 +20,6 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `client-frame` | `horizon_client::game::Game<'_>::hud` | Owned GUI/save lifecycle; brightness, macros, inventory and fishing advance while menus pause world ticks. |
 | `session-world-open` | `horizon_client::game::Game<'_>::open_world` | Session invalidation before the native world/connection/dimension/respawn boundary. |
 | `session-world-close` | `horizon_client::game::Game<'_>::close_world` | Session invalidation before the native world/connection/dimension/respawn boundary. |
-| `session-dimension` | `horizon_client::game::Game<'_>::enter_dimension` | Session invalidation before the native world/connection/dimension/respawn boundary. |
 | `session-respawn` | `horizon_client::game::screens::Game<'_>::respawn_player` | Session invalidation before the native world/connection/dimension/respawn boundary. |
 | `session-connect` | `horizon_client::game::remote::Game<'_>::join_server` | Session invalidation before the native world/connection/dimension/respawn boundary. |
 | `session-disconnect` | `horizon_client::game::remote::Game<'_>::leave_server` | Session invalidation before the native world/connection/dimension/respawn boundary. |
@@ -35,8 +34,6 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `safe-walk-edge` | `horizon_client::motion::<MotionWorld<'_,'_,'_> as EdgeBackoffWorld>::staying_on_ground_surface` | Cancellable HEAD (library crate). Returns true for the one local player the movement writer marked for SafeWalk this tick, so the host's own `back_off_from_edge` runs without a sneak key or crouch pose. Otherwise the original `shift_key_down` answer continues. |
 | `inbound-packet` | `horizon_client::game::remote::Game<'_>::handle_packet` | Observe-only HEAD: the body has macros, which the tool preserves only for non-cancellable hooks. Velocity decides on the local player's `SetEntityMotion` here. A replacement is applied right after the host's own assignment (at the next packet or tick), and only while the motion is still exactly the packet's. |
 | `explosion-push` | `horizon_client::game::lan_particles::Game<'_>::remote_explode` | Cancellable HEAD. Velocity re-runs the host handler on a copy with the scaled push, guarded against re-entry. |
-| `local-knockback` | `horizon_client::game::creatures::Game<'_>::knock_back_player` | Cancellable HEAD for in-frame worlds, where there are no packets. Velocity runs the host knockback once (re-entry guarded) and treats the result like the player's own motion packet. Skipped during LAN guest turns (`lan_acting`). |
-| `local-explosion` | `horizon_client::game::explosion::Game<'_>::explosion_hurt_player` | Cancellable HEAD for in-frame worlds. Velocity runs the host damage and push once, then decides on the velocity change as an explosion push. Skipped during LAN guest turns. |
 | `world-lines-hook` | `horizon_client::game::fishing::Game<'_>::fishing_line` | Cancellable HEAD. Preserves fishing lines and adds depth-tested StorageESP outlines when enabled. |
 
 ## Support modules

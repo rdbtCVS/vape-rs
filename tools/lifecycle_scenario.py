@@ -8,8 +8,8 @@ import time
 from native_session import NativeSession
 
 
-def run(resources, in_frame=False):
-    with NativeSession(resources, 'lifecycle-', in_frame) as session:
+def run(resources):
+    with NativeSession(resources, 'lifecycle-') as session:
         session.seed({'schema': 1, 'modules': {'hud.coordinates': {'enabled': True}},
                       'settings': {'hud.fps.activation': 'hold'}})
         def held():
@@ -85,6 +85,5 @@ def run(resources, in_frame=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     args = parser.parse_args()
-    run(args.resources, args.in_frame)
+    run(args.resources)

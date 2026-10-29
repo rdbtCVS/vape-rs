@@ -10,7 +10,7 @@ The native boundary hooks run before original bodies, do not cancel, and conserv
 | --- | --- | --- |
 | session-world-open | game::Game::open_world | Local open/create request, including integrated-server selection |
 | session-world-close | game::Game::close_world | Save and quit request |
-| session-dimension | game::Game::enter_dimension | In-frame dimension travel |
+
 | session-respawn | game::screens::Game::respawn_player | UI respawn request |
 | session-connect | game::remote::Game::join_server | External or integrated memory connection |
 | session-disconnect | game::remote::Game::leave_server | Connection teardown, including failures |

@@ -6,8 +6,8 @@ from pathlib import Path
 from native_session import NativeSession
 
 
-def run(resources, in_frame=False):
-    with NativeSession(resources, 'text-editor-', in_frame) as session:
+def run(resources):
+    with NativeSession(resources, 'text-editor-') as session:
         # Run this driver under xvfb-run: the game needs a display even with
         # offscreen rendering. Clipboard operations stay in its private X server.
         import os
@@ -85,6 +85,5 @@ def run(resources, in_frame=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     args = parser.parse_args()
-    run(args.resources, args.in_frame)
+    run(args.resources)

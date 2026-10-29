@@ -96,9 +96,8 @@ def tnt_push(session):
     return displacement(session, 40)
 
 
-def run(resources, in_frame, allow_stale):
-    prefix = 'velocity-inframe-' if in_frame else 'velocity-'
-    with NativeSession(resources, prefix, in_frame, allow_stale=allow_stale) as session:
+def run(resources, allow_stale):
+    with NativeSession(resources, 'velocity-', allow_stale=allow_stale) as session:
         checks = Checks(session.root)
         session.seed({'schema': 1, 'modules': {},
                       'settings': {'combat.velocity.binds': [BIND], **FULL}})
@@ -167,10 +166,9 @@ def main():
     parser.add_argument('resources', nargs='?',
                         default='<launcher-dir>/versions/'
                                 'nightly-2026-10-28-9b772b2/.local/horizon-client/26.3')
-    parser.add_argument('--in-frame', action='store_true')
     parser.add_argument('--allow-stale', action='store_true')
     args = parser.parse_args()
-    raise SystemExit(0 if run(args.resources, args.in_frame, args.allow_stale) else 1)
+    raise SystemExit(0 if run(args.resources, args.allow_stale) else 1)
 
 
 if __name__ == '__main__':

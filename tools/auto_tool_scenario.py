@@ -7,8 +7,8 @@ import time
 from native_session import NativeSession
 
 
-def run(resources, in_frame=False):
-    with NativeSession(resources, 'auto-tool-', in_frame) as session:
+def run(resources):
+    with NativeSession(resources, 'auto-tool-') as session:
         session.seed({'schema': 1, 'modules': {'world.auto-tool': {'enabled': True}},
                       'settings': {'world.auto-tool.swap-back': True,
                                    'world.auto-tool.swap-back-delay': 150,
@@ -86,6 +86,5 @@ def run(resources, in_frame=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     args = parser.parse_args()
-    run(args.resources, args.in_frame)
+    run(args.resources)

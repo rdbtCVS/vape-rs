@@ -52,7 +52,7 @@ def verify_build(allow_stale=False):
 
 
 class NativeSession:
-    def __init__(self, resources, prefix='scenario-', in_frame=False, allow_stale=False):
+    def __init__(self, resources, prefix='scenario-', allow_stale=False):
         self.build = verify_build(allow_stale)
         self.resources = Path(resources).resolve(strict=True)
         if json.loads((self.resources / 'horizon-resources.json').read_text()).get('minecraft') != '26.3':
@@ -66,9 +66,10 @@ class NativeSession:
             path = self.root / folder
             path.mkdir()
             self.env[variable] = str(path)
+        # Single player always runs on Horizon's integrated server thread; an
+        # inherited environment must not switch that off.
         self.env.update(HORIZON_LAUNCHER_NO_SELF_UPDATE='1', HORIZON_NO_AUDIO='1',
-                        HORIZON_SERVER_THREAD='0' if in_frame else '1')
-        self.in_frame = in_frame
+                        HORIZON_SERVER_THREAD='1')
         self.socket = self.root / ('ctl.json' if os.name == 'nt' else 'ctl.sock')
         self.process = None
         self.log = None
@@ -107,8 +108,6 @@ class NativeSession:
                 *extra]
         if creative:
             args.append('--creative')
-        if self.in_frame:
-            args.append('--in-frame')
         self.socket.unlink(missing_ok=True)
         self.log = (self.root / 'game.log').open('a')
         self.process = subprocess.Popen(args, cwd=self.root / 'game', env=self.env,

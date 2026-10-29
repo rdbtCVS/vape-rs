@@ -16,16 +16,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('resources', nargs='?', type=Path, default=DEFAULT_RESOURCES,
                         help='prepared Minecraft 26.3 resources (read-only)')
-    parser.add_argument('--in-frame', action='store_true',
-                        help='use the alternative in-frame single-player path')
     parser.add_argument('--creative', action='store_true',
                         help='start in creative; inventory automation requires survival')
     parser.add_argument('--allow-stale', action='store_true',
                         help='launch even if the executable was not built from the current sources')
     args = parser.parse_args()
     try:
-        session = NativeSession(args.resources, prefix='manual-', in_frame=args.in_frame,
-                                allow_stale=args.allow_stale)
+        session = NativeSession(args.resources, prefix='manual-', allow_stale=args.allow_stale)
     except (OSError, ValueError, StaleBuild) as error:
         parser.error(str(error))
     build = session.build
@@ -37,8 +34,6 @@ def main():
         command = [str(BINARY), '--resources', str(session.resources),
                    '--world', 'VapeManual', '--width', '1280', '--height', '720',
                    '--render-distance', '6', '--control-socket', str(session.socket)]
-        if args.in_frame:
-            command.append('--in-frame')
         if args.creative:
             command.append('--creative')
         print('Right Shift: GUI; F8/F9: coordinates/FPS; F10: panic.', flush=True)

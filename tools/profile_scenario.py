@@ -6,8 +6,8 @@ from pathlib import Path
 from native_session import NativeSession
 
 
-def run(resources, in_frame=False):
-    with NativeSession(resources, 'profiles-', in_frame) as session:
+def run(resources):
+    with NativeSession(resources, 'profiles-') as session:
         session.seed({'schema': 1, 'modules': {'hud.coordinates': {'enabled': True}, 'hud.fps': {'enabled': False}},
                       'settings': {'hud.coordinates.display': 'vertical', 'hud.coordinates.x': 18,
                                    'hud.coordinates.y': 20, 'hud.coordinates.scale': 1.25,
@@ -45,7 +45,7 @@ def run(resources, in_frame=False):
         assert saved['settings']['hud.coordinates.scale'] == 1.25
         session.capture('after-restart')
         (session.root / 'assertions.json').write_text(json.dumps({'passed': True, 'checks': ['settings affect HUD', 'chord requires all keys', 'held release disables', 'panic persists', 'restart restores settings', 'unknown fields preserved']}, indent=2))
-    with NativeSession(resources, 'corrupt-profile-', in_frame) as session:
+    with NativeSession(resources, 'corrupt-profile-') as session:
         session.current.parent.mkdir(parents=True, exist_ok=True)
         session.current.write_bytes(b'broken profile JSON')
         session.launch()
@@ -60,6 +60,5 @@ def run(resources, in_frame=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('resources', type=Path)
-    parser.add_argument('--in-frame', action='store_true')
     args = parser.parse_args()
-    run(args.resources, args.in_frame)
+    run(args.resources)
