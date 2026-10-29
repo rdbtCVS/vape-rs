@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **26 HEAD hooks, one Game-owned state, 13 support modules**. Horizon `9669600c389ad6d205db4ec0bb061935f2a38d0c` (`nightly-source/2026-10-28-9669600`); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
+Current audited configuration: **26 HEAD hooks, one Game-owned state, 13 support modules**. Horizon `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main, 2026-10-29); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers, modules and owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 

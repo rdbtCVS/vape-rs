@@ -59,8 +59,11 @@ Unconnected groundwork present in source (no module uses it yet):
 - Not covered: the new combat modules against real players, LAN guests or
   remote servers; window focus loss; real keyboard rebinding events;
   switching between two worlds; third-party servers.
-- StorageESP, AutoTool, GUI/profile/HUD editing, lifecycle and NoHurtCam keep
-  their earlier scenarios. Refill, ChestSteal, AutoFish, FastPlace, Fullbright,
+- **Re-pin to main** ([repin-main.json](evidence/repin-main.json)): every
+  scenario was rerun. The GUI, HUD editor, HUD detail and text editor
+  scenarios fail; the first three fail the same way on the previous pin, so
+  their fixed click coordinates are stale and need repair.
+- StorageESP, AutoTool, profile, lifecycle and NoHurtCam pass on the new pin. Refill, ChestSteal, AutoFish, FastPlace, Fullbright,
   Clear Water, the delay removals and localization still have compile/unit
   evidence only.
 - Ledger: 13 integrated, 35 implemented-core, 13 excluded-approved, 2
@@ -161,8 +164,7 @@ RightClicker.
 
 ## Reproduction and resources
 
-Horizon is pinned to `9669600c389ad6d205db4ec0bb061935f2a38d0c`
-(`nightly-source/2026-10-28-9669600`); Minecraft 26.3 / protocol 777. Mixin PR #2 base is
+Horizon is pinned to `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main at 2026-10-29 22:01, untagged); Minecraft 26.3 / protocol 777. Mixin PR #2 base is
 `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed checked-in
 lifetime-state patch. See compatibility.json and README.md for commands.
 

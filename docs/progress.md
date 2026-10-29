@@ -403,3 +403,17 @@ AutoClicker's engine (Normal/Extra/Extra+ timing, hold/release cycle, jitter, br
 At the user's request, the mod supports and tests single player only on Horizon's default integrated server thread. All scenarios, `play.py` and `scenario.py` lost their alternative-path options, and `native_session.py` pins `HORIZON_SERVER_THREAD=1` so an inherited environment can't switch modes. Three hooks that only ever fired on the alternative path were removed: Velocity's two local knockback hooks and `session-dimension`, whose callers run only in the server Game here. That leaves 26 HEAD hooks, one owned state and 13 support modules. Evidence, ledger and docs now record integrated-server and LAN results only.
 
 Validation after the removal: fmt, Clippy, 102 runtime + 4 audit tests and 102 payload tests pass. Stage/audit: 26 HEAD hooks. Fast build passes. On that build: AimAssist 14/14, TriggerBot 12/12, SafeWalk 13/13, Velocity 10/10, smoke 27/27, LAN 16/16 and lifecycle 7/7. Lifecycle's dimension invalidation now comes from `session-remote-dimension`. Evidence: docs/evidence/combat-movement-round.json (`single_player_only_build`).
+
+## Re-pin to Horizon main (2026-10-29)
+
+Re-pinned from Nightly `9669600` to Horizon main `cc7bcbf` (781 commits; Minecraft 26.3 / protocol 777 and all 26 hook targets unchanged; `NATIVE_HOOKS_API` 2). The drift was small. `hud.rs` moved into the new `horizon-client-render` crate (still re-exported as `horizon_client::hud`), so its pinned hash path changed. Clear Water's copied `frame_fog` snapshot gained the three new `FogInputs` fields and the Horizon fog toggle.
+
+Validation: fmt, Clippy, 102 runtime + 4 audit tests and 102 payload tests pass. Stage/audit: 26 HEAD hooks. Host check and fast build pass. Passing scenarios:
+
+- smoke 27/27, LAN 16/16, lifecycle
+- AimAssist 14/14, TriggerBot 12/12, SafeWalk 13/13, Velocity 10/10
+- profile, NoHurtCam, AutoTool, AutoTool guards, StorageESP, `scenario.py`
+
+TriggerBot first scored 7/12: on this main a NoAI zombie burns in daylight, and Fire Resistance did not stop that damage. The scene now runs at night with `spawn_mobs` off.
+
+Failing: the GUI, HUD editor and HUD detail scenarios fail in the same way on the previous pin, so they were already stale (GUI clicks and drags at fixed coordinates no longer have the expected effect). The text editor scenario under `xvfb-run` also fails at a GUI-dependent step; it was not re-run on the previous pin. Evidence: docs/evidence/repin-main.json.

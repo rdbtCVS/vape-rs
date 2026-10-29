@@ -61,7 +61,10 @@ def run(resources, allow_stale):
                       'settings': {'combat.trigger-bot.binds': [BIND],
                                    'combat.trigger-bot.targets.mobs': True}})
         session.launch(creative=True)
-        session.call('time', '6000')
+        # Night, so the zombie does not burn in daylight (and Fire Resistance
+        # does not stop its burn damage on this host); no natural spawns.
+        session.call('chat', '/gamerule spawn_mobs false')
+        session.call('time', '18000')
         session.call('tp', '0.5', '100', '0.5')
         session.call('wait-ready', '40')
         for _ in range(10):
