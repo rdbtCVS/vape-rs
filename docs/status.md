@@ -6,14 +6,14 @@ and the online product are excluded; all other retained scope remains.
 
 ## Connected native implementation
 
-The runtime registers 18 modules, all with normal local activation, binds,
+The runtime registers 19 modules, all with normal local activation, binds,
 profile persistence and GUI access:
 
 | Area | Modules |
 | --- | --- |
 | HUD | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
 | Render | NoHurtCam, Fullbright, Clear Water |
-| Inventory / world / utility | AutoTool, AutoArmor, Refill, ChestSteal, FastPlace, AutoFish, NoJumpDelay, NoClickDelay |
+| Inventory / world / utility | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal, FastPlace, AutoFish, NoJumpDelay, NoClickDelay |
 
 The local foundation includes typed settings/editors, chord/held bindings,
 local profiles and friends/enemies, text/clipboard/IME editing, local macro

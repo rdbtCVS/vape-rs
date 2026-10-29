@@ -117,6 +117,7 @@ impl Snapshot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Click {
     Pickup,
+    SwapOffhand,
     QuickMove,
     Throw,
 }

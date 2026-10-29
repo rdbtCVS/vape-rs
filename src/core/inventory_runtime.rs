@@ -1,7 +1,7 @@
 // Runtime-side arbitration for the three retained inventory planners.
 use super::super::{
     inventory::types::{Request, Snapshot},
-    modules::utility::{auto_armor, chest_steal, refill},
+    modules::utility::{auto_armor, auto_totem, chest_steal, refill},
 };
 use super::settings::{Definition, Kind};
 use super::{ModuleId, Runtime};
@@ -52,8 +52,13 @@ impl Scheduler {
         self.due = None;
         self.active = None;
     }
-    fn choose(&mut self, enabled: [bool; 3]) -> Option<ModuleId> {
-        let modules = [ModuleId::ChestSteal, ModuleId::AutoArmor, ModuleId::Refill];
+    fn choose(&mut self, enabled: [bool; 4]) -> Option<ModuleId> {
+        let modules = [
+            ModuleId::ChestSteal,
+            ModuleId::AutoArmor,
+            ModuleId::Refill,
+            ModuleId::AutoTotem,
+        ];
         for offset in 0..modules.len() {
             let index = (usize::from(self.cursor) + offset) % modules.len();
             if enabled[index] {
@@ -75,6 +80,31 @@ impl Scheduler {
 
 pub(super) fn definitions() -> Vec<Definition> {
     vec![
+        Definition::boolean(
+            "inventory.auto-totem.inventory-only",
+            "Inventory only",
+            false,
+        ),
+        Definition::boolean(
+            "inventory.auto-totem.open-inventory",
+            "Open inventory",
+            true,
+        ),
+        Definition::boolean(
+            "inventory.auto-totem.close-inventory",
+            "Close inventory",
+            true,
+        ),
+        Definition::new(
+            "inventory.auto-totem.delay",
+            "Delay",
+            Kind::Range {
+                min: 50.0,
+                max: 200.0,
+                step: 1.0,
+            },
+            json!([100.0, 120.0]),
+        ),
         Definition::boolean(
             "inventory.auto-armor.inventory-only",
             "Inventory only",
@@ -187,6 +217,7 @@ impl Runtime {
                 self.enabled(ModuleId::ChestSteal),
                 self.enabled(ModuleId::AutoArmor),
                 self.enabled(ModuleId::Refill),
+                self.enabled(ModuleId::AutoTotem),
             ])
         });
         let Some(module) = module else {
@@ -222,6 +253,25 @@ impl Runtime {
                     effect,
                     self.inventory_delay("inventory.auto-armor.delay", (120, 120)),
                     self.auto_armor.active(),
+                )
+            }
+            ModuleId::AutoTotem => {
+                let inventory_only =
+                    self.inventory_bool("inventory.auto-totem.inventory-only", false);
+                let open = self.inventory_bool("inventory.auto-totem.open-inventory", true);
+                let close = self.inventory_bool("inventory.auto-totem.close-inventory", true);
+                let effect = self
+                    .auto_totem
+                    .step(snapshot, inventory_only, open, close)
+                    .map(|effect| match effect {
+                        auto_totem::Effect::Request(r) => InventoryEffect::Request(r),
+                        auto_totem::Effect::OpenInventory => InventoryEffect::OpenInventory,
+                        auto_totem::Effect::CloseInventory => InventoryEffect::CloseInventory,
+                    });
+                (
+                    effect,
+                    self.inventory_delay("inventory.auto-totem.delay", (100, 120)),
+                    self.auto_totem.active(),
                 )
             }
             ModuleId::Refill => {
@@ -265,6 +315,7 @@ impl Runtime {
         self.actions
             .release_owner(super::super::actions::Owner("inventory"));
         self.auto_armor.cancel();
+        self.auto_totem.cancel();
         self.refill.cancel();
         self.chest_steal.cancel();
         self.inventory_schedule.clear();

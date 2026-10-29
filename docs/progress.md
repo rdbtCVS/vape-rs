@@ -229,3 +229,19 @@ Validation: 51 runtime and 4 audit tests passed; 51 emitted payload tests,
 formatting and Clippy (all targets, warnings denied) passed. Exact native
 stage/audit passed with 22 hooks, one state and nine support modules; the pinned
 client cargo check passed. No game execution was performed.
+
+## AutoTotem survival transaction baseline
+
+Added a host-connected AutoTotem baseline. It observes the actual offhand,
+opens the survival player inventory when configured, and swaps the first
+available totem through the normal menu engine using the shared container
+claim, cursor fingerprint and revision gate. It closes only an inventory it
+opened itself. Inventory-only and open/close options and a delay range are
+persisted. Creative is guarded out. Silent opening, randomized slot choice,
+extra timing randomization, the count display, and actions without a visible
+inventory remain unfinished; this is not full reference parity.
+
+Validation: 53 runtime tests, 4 audit tests and 53 emitted-payload tests passed;
+formatting and all-target Clippy passed. Exact native stage/audit and pinned
+client check results are recorded with this milestone. No game scenario was
+run, so the feature remains implemented-core.

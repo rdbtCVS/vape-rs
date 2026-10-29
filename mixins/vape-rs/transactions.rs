@@ -180,6 +180,7 @@ pub fn snapshot(game: &Game<'_>) -> Option<Snapshot> {
             value.as_ref(),
         ));
     }
+    slots.push(slot(game, 504, SlotRole::Other, game.offhand.as_ref()));
     let screen_open = game.screen == Screen::Inventory;
     let is_chest = screen_open
         && game
@@ -247,6 +248,7 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     }
     let input = match request.click {
         Click::Pickup => Input::Pickup,
+        Click::SwapOffhand => Input::Swap,
         Click::QuickMove => Input::QuickMove,
         Click::Throw => Input::Throw,
     };
@@ -254,7 +256,7 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     // each concrete local/remote menu's authoritative menu index, predicts
     // only through Horizon's verified engine, and serializes state/changed
     // slots/carried stack for remote ContainerClick packets.
-    game.menu_ops(&[(Some(usize::from(request.slot)), 0, input)])
+    game.menu_ops(&[(Some(usize::from(request.slot)), if request.click == Click::SwapOffhand { 40 } else { 0 }, input)])
 }
 
 // Dispatch on frames so an in-frame inventory menu can advance while the
