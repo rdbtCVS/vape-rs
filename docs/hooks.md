@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **23 HEAD hooks, one Game-owned state, 11 support modules**. Horizon `9669600c389ad6d205db4ec0bb061935f2a38d0c` (`nightly-source/2026-10-28-9669600`); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
+Current audited configuration: **24 HEAD hooks, one Game-owned state, 12 support modules**. Horizon `9669600c389ad6d205db4ec0bb061935f2a38d0c` (`nightly-source/2026-10-28-9669600`); mixin base `29a8f8f84b253ea89422c0049ff5e8bfda36f1fb` plus the hashed lifetime-state patch in compatibility.json.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers, modules and owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
@@ -31,6 +31,7 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `clear-water` | `horizon_client::game::render_tick::Game<'_>::frame_fog` | Cancellable HEAD. Cancellable underwater fog helper retaining pinned native fog inputs/math. |
 | `fish-hook-data` | `horizon_client::game::fishing::Game<'_>::remote_hook_data` | Observes only own-hook DATA_HOOKED_ENTITY into session-owned state; original packet handling continues. |
 
+| `aim-assist-look` | `horizon_client::game::pad::Game<'_>::pad_look` | Runs after `apply_mouse_look` and before `render` each frame. AimAssist builds the live entity snapshot and turns the view through the host `mouse::Rotation::turn` (`Entity.turn`). The controller look that follows is unchanged. |
 | `world-lines-hook` | `horizon_client::game::fishing::Game<'_>::fishing_line` | Cancellable HEAD. Preserves fishing lines and adds depth-tested StorageESP outlines when enabled. |
 
 ## Support modules
@@ -48,6 +49,7 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_world_lines` | `crates/horizon-client/src/game/fishing.rs` | `mixins/vape-rs/world_lines.rs` |
 | `vape_input_delays` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/input_delays.rs` |
 | `vape_parkour` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/parkour.rs` |
+| `vape_combat` | `crates/horizon-client/src/game.rs` | `mixins/vape-rs/combat.rs` |
 
 The runtime source is deterministically expanded from src/lib.rs. Each Game owns one Arc<Mutex<Runtime>>; there is no process/thread singleton. Adapters release runtime borrows before calling host actions. Session generations invalidate stale entity, slot, container and hook observations. Transient state never enters local profiles.
 
@@ -57,6 +59,6 @@ BlockOverlay drafts under docs/drafts are unregistered and excluded from the run
 
 Current evidence and remaining validation are in [status.md](status.md) and [progress.md](progress.md). Public packaging remains gated until a published mixin-tool pin contains the required state patch.
 
-The targeting/rotation primitives under `src/targeting` are pure and currently have no host hook or live snapshot adapter. They do not alter the hook counts above.
+Live entity snapshots come from `vape_combat::snapshot`: alive `Game::mobs` (remote players included, named through `remote_player_names`) and, when hosting LAN, the guests. Positions are interpolated at `clock.fraction()`, ids are paired with the session epoch, and line-of-sight raycasts (`MobWorld::line_of_sight`) run only when a filter needs them. The pure filter/sort/rotation code is in `src/targeting`. AimAssist is the first consumer.
 
 Movement keys have one writer: `vape_input_delays::movement`, called from `client-tick` before local and remote movement, and from `client-frame` on screen/pause/unfocused frames. It reads the host's canonical key set and toggle mappings, resolves the per-tick requests from Sprint and Parkour (`vape_parkour::edge_ahead` answers the host collision query) through `core::movement_input::Writer`, and writes only the axes that differ from the user's state, or that it owned and must hand back. Host events reach the writer through the two key-capture adapters above. Host scenarios: docs/evidence/postmerge-validation.json.

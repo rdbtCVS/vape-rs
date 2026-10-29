@@ -310,3 +310,18 @@ id = "parkour"
 file = "crates/horizon-client/src/game.rs"
 name = "vape_parkour"
 source = "parkour.rs"
+
+[[module]]
+id = "combat"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_combat"
+source = "combat.rs"
+
+# After MouseHandler's accumulated look (`apply_mouse_look`) and before the
+# frame renders: AimAssist turns the view through the host `Entity.turn`.
+[[injection]]
+id = "aim-assist-look"
+target = "horizon_client::game::pad::Game<'_>::pad_look"
+kind = "HEAD"
+helper = "adapters/aim_look.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]

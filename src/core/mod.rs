@@ -79,6 +79,8 @@ pub struct Runtime {
     /// The single writer of synthetic movement keys for this client.
     movement: movement_input::Writer,
     parkour_tapped: bool,
+    aim_assist: super::modules::combat::aim_assist::AimAssist,
+    aim_clock: Option<std::time::Instant>,
     hud_state: super::ui::hud_state::HudState,
     pub gui: Gui,
     suppress_game_input: bool,
@@ -277,6 +279,9 @@ impl Default for Runtime {
         ] {
             settings.define(definition).unwrap();
         }
+        for definition in super::modules::combat::aim_assist::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::render::storage_esp::definitions() {
             settings.define(definition).unwrap();
         }
@@ -364,6 +369,8 @@ impl Default for Runtime {
             brightness_reset: false,
             movement: movement_input::Writer::default(),
             parkour_tapped: false,
+            aim_assist: Default::default(),
+            aim_clock: None,
             hud_state: super::ui::hud_state::HudState::default(),
             gui: Gui::default(),
             suppress_game_input: false,
@@ -414,6 +421,9 @@ impl Runtime {
         if module == ModuleId::AutoFish && !enabled {
             self.cancel_auto_fish();
         }
+        if module == ModuleId::AimAssist && !enabled {
+            self.reset_aim_assist();
+        }
         self.dirty = true;
         self.notify(format!(
             "{} {}",
@@ -444,6 +454,9 @@ impl Runtime {
         }
         if id.starts_with("world.auto-tool.") {
             self.reset_auto_tool();
+        }
+        if id.starts_with("combat.aim-assist.") {
+            self.reset_aim_assist();
         }
         self.dirty = true;
         Ok(())
@@ -844,6 +857,53 @@ impl Runtime {
     pub fn logic_tick(&self) -> u64 {
         self.ticks
     }
+    fn reset_aim_assist(&mut self) {
+        self.aim_assist.reset();
+        self.aim_clock = None;
+    }
+    /// The local friend (when "Use Friends" is on) and enemy name lists.
+    pub fn target_people(&self) -> super::targeting::filter::NameLists {
+        let names = |relation: &str| -> Vec<String> {
+            self.document.0[relation]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|p| p["target"].as_bool().unwrap_or(true))
+                .filter_map(|p| p["name"].as_str().map(str::to_owned))
+                .collect()
+        };
+        super::targeting::filter::NameLists {
+            friends: self.friend_keys(),
+            enemies: names("enemies"),
+        }
+    }
+    /// Whether AimAssist needs a host snapshot this frame.
+    pub fn aim_assist_active(&mut self) -> bool {
+        let active = self.enabled(ModuleId::AimAssist) && self.session.interactive();
+        if !active {
+            self.reset_aim_assist();
+        }
+        active
+    }
+    /// One render frame of AimAssist; returns the mouse delta for the host's
+    /// `Entity.turn`. Elapsed time comes from the runtime's monotonic clock.
+    pub fn aim_assist_frame(
+        &mut self,
+        mut frame: super::modules::combat::aim_assist::Frame,
+    ) -> (f64, f64) {
+        let now = std::time::Instant::now();
+        frame.elapsed_ms = self
+            .aim_clock
+            .map_or(0, |at| now.duration_since(at).as_millis().min(1000) as u32);
+        // Keep the sub-millisecond remainder for the next frame.
+        self.aim_clock = Some(match self.aim_clock {
+            Some(at) => at + std::time::Duration::from_millis(u64::from(frame.elapsed_ms)),
+            None => now,
+        });
+        let options = super::modules::combat::aim_assist::Options::read(&self.settings);
+        let people = self.target_people();
+        self.aim_assist.frame(&options, &frame, &people)
+    }
     pub fn friend_keys(&self) -> Vec<String> {
         if !self
             .settings
@@ -1001,6 +1061,7 @@ impl Runtime {
             });
         }
         self.reset_auto_tool();
+        self.reset_aim_assist();
         self.cancel_inventory();
         self.cancel_auto_fish();
         self.combat_guard.reset();
@@ -1366,7 +1427,8 @@ impl Runtime {
                 | ModuleId::Sprint
                 | ModuleId::Panic
                 | ModuleId::StorageEsp
-                | ModuleId::Parkour => continue,
+                | ModuleId::Parkour
+                | ModuleId::AimAssist => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

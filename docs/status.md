@@ -8,7 +8,7 @@ excluded; all other retained scope remains open as listed below.
 
 ## Connected native implementation
 
-The runtime registers 23 modules, all with normal local activation, binds,
+The runtime registers 24 modules, all with normal local activation, binds,
 profile persistence and GUI access:
 
 | Area | Modules |
@@ -17,6 +17,7 @@ profile persistence and GUI access:
 | Render | NoHurtCam, Fullbright, Clear Water, StorageESP (partial: chest/furnace outlines) |
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
 | World / movement | FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Sprint (baseline), Parkour (experimental) |
+| Combat | AimAssist (Simple mode; Adaptive open) |
 | Utility | Panic (configurable bind, optional re-enable) |
 
 The local foundation includes typed settings/editors, chord/held bindings,
@@ -28,9 +29,9 @@ HUD names use the active Horizon language when a resource translation exists.
 
 Unconnected groundwork present in source (no module uses it yet):
 
-- Targeting: candidate filtering (friend/enemy/team/visibility), distance/yaw/
-  armor/threat/health sorting and bounded rotation stepping
-  ([targeting-foundation.json](evidence/targeting-foundation.json)).
+- Targeting is now connected: `vape_combat::snapshot` provides live entity
+  views and `targeting::filter` the reference target filter; AimAssist is
+  the first consumer ([aim-assist.json](evidence/aim-assist.json)).
 - Clicker timing: Normal/Extra click-interval primitives in
   `src/modules/combat/click_timing.rs` (unit-tested only).
 - World render: world-space line/box primitives and bounded projectile
@@ -93,7 +94,7 @@ Concrete implementation milestones:
 | `340eb44` | MouseDelayFix / scoreboard predicate triage |
 | `60c6775` | Clicker Normal/Extra timing primitives |
 | `bcd854f` | Experimental Parkour and movement-request resolver |
-| (this round) | Re-pin to Nightly 9669600, bounded inventory gate, movement writer, build identity, post-merge + LAN scenarios, ledger kinds, registry/GUI split |
+| (round) | Re-pin to Nightly 9669600, bounded inventory gate, movement writer, build identity, post-merge + LAN scenarios, ledger kinds, registry/GUI split |
 
 ## Open dependencies and next work
 

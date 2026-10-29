@@ -1,4 +1,6 @@
 /// Pure targeting and rotation primitives. Host snapshots and action dispatch are separate.
+pub mod entities;
+pub mod filter;
 use super::core::lifecycle::{EntityHandle, Epoch};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

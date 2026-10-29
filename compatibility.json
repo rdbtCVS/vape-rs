@@ -19,7 +19,8 @@
     "crates/horizon-client/src/game/fov.rs": "a64f8c183d608695a0fe8029e4f91c98fbcd2f3c7d7cd6adc089cdd0f1794a14",
     "crates/horizon-client/src/game/sculk.rs": "58a2de0276001e1c7bb1b70cca49152c5a5d085025a9b49b1b1ed2d5bc134075",
     "crates/horizon-client/src/game/render_tick.rs": "3ff4df23e3e2e86ecc07fa0e8a6a9ecba2806b3bba742fd47134ad531aea8968",
-    "crates/horizon-client/src/game/fishing.rs": "0b45a5abf73f1124168741ce94fd89d46ecea55fee9f1a0a2af4fdd020b39006"
+    "crates/horizon-client/src/game/fishing.rs": "0b45a5abf73f1124168741ce94fd89d46ecea55fee9f1a0a2af4fdd020b39006",
+    "crates/horizon-client/src/game/pad.rs": "cafc6af30c64a698b49365623d9b91e4ec4f836f4fe92f3234c3ab72c8f00c20"
   },
   "reference_revision": "3d600a48106822755cea2d633062e5ab1f383d48",
   "validated_platforms": [],

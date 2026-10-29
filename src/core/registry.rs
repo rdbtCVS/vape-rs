@@ -66,6 +66,7 @@ registry! {
     Panic => "utility.panic", "Panic", "Utility", None, ["F10"];
     StorageEsp => "render.storage-esp", "StorageESP", "Render", None, [];
     Parkour => "world.parkour", "Parkour", "World", None, [];
+    AimAssist => "combat.aim-assist", "AimAssist", "Combat", None, [];
 }
 
 impl ModuleId {
