@@ -94,7 +94,7 @@ Concrete implementation milestones:
 | (round) | Re-pin to Nightly 9669600, bounded inventory gate, movement writer, build identity, post-merge + LAN scenarios, ledger kinds, registry/GUI split |
 | `d146567` | Live entity snapshots, reference target filter, item-limit groups, AimAssist (Simple) |
 | `ce3dca4` | SafeWalk, TriggerBot, Velocity (server-thread path); per-module combat resets |
-| (this commit) | Velocity in-frame knockback/explosion hooks |
+| `725d322` | Velocity in-frame knockback/explosion hooks; handoff refresh |
 
 ## Open dependencies and next work
 
