@@ -259,3 +259,9 @@ Validation: 51 runtime and 4 audit tests passed; 51 emitted payload tests,
 formatting and Clippy (all targets, warnings denied) passed. Exact native
 stage/audit passed with 22 hooks, one state and nine support modules; the pinned
 client cargo check passed. No game execution was performed.
+
+## HUD client Panic batch
+
+Added Panic as a bindable Utility module, retaining the existing F10 default. The reference's optional Re-enable setting records the active modules and restores them on the next activation; a module change or session/profile transition clears the pending restore. Panic remains momentary, and imported profile state cannot trigger it. Reference default visibility remains open. No other HUD family modules, Text GUI or ClientSettings fidelity are claimed in this batch.
+
+Validation: workspace formatting and Clippy (all targets, warnings denied) passed; 49 runtime and 4 audit tests passed, including a new restoration/invalidation case. Final payload tests passed (49); exact native stage/audit passed (22 HEAD hooks, one owned state, nine support modules), and the pinned client cargo check passed. No game executable or real host scenario was run, so Panic is implemented-core, not validated.

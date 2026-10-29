@@ -4,6 +4,8 @@ Updated 2026-10-28 at the user's request to finish the current batch and bring
 the documentation up to date. **The full plan is not complete.** AI behavior
 and the online product are excluded; all other retained scope remains.
 
+Panic now has a configurable binding and optional re-enable behavior; it has runtime tests and native compilation evidence only. Its reference default visibility and host behavior remain unverified. The rest of the requested HUD/client-settings batch, including Text GUI, HUD-family modules, typography, localization and date conventions, remains open.
+
 ## Connected native implementation
 
 The runtime registers 18 modules, all with normal local activation, binds,

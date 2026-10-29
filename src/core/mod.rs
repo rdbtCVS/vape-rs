@@ -43,6 +43,7 @@ pub enum ModuleId {
     NoJumpDelay,
     NoClickDelay,
     Sprint,
+    Panic,
 }
 impl ModuleId {
     pub fn id(self) -> &'static str {
@@ -66,6 +67,7 @@ impl ModuleId {
             Self::NoJumpDelay => "legit.no-jump-delay",
             Self::NoClickDelay => "legit.no-click-delay",
             Self::Sprint => "combat.sprint",
+            Self::Panic => "utility.panic",
         }
     }
     pub fn name(self) -> &'static str {
@@ -89,9 +91,10 @@ impl ModuleId {
             Self::NoJumpDelay => "NoJumpDelay",
             Self::NoClickDelay => "NoClickDelay",
             Self::Sprint => "Sprint",
+            Self::Panic => "Panic",
         }
     }
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Coordinates,
         Self::Fps,
         Self::Compass,
@@ -111,6 +114,7 @@ impl ModuleId {
         Self::NoJumpDelay,
         Self::NoClickDelay,
         Self::Sprint,
+        Self::Panic,
     ];
     fn position(self) -> (f64, f64) {
         match self {
@@ -129,7 +133,10 @@ impl ModuleId {
             "World"
         } else if self == Self::Fullbright {
             "Render"
-        } else if matches!(self, Self::AutoArmor | Self::Refill | Self::AutoFish) {
+        } else if matches!(
+            self,
+            Self::AutoArmor | Self::Refill | Self::AutoFish | Self::Panic
+        ) {
             "Utility"
         } else {
             "Legit"
@@ -165,6 +172,8 @@ struct ModuleState {
 #[derive(Debug)]
 pub struct Runtime {
     modules: BTreeMap<ModuleId, ModuleState>,
+    panic_restore: Option<Vec<ModuleId>>,
+    panic_transition: bool,
     ticks: u64,
     session: Session,
     actions: Coordinator,
@@ -220,6 +229,7 @@ impl Default for Runtime {
                     json!(match module {
                         ModuleId::Coordinates => vec!["F8"],
                         ModuleId::Fps => vec!["F9"],
+                        ModuleId::Panic => vec!["F10"],
                         _ => vec![],
                     }),
                 ),
@@ -405,6 +415,13 @@ impl Default for Runtime {
                 .expect("static inventory definition");
         }
         settings
+            .define(Definition::boolean(
+                "utility.panic.re-enable",
+                "Re-enable",
+                false,
+            ))
+            .unwrap();
+        settings
             .validate_conditions()
             .expect("static visibility schema");
         settings
@@ -440,6 +457,8 @@ impl Default for Runtime {
                 .into_iter()
                 .map(|id| (id, ModuleState::default()))
                 .collect(),
+            panic_restore: None,
+            panic_transition: false,
             ticks: 0,
             session: Session::default(),
             actions: Coordinator::default(),
@@ -489,8 +508,17 @@ impl Runtime {
         self.modules[&module].enabled
     }
     pub fn set_enabled(&mut self, module: ModuleId, enabled: bool) {
+        if module == ModuleId::Panic {
+            if enabled {
+                self.panic();
+            }
+            return;
+        }
         if self.enabled(module) == enabled {
             return;
+        }
+        if !self.panic_transition {
+            self.panic_restore = None;
         }
         self.modules
             .get_mut(&module)
@@ -631,14 +659,18 @@ impl Runtime {
                 self.gui.open = true;
                 self.profile_names = self.profiles().unwrap_or_default();
             }
-        } else if key == "F10"
-            && action == KeyAction::Press
-            && (accepts_input || was_open)
+        } else if was_open
             && !self.gui.capturing()
+            && self
+                .settings
+                .get("utility.panic.binds")
+                .and_then(Value::as_array)
+                .is_some_and(|keys| keys.iter().any(|v| v.as_str() == Some(key)))
         {
-            self.panic();
-            self.gui.close();
-            self.suppress_game_input = true;
+            self.suppress_game_input = self.key_named(ModuleId::Panic, key, action, true);
+            if action == KeyAction::Press {
+                self.gui.close();
+            }
         } else if was_open {
             let actions = self.gui.key(key, action);
             self.perform(actions);
@@ -1079,6 +1111,9 @@ impl Runtime {
         }
     }
     pub fn session_change(&mut self, reason: CleanupReason) {
+        if !matches!(&reason, CleanupReason::Panic) {
+            self.panic_restore = None;
+        }
         self.release_input();
         if !matches!(reason, CleanupReason::Panic | CleanupReason::Profile) {
             self.macro_pending.retain(|effect| {
@@ -1112,10 +1147,35 @@ impl Runtime {
         ));
     }
     pub fn panic(&mut self) {
+        let re_enable = self
+            .settings
+            .get("utility.panic.re-enable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let restore = if re_enable {
+            self.panic_restore.take()
+        } else {
+            None
+        };
+        let active: Vec<_> = ModuleId::ALL
+            .into_iter()
+            .filter(|&m| m != ModuleId::Panic && self.enabled(m))
+            .collect();
         self.session_change(CleanupReason::Panic);
-        for module in ModuleId::ALL {
-            self.set_enabled(module, false);
+        self.panic_transition = true;
+        if let Some(modules) = restore {
+            for module in modules {
+                self.set_enabled(module, true);
+            }
+        } else {
+            for module in &active {
+                self.set_enabled(*module, false);
+            }
+            if re_enable {
+                self.panic_restore = Some(active);
+            }
         }
+        self.panic_transition = false;
     }
     pub fn notify(&mut self, message: String) {
         self.gui.status = message.clone();
@@ -1151,6 +1211,7 @@ impl Runtime {
         }
     }
     pub fn apply_document(&mut self, document: Document) {
+        self.panic_restore = None;
         self.session_change(CleanupReason::Profile);
         for warning in self.settings.load(&document.0["settings"]) {
             self.notify(warning);
@@ -1159,7 +1220,9 @@ impl Runtime {
             let enabled = document.0["modules"][module.id()]["enabled"]
                 .as_bool()
                 .unwrap_or(false);
-            self.set_enabled(module, enabled && self.mode(module) != BindingMode::Hold);
+            if module != ModuleId::Panic {
+                self.set_enabled(module, enabled && self.mode(module) != BindingMode::Hold);
+            }
         }
         if let Err(error) = self
             .macro_engine
@@ -1422,7 +1485,8 @@ impl Runtime {
                 | ModuleId::AutoFish
                 | ModuleId::NoJumpDelay
                 | ModuleId::NoClickDelay
-                | ModuleId::Sprint => continue,
+                | ModuleId::Sprint
+                | ModuleId::Panic => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {
@@ -1628,6 +1692,24 @@ mod tests {
             show_hud: true,
             ..Snapshot::default()
         }
+    }
+
+    #[test]
+    fn panic_reenable_restores_only_until_another_module_changes() {
+        let mut runtime = Runtime::default();
+        runtime
+            .set_setting("utility.panic.re-enable", json!(true))
+            .unwrap();
+        runtime.set_enabled(ModuleId::Fps, true);
+        runtime.panic();
+        assert!(!runtime.enabled(ModuleId::Fps));
+        runtime.panic();
+        assert!(runtime.enabled(ModuleId::Fps));
+        runtime.panic();
+        runtime.set_enabled(ModuleId::Coordinates, true);
+        runtime.panic();
+        assert!(!runtime.enabled(ModuleId::Coordinates));
+        assert!(!runtime.enabled(ModuleId::Fps));
     }
 
     #[test]
