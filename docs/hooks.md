@@ -52,3 +52,5 @@ Native input/menu effects use Horizon’s normal action paths. Macro, fishing, t
 BlockOverlay drafts under docs/drafts are unregistered and excluded from the runtime payload. Their outline/fill integration requirements are recorded in docs/specs/block-overlay.md. No full BlockOverlay implementation is claimed.
 
 Current evidence and remaining validation are in [status.md](status.md) and [progress.md](progress.md). Public packaging remains gated until a published mixin-tool pin contains the required state patch.
+
+The targeting/rotation primitives under `src/targeting` are pure and currently have no host hook or live snapshot adapter. They do not alter the hook counts above.

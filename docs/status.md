@@ -120,3 +120,7 @@ GUI/profile/HUD editing and AutoTool have earlier real host evidence. Treat the
 newer inventory, macro, fishing and render features as experimental until their
 resource-backed validation pass. BlockOverlay and the rest of the unfinished
 plan are not available by enabling hidden options.
+
+## Partial targeting groundwork
+
+Pure candidate filtering, five sort modes and bounded rotation math have been added; see [targeting-foundation.json](evidence/targeting-foundation.json). They are not connected to live entities or player rotation, and no new combat or movement module is registered. Native snapshots, scoring, visibility, input/action dispatch and host scenarios remain the next dependency work.

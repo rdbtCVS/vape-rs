@@ -8,3 +8,5 @@ pub mod actions;
 pub mod modules;
 
 pub mod inventory;
+
+pub mod targeting;
