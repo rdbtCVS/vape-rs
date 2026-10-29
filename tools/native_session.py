@@ -9,6 +9,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT / 'target/host-cargo/fast/horizon-client'
+CTL = ROOT / 'target/host-cargo/fast/horizon-ctl'
 BUILD_MANIFEST = ROOT / 'target/host-cargo/fast/vape-rs-build.json'
 # Fields that must match the current sources; commit/dirty are informational.
 IDENTITY_KEYS = ('bundle_sha256', 'horizon_revision', 'horizon_mixins_revision',
@@ -32,9 +33,10 @@ def verify_build(allow_stale=False):
         problems.append('no build identity beside the executable (built before identities, '
                         'or the last build failed)')
     if built:
-        digest = hashlib.sha256(BINARY.read_bytes()).hexdigest()
-        if built.get('executable_sha256') != digest:
-            problems.append('executable differs from the one its identity describes')
+        for path, key in ((BINARY, 'executable_sha256'), (CTL, 'control_sha256')):
+            digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+            if built.get(key) != digest:
+                problems.append(f'{path.name} differs from the one its identity describes')
         current = json.loads(subprocess.run(
             ['cargo', 'run', '-q', '-p', 'xtask', '--locked', '--offline', '--', 'identity'],
             cwd=ROOT, check=True, capture_output=True, text=True).stdout)
@@ -86,8 +88,7 @@ class NativeSession:
                 raise
 
     def call(self, *args, timeout=45):
-        ctl = ROOT / 'target/host-cargo/fast/horizon-ctl'
-        result = subprocess.run([str(ctl), '--socket', str(self.socket), *args],
+        result = subprocess.run([str(CTL), '--socket', str(self.socket), *args],
                                 cwd=self.root / 'game', env=self.env, text=True,
                                 capture_output=True, timeout=timeout)
         self.commands.append({'args': args, 'code': result.returncode,

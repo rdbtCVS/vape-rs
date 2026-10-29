@@ -459,6 +459,9 @@ fn stage(root: &Path, horizon: &Path) -> Result<PathBuf> {
 // with the original. All other Rust items, including cfg branches, must match.
 fn audit(root: &Path) -> Result<()> {
     let config = config(root)?;
+    // Compare the plan with the packed bundle it was made from, not the live
+    // sources: edits made while a stage runs must not affect its audit.
+    let bundle = root.join("target/bundle/mixins/vape-rs");
     let pristine = root.join("target/horizon/pristine");
     let staged = root.join("target/horizon/modded");
     audit_hashes(&pristine, &config)?;
@@ -466,9 +469,8 @@ fn audit(root: &Path) -> Result<()> {
     let injections = plan["injections"]
         .as_array()
         .ok_or("missing plan injections")?;
-    let manifest: toml::Value = toml::from_str(&fs::read_to_string(
-        root.join("mixins/vape-rs/horizon-mixin.toml"),
-    )?)?;
+    let manifest: toml::Value =
+        toml::from_str(&fs::read_to_string(bundle.join("horizon-mixin.toml"))?)?;
     let declarations = manifest["injection"]
         .as_array()
         .ok_or("missing declared hooks")?;
@@ -495,14 +497,7 @@ fn audit(root: &Path) -> Result<()> {
         let relative = declaration["source"]
             .as_str()
             .ok_or("missing module source")?;
-        let source = if relative == "runtime.rs" {
-            let runtime = expand(&root.join("src/lib.rs"), root, &mut BTreeMap::new())?;
-            syn::parse_file(&prettyplease::unparse(&runtime))?
-        } else {
-            syn::parse_file(&fs::read_to_string(
-                root.join("mixins/vape-rs").join(relative),
-            )?)?
-        };
+        let source = syn::parse_file(&fs::read_to_string(bundle.join(relative))?)?;
         if source != syn::parse_file(string(planned, "source")?)? {
             return Err("support module source differs from plan".into());
         }
@@ -587,8 +582,7 @@ fn audit(root: &Path) -> Result<()> {
             return Err(format!("hook plan does not match declaration: {id}").into());
         }
         let helper_source = fs::read_to_string(
-            root.join("mixins/vape-rs")
-                .join(declaration["helper"].as_str().ok_or("missing helper")?),
+            bundle.join(declaration["helper"].as_str().ok_or("missing helper")?),
         )?;
         let helper: syn::ItemFn = syn::parse_str(&helper_source)?;
         let planned_helper: syn::ItemFn = syn::parse_str(string(injection, "helper_source")?)?;
@@ -819,9 +813,15 @@ impl VisitMut for Strip {
 /// bundle (runtime payload, adapters, manifest), compatibility pins and build
 /// options. Source commit and dirty state are informational only.
 fn identity(root: &Path) -> Result<Value> {
-    let bundle = pack(root)?;
+    pack(root)?;
+    bundle_identity(root)
+}
+
+/// Identity of the bundle currently packed under target/bundle, which is
+/// exactly what the last stage planned and applied.
+fn bundle_identity(root: &Path) -> Result<Value> {
     let config = config(root)?;
-    let files: BTreeMap<String, String> = tree_hashes(bundle.parent().unwrap().parent().unwrap())?
+    let files: BTreeMap<String, String> = tree_hashes(&root.join("target/bundle"))?
         .into_iter()
         .map(|(path, digest)| (path.to_string_lossy().into_owned(), digest))
         .collect();
@@ -847,17 +847,19 @@ fn identity(root: &Path) -> Result<Value> {
 
 fn host(root: &Path, mode: &str, horizon: &Path) -> Result<()> {
     let manifest = root.join("target/host-cargo/fast/vape-rs-build.json");
-    let identity = if mode == "build" {
+    if mode == "build" && manifest.exists() {
         // A failed build must not leave a manifest describing the old binary
         // as current; tools refuse to launch an executable without one.
-        if manifest.exists() {
-            fs::remove_file(&manifest)?;
-        }
-        Some(identity(root)?)
+        fs::remove_file(&manifest)?;
+    }
+    let stage = stage(root, horizon)?;
+    // Taken from the staged snapshot, so later source edits cannot make the
+    // identity describe something other than what is compiled.
+    let identity = if mode == "build" {
+        Some(bundle_identity(root)?)
     } else {
         None
     };
-    let stage = stage(root, horizon)?;
     let log = root.join(format!("target/host-{mode}.log"));
     let output = fs::File::create(&log)?;
     let mut command = Command::new("cargo");
@@ -876,7 +878,8 @@ fn host(root: &Path, mode: &str, horizon: &Path) -> Result<()> {
         .arg("--target-dir")
         .arg(root.join("target/host-cargo"));
     if mode == "build" {
-        command.args(["--profile", "fast"]);
+        // The scenario control tool must come from the same staged pin.
+        command.args(["--bin", "horizon-ctl", "--profile", "fast"]);
     }
     if mode == "test" {
         command.args(["vape_rs::", "--", "--nocapture"]);
@@ -893,6 +896,9 @@ fn host(root: &Path, mode: &str, horizon: &Path) -> Result<()> {
         let executable = root.join("target/host-cargo/fast/horizon-client");
         identity["cargo"] = json!(cargo.trim());
         identity["executable_sha256"] = json!(hash(&fs::read(&executable)?));
+        identity["control_sha256"] = json!(hash(&fs::read(
+            root.join("target/host-cargo/fast/horizon-ctl")
+        )?));
         identity["built_unix"] = json!(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?

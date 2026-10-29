@@ -357,3 +357,11 @@ The ledger gains a `kind` column. `tools/ledger_triage.py` resolved all 243 "inh
 Validation: fmt, Clippy (all targets, warnings denied), 85 runtime + 4 audit tests, 85 emitted-payload tests. Exact stage/audit: 23 HEAD hooks, one owned state, 11 support modules. Optimized build and horizon-ctl rebuilt from the same stage. Scenarios on that build: integrated 27/27, in-frame 27/27, LAN 16/16 (docs/evidence/postmerge-validation.json). Not covered: window focus loss, real keyboard rebinding events, switching between two different worlds, and third-party servers.
 
 Not done this round: the entity snapshot/rotation, packet, camera/world-text foundations and their consumers (next round's worker table is in docs/status.md); moving tick/frame/HUD to stable hook points; the packaging owner decision (user) and launcher install proof; and splitting `core/mod.rs` beyond the registry (1750 lines).
+
+## Build tooling fixes (2026-10-29)
+
+`xtask build` now compiles `horizon-ctl` in the same cargo invocation as the client and records its hash (`control_sha256`) in the build identity. `native_session.verify_build` checks both executables. The audit compares the plan with the packed `target/bundle` snapshot that plan/apply consumed, not the live sources. The build identity is taken from that snapshot after staging, so editing sources during a build can neither fail the audit nor mislabel the result.
+
+Verified by making an AST edit to `mixins/vape-rs/parkour.rs` during staging. The build succeeded, the edit was absent from the staged source, `verify_build` refused the build as stale while the edit existed, and accepted it after the revert. xtask Clippy (warnings denied) and its 4 tests pass; the integrated smoke scenario passed 27/27 on the rebuilt executables.
+
+AGENTS.md now says milestones are committed directly to main, with branches/worktrees only for subagent or parallel-worker tasks. Removed about 2 GB of re-pin/packaging evaluation output and 30 uncited debugging scenario directories from `target/`. Scenario directories cited in docs/evidence and manual playtests are kept. Re-running `tools/stock_bundle.py` needs the evaluated horizon-mixins revision rebuilt first (`git archive` from target/upstream/horizon-mixins, then `cargo +1.95.0 build -p horizon-mixins-cli`).
