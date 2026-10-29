@@ -66,7 +66,7 @@ cleanup and these documentation updates; Git history records its exact SHA.
    No BlockOverlay implementation or host validation is claimed.
 2. **Recent module fidelity:** remote AutoFish ground-state observation, custom
    potion effects/item names, creative inventory protocol support, precise
-   inventory scoring/selection parity, shader-pack brightness inputs, HUD
+   inventory scoring/selection parity (Refill duplicate allow-list handling and scatter corrected), shader-pack brightness inputs, HUD
    typography/icons/localization and Windows date conventions remain open.
 3. **Full retained port:** InventoryManager/rule editors, remaining HUD/UI/world
    render features, and the targeting/rotation/movement/packet foundations and

@@ -245,3 +245,17 @@ unit tests, 52 emitted-payload tests, rustfmt and workspace Clippy with warnings
 denied passed. Exact native stage/audit passed (22 HEAD hooks, one owned state, nine support
 modules); the pinned client cargo check passed. No game executable or resource-backed scenario ran.
 BlockOverlay's transparent-fill boundary remains unresolved.
+
+## Inventory consumable Refill fidelity batch
+
+Corrected Refill hotbar-clear allow-list handling to retain one stack per item,
+initialized scatter's random state so it does not remain zero, and wait for an
+empty user cursor before starting a new transaction. Existing revision and
+container claims still govern each click. The optional reference double click,
+custom item matching, remaining inventory modules, and host scenarios remain
+open. No new module or full port is claimed.
+
+Validation: 51 runtime and 4 audit tests passed; 51 emitted payload tests,
+formatting and Clippy (all targets, warnings denied) passed. Exact native
+stage/audit passed with 22 hooks, one state and nine support modules; the pinned
+client cargo check passed. No game execution was performed.

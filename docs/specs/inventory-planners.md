@@ -22,3 +22,10 @@ Host integration remains required for exact menu slot mappings, the actual
 state-ID/revision packet/click path, open/close inventory input, combat guard,
 and authoritative post-click snapshots. No planner treats an emitted request
 as accepted before that acknowledgement.
+
+Refill retains only the first stack of each allow-listed registry item while
+hotbar clear is enabled. Scatter seeds its selection per runtime from the
+system clock. A new refill transaction waits while the cursor holds a stack;
+queued pickup swaps still proceed under the existing revision and cursor guards.
+The reference's optional double quick-move and complete item matching parity
+remain open.
