@@ -325,3 +325,9 @@ run, so the feature remains implemented-core.
 The coordinates biome and potion effect labels now resolve their resource keys through Horizon's active language, falling back to readable resource IDs if a translation is absent. Namespace handling is covered by a focused runtime test. This is a partial localization improvement, not full HUD or client localization; translated glyph coverage and real host language scenarios remain open.
 
 Validation: formatting and Clippy (all targets, warnings denied) passed; 50 runtime tests, 4 audit tests and 50 emitted payload tests passed. Exact native staging/audit passed (22 HEAD hooks, one owned state and nine support modules), and the pinned client cargo check passed. No game or visual scenario was run. ClientSettings, Text GUI, icons, typography and Windows date conventions remain unfinished.
+
+## Movement-input and Parkour work in progress
+
+Started a per-tick input request resolver and routed the existing Sprint injection through it. Added an experimental Parkour adapter that checks the host player collision box at the current position and one block ahead, and temporarily presses jump when both checks are clear. Its ownership cleanup preserves a physically held jump key. This is not a complete shared movement arbitration layer: other axes, competing module requests, controller input, lifecycle interactions and real host behavior remain to be integrated and validated. SafeWalk, KeepSprint, WTap, NoSlowdown and AutoLadder remain unimplemented. Parkour is not claimed shipped or validated.
+
+Workspace formatting and Clippy passed; 53 runtime and 4 audit tests passed. The first exact native stage/audit and pinned-client check passed for the input foundation before Parkour was added; the updated exact stage/audit (22 hooks, one state, ten support modules), emitted 53 tests and pinned-client check also passed. No resource-backed scenario has been run for this work.

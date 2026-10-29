@@ -297,3 +297,9 @@ bindings = [
  { name = "alpha", ty = "f64", value = "alpha" },
  { name = "size", ty = "[u32; 2]", value = "size" },
 ]
+
+[[module]]
+id = "parkour"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_parkour"
+source = "parkour.rs"
