@@ -1,8 +1,8 @@
 # Current implementation handoff
 
-Updated 2026-10-29 after the post-merge validation round: Horizon re-pin,
-bounded inventory transactions, a single movement-input writer, build
-identities and the first resource-backed scenarios for the merged modules.
+Updated 2026-10-29 after the combat/movement round: live entity snapshots,
+the reference target filter, AimAssist (Simple), TriggerBot, SafeWalk and
+Velocity, each with fresh-home integrated and in-frame host scenarios.
 **The full plan is not complete.** AI behavior and the online product are
 excluded; all other retained scope remains open as listed below.
 
@@ -17,7 +17,7 @@ profile persistence and GUI access:
 | Render | NoHurtCam, Fullbright, Clear Water, StorageESP (partial: chest/furnace outlines) |
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
 | World / movement | FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Sprint (baseline), Parkour (experimental), SafeWalk |
-| Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity (in-frame path open) |
+| Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity |
 | Utility | Panic (configurable bind, optional re-enable) |
 
 The local foundation includes typed settings/editors, chord/held bindings,
@@ -43,33 +43,30 @@ Unconnected groundwork present in source (no module uses it yet):
 
 ## Evidence and limits
 
-- Current tree: **85 runtime tests + 4 audit tests** and 85 emitted-payload
-  tests pass; formatting and Clippy (all targets, warnings denied) pass; exact
-  native stage/audit passes with **23 HEAD hooks, one owned state and 11
-  support modules** on the new pin; the optimized client was rebuilt and its
-  build identity recorded.
-- **Post-merge scenarios** on that exact build
-  ([postmerge-validation.json](evidence/postmerge-validation.json)), fresh
-  isolated homes each: integrated server 27/27, in-frame 27/27, controlled LAN
-  (two owned processes on localhost) 16/16. Covered: Sprint, a controller-held
-  sprint surviving Sprint disable, pause-menu release, Parkour edge jump,
-  AutoArmor equip and full-inventory no-op recovery with upgrade once room
-  appears, AutoTotem acting after that no-op, Panic disable/restore,
-  death/respawn, and disconnect/reconnect with the server keeping the swapped
-  items. The scenarios found and fixed an AutoArmor scoring bug (vanilla
-  slot-group armor modifiers were ignored).
-- Not covered: window focus loss (the socket can't unfocus the window), real
-  keyboard rebinding events (controller and socket paths were covered),
-  switching between two worlds, and third-party servers.
+- Current tree: **102 runtime tests + 4 audit tests** and 102 emitted-payload
+  tests pass; fmt and Clippy (all targets, warnings denied) pass; exact
+  native stage/audit passes with **29 HEAD hooks, one owned state and 13
+  support modules**; host check and fast build pass.
+- **Combat/movement round** ([combat-movement-round.json](evidence/combat-movement-round.json),
+  [aim-assist.json](evidence/aim-assist.json)), fresh isolated homes:
+  AimAssist 14/14, TriggerBot 12/12, SafeWalk 13/13 and Velocity 10/10, each
+  on both the integrated-server and in-frame paths; smoke regression 27/27.
+  The scenarios found and fixed three bugs: TriggerBot reading the server's
+  attack ticker, a shared reset that let a disabled AimAssist clear
+  Velocity every frame, and in-frame knockback bypassing packets.
+- **Post-merge scenarios** ([postmerge-validation.json](evidence/postmerge-validation.json)):
+  integrated and in-frame 27/27, controlled LAN 16/16, covering Sprint,
+  Parkour, AutoArmor, AutoTotem, Panic, death/respawn and reconnect.
+- Not covered: the new combat modules against real players, LAN guests or
+  remote servers; window focus loss; real keyboard rebinding events;
+  switching between two worlds; third-party servers.
 - StorageESP, AutoTool, GUI/profile/HUD editing, lifecycle and NoHurtCam keep
   their earlier scenarios. Refill, ChestSteal, AutoFish, FastPlace, Fullbright,
   Clear Water, the delay removals and localization still have compile/unit
   evidence only.
-- Ledger: 5 integrated (Sprint, Parkour, AutoTotem, AutoArmor, Panic), 29
-  implemented-core, 13 excluded-approved, 2 not-applicable-reviewed, 0
-  validated. The new `kind` column splits the 423 not-started rows into 88
-  modules, 159 submodes, 27 submodules and 5 client rows, plus 144 helper rows
-  that are tracked under their owners ([decisions](decisions.md)).
+- Ledger: 13 integrated, 35 implemented-core, 13 excluded-approved, 2
+  not-applicable-reviewed, 409 not-started, 0 validated
+  ([decisions](decisions.md) explains `integrated` vs `validated`).
 - [hooks.md](hooks.md) lists every current target and module.
 
 Concrete implementation milestones:
@@ -95,38 +92,41 @@ Concrete implementation milestones:
 | `60c6775` | Clicker Normal/Extra timing primitives |
 | `bcd854f` | Experimental Parkour and movement-request resolver |
 | (round) | Re-pin to Nightly 9669600, bounded inventory gate, movement writer, build identity, post-merge + LAN scenarios, ledger kinds, registry/GUI split |
+| `d146567` | Live entity snapshots, reference target filter, item-limit groups, AimAssist (Simple) |
+| `ce3dca4` | SafeWalk, TriggerBot, Velocity (server-thread path); per-module combat resets |
+| (this commit) | Velocity in-frame knockback/explosion hooks |
 
 ## Open dependencies and next work
 
 Per area, in dependency order. None of these are blocked externally except
 where stated; they are unfinished implementation.
 
-**Next parallel round: one foundation plus its first consumer per worker.**
-Each worker delivers the shared piece, one observable module that uses it,
-interruption cleanup and a fresh-home scenario. They add only a line to
-`src/core/registry.rs` and their own files.
+**Round status.** Worker A's foundation (entity snapshots, target filter,
+host `Entity.turn`) is done, with AimAssist and TriggerBot as consumers.
+Worker B has an observe-only inbound boundary: Velocity works, but Blink,
+FakeLag and Backtrack need a cancellable inbound or outbound point.
+`handle_packet` has macros, so look for a macro-free dispatch or a mixin-tool
+change. Worker C has SafeWalk on the movement writer; KeepSprint, WTap,
+NoSlowdown and AutoLadder still need writer priorities. Worker D (camera,
+projection, world text) hasn't started.
 
-| Worker | Foundation | First consumer | Then unlocks |
-| --- | --- | --- | --- |
-| A | Live entity snapshots (id+session, box, health, armor, team, line of sight) shared with rendering, plus one rotation owner through the host look path | AimAssist | TriggerBot, clickers, KillAura, SilentAura PID, ESP/Tracers inputs |
-| B | Inbound/outbound packet boundary hook (typed, bounded, session-invalidated) | Velocity | JumpReset, KnockbackDelay, Blink, FakeLag, Backtrack |
-| C | Movement-writer priorities and remaining axes (sneak/strafe suppression, analog stick) | SafeWalk | KeepSprint, WTap, NoSlowdown, AutoLadder, Scaffold |
-| D | Camera/projection plus world text/quads through the host renderer | Nametags | ESP 2D/3D, Tracers, StorageESP fill/through-wall, Trajectories |
+**Drafted, not registered:** `docs/drafts/clicker.rs` holds a port of
+the reference click engine: Normal/Extra/Extra+ timing, the hold/release
+cycle, jitter and break blocks, with unit tests written but never compiled.
+Next steps: move it to `src/modules/combat/`, register it, add a physical attack-held flag in `Runtime::input`,
+add an adapter (press = `attack_once` + `game.left = true`, release =
+`game.left = false`), and write a host scenario for AutoClicker and then
+RightClicker.
 
-Before that round: retarget `client-tick`/`client-frame`/`client-hud` onto the
-stable hook points where order allows. Resolve the packaging owner decision
-(user) in docs/decisions.md.
-
-1. **Combat / targeting:** live entity snapshots (position, box, health,
-   armor, team, line of sight), reference score calculation, a single-writer
-   rotation owner through the host look path, and attack/use scheduling on top
-   of the existing click timing. Then AimAssist, TriggerBot, Left/RightClicker,
-   HitSelect, BlockHit, Reach, Hitboxes, KillAura (non-AI), SilentAura PID,
-   AntiBot and the remaining combat rows. (Worker A above.)
-2. **Movement / packets:** complete shared movement-input arbitration, then
-   SafeWalk, KeepSprint, WTap, NoSlowdown, AutoLadder; an inbound/outbound
-   packet hook for Velocity, JumpReset, KnockbackDelay, Blink, FakeLag,
-   Backtrack; then NoFall, Speed, Fly, Timer, Scaffold modes, Clutch, MLG,
+1. **Combat / targeting:** AimAssist Adaptive mode; AutoClicker and
+   RightClicker (engine drafted); HitSelect, BlockHit, Reach, Hitboxes,
+   KillAura (non-AI), SilentAura PID, AntiBot (teammate/bot checks the filter
+   already calls), HitSwap/AutoMace (TriggerBot's cooldown bypass) and the
+   remaining combat rows. A shared rotation owner is needed once more than
+   AimAssist turns the view.
+2. **Movement / packets:** movement-writer priorities, then KeepSprint, WTap,
+   NoSlowdown, AutoLadder; a cancellable inbound/outbound packet boundary for
+   JumpReset, KnockbackDelay, Blink, FakeLag, Backtrack; then NoFall, Speed, Fly, Timer, Scaffold modes, Clutch, MLG,
    Freecam and the remaining world/utility rows. Parkour has an integrated
    and in-frame scenario; a LAN case is still open.
 3. **Render:** connect camera/projection, world text/quads, entity snapshots

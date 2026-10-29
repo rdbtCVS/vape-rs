@@ -396,4 +396,10 @@ Validation: fmt and Clippy pass; 102 runtime + 4 audit tests and 102 payload tes
 | Velocity | 10/10 | **7/10 FAIL** |
 | Smoke | 27/27 | not run |
 
-The in-frame Velocity failure is expected: in-frame knockback is applied locally by `knock_back_player`/`explosion_hurt_player` with no packets, and those aren't hooked yet. That's the next fix. AutoClicker's engine (Normal/Extra/Extra+ timing, hold/release cycle, jitter, break blocks) is drafted in `src/modules/combat/clicker.rs` but not yet registered.
+The in-frame Velocity failure is expected: in-frame knockback is applied locally by `knock_back_player`/`explosion_hurt_player` with no packets, and those aren't hooked yet. That's the next fix. AutoClicker's engine (Normal/Extra/Extra+ timing, hold/release cycle, jitter, break blocks) is drafted in `docs/drafts/clicker.rs` but not yet registered.
+
+## Velocity in-frame path (2026-10-29)
+
+Hooked the two local knockback paths: `knock_back_player` and `explosion_hurt_player`, both cancellable HEADs. Each runs the host code once, re-entry guarded, then applies Velocity's decision to the result. LAN guest turns are skipped. Velocity is now `integrated`.
+
+Validation: fmt, Clippy, 102 runtime + 4 audit tests and 102 payload tests pass. Stage/audit: 29 HEAD hooks, one owned state, 13 support modules. Host check and fast build pass. Velocity scenario: in-frame 10/10 (zombie 1.99 → 0.31 blocks, TNT 3.17 → 0.0) and integrated 10/10. Smoke 27/27. Evidence: docs/evidence/combat-movement-round.json. TriggerBot, AimAssist and SafeWalk were last run on the previous build; this change only adds the two hooks.

@@ -374,3 +374,61 @@ pub(super) fn velocity_tick(game: &mut Game<'_>) {
     }
 }
 
+
+/// In-frame (no packets): the host's local knockback on the player
+/// (`knock_back_player` HEAD). Runs the host code once, then treats the
+/// result like the player's own motion packet.
+pub(super) fn local_knockback(game: &mut Game<'_>, power: f64, xd: f64, zd: f64) -> core::ops::ControlFlow<()> {
+    use crate::game::vape_rs::modules::combat::velocity::Decision;
+    use core::ops::ControlFlow;
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let (active, reentry, friends) = with_client(&client, |runtime| {
+        (runtime.velocity_active(), runtime.take_explosion_reentry(), runtime.friend_keys())
+    });
+    if reentry || !active || game.player.is_none() {
+        return ControlFlow::Continue(());
+    }
+    with_client(&client, |runtime| runtime.set_explosion_reentry());
+    game.knock_back_player(power, xd, zd);
+    let facing = facing(game, &friends);
+    let Some(player) = game.player.as_ref() else { return ControlFlow::Break(()); };
+    let water = player.fluids.was_touching_water;
+    let motion = [player.velocity.x, player.velocity.y, player.velocity.z];
+    if let Decision::Replace(m) = with_client(&client, |runtime| runtime.velocity_motion(facing, water, motion))
+        && let Some(player) = game.player.as_mut()
+    {
+        player.velocity = horizon_core::geometry::Vec3::new(m[0], m[1], m[2]);
+    }
+    ControlFlow::Break(())
+}
+
+/// In-frame: the host's explosion damage and push on the player
+/// (`explosion_hurt_player` HEAD). The push is the velocity change the host
+/// code made; Velocity decides on it like an explosion packet's push.
+pub(super) fn local_explosion(game: &mut Game<'_>, center: [f64; 3], radius: f32, damage_type: &str, exploding: Option<u32>) -> core::ops::ControlFlow<()> {
+    use crate::game::vape_rs::modules::combat::velocity::Decision;
+    use core::ops::ControlFlow;
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let (active, reentry, friends) = with_client(&client, |runtime| {
+        (runtime.velocity_active(), runtime.take_explosion_reentry(), runtime.friend_keys())
+    });
+    let Some(before) = game.player.as_ref().map(|p| p.velocity) else { return ControlFlow::Continue(()); };
+    if reentry || !active {
+        return ControlFlow::Continue(());
+    }
+    with_client(&client, |runtime| runtime.set_explosion_reentry());
+    game.explosion_hurt_player(center, radius, damage_type, exploding);
+    let facing = facing(game, &friends);
+    let Some(player) = game.player.as_ref() else { return ControlFlow::Break(()); };
+    let water = player.fluids.was_touching_water;
+    let push = [player.velocity.x - before.x, player.velocity.y - before.y, player.velocity.z - before.z];
+    if push == [0.0; 3] {
+        return ControlFlow::Break(());
+    }
+    if let Decision::Replace(m) = with_client(&client, |runtime| runtime.velocity_explosion(facing, water, push))
+        && let Some(player) = game.player.as_mut()
+    {
+        player.velocity = horizon_core::geometry::Vec3::new(before.x + m[0], before.y + m[1], before.z + m[2]);
+    }
+    ControlFlow::Break(())
+}

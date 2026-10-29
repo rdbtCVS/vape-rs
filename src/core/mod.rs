@@ -915,7 +915,8 @@ impl Runtime {
     pub fn take_motion_override(&mut self) -> Option<([f64; 3], [f64; 3])> {
         self.motion_override.take()
     }
-    /// Marks the next explosion as Velocity's own re-dispatch.
+    /// Marks the next knockback/explosion hook call as Velocity's own
+    /// re-dispatch of the host handler.
     pub fn set_explosion_reentry(&mut self) {
         self.explosion_reentry = true;
     }
