@@ -23,7 +23,8 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             TAG="$GITHUB_REF_NAME"
           else
-            TAG="v$(python3 -c 'import json; print(json.load(open("horizon-native.json"))["version"])')"
+            F=$(basename dist/*.hnmod .hnmod)
+            TAG="v${F#*-}"
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/*.hnmod dist/*.hnmod.sha256 --clobber
