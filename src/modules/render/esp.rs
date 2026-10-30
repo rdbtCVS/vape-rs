@@ -1,0 +1,318 @@
+// ESP (3D mode) and Tracers: world-space lines over the frame's live entity
+// snapshot, drawn through walls. ESP's 2D, Skeleton and Outline modes, its
+// health bar and names need screen projection and world text, which are not
+// connected yet.
+use super::super::super::core::settings::{Definition, Kind, Settings};
+use super::super::super::targeting::entities::{EntityClass, EntityView, distance};
+use super::super::super::targeting::filter::People;
+use super::world::{Line, Point, outline_box};
+use serde_json::{Value, json};
+
+pub const ESP: &str = "render.esp";
+pub const TRACERS: &str = "render.tracers";
+
+fn boolean(settings: &Settings, id: &str, default: bool) -> bool {
+    settings.get(id).and_then(Value::as_bool).unwrap_or(default)
+}
+fn color(settings: &Settings, id: &str, default: u32) -> u32 {
+    settings
+        .get(id)
+        .and_then(Value::as_u64)
+        .map_or(default, |c| c as u32)
+}
+fn range(settings: &Settings, id: &str, default: [f64; 2]) -> [f64; 2] {
+    settings
+        .get(id)
+        .and_then(Value::as_array)
+        .and_then(|r| Some([r.first()?.as_f64()?, r.get(1)?.as_f64()?]))
+        .unwrap_or(default)
+}
+
+/// Friend/enemy recolouring (`FriendManager.recolorVisuals`/`friendColor`,
+/// `EnemyManager.useColor`/`enemyColor`).
+pub fn people_definitions() -> Vec<Definition> {
+    vec![
+        Definition::boolean("friends.recolor", "Recolor visuals", true),
+        Definition::new(
+            "friends.color",
+            "Friends Color",
+            Kind::Color,
+            json!(0xff42_f489_u32),
+        )
+        .when("friends.recolor", json!(true)),
+        Definition::boolean("enemies.use-color", "Use color", true),
+        Definition::new(
+            "enemies.color",
+            "Enemies Color",
+            Kind::Color,
+            json!(0xfff4_4242_u32),
+        )
+        .when("enemies.use-color", json!(true)),
+    ]
+}
+
+/// The friend or enemy colour for a player, when recolouring applies.
+fn person_color(settings: &Settings, entity: &EntityView, people: &impl People) -> Option<u32> {
+    if people.friend(&entity.name) && boolean(settings, "friends.recolor", true) {
+        return Some(color(settings, "friends.color", 0xff42_f489));
+    }
+    if people.enemy(&entity.name) && boolean(settings, "enemies.use-color", true) {
+        return Some(color(settings, "enemies.color", 0xfff4_4242));
+    }
+    None
+}
+
+pub fn definitions() -> Vec<Definition> {
+    let esp = |k: &str| format!("{ESP}.{k}");
+    let tracer = |k: &str| format!("{TRACERS}.{k}");
+    let distance = |k: &str, label: &str, check: &str| {
+        Definition::new(
+            &tracer(k),
+            label,
+            Kind::Range {
+                min: 0.0,
+                max: 256.0,
+                step: 1.0,
+            },
+            json!([0.0, 32.0]),
+        )
+        .when(&tracer(check), json!(true))
+    };
+    vec![
+        Definition::new(
+            &esp("player-color"),
+            "Player Color",
+            Kind::Color,
+            json!(0xff24_c164_u32),
+        ),
+        Definition::choice(&esp("mode"), "Mode", &["3D"], "3D"),
+        Definition::boolean(&esp("hitbox"), "Hitbox", false),
+        Definition::boolean(&esp("show-normal"), "Show Normal", false)
+            .when(&esp("hitbox"), json!(true)),
+        Definition::boolean(&esp("invisibles"), "Invisibles", false),
+        Definition::boolean(&esp("hide-bots"), "Hide Bots", false),
+        Definition::boolean(&tracer("invisibles"), "Invisibles", false),
+        Definition::boolean(&tracer("color-by-distance"), "Color by distance", false),
+        Definition::boolean(
+            &tracer("highlight-focusing"),
+            "Highlight if focusing",
+            false,
+        ),
+        Definition::boolean(&tracer("players"), "Render Players", true),
+        Definition::boolean(&tracer("enemy-only"), "Enemy Only", false)
+            .when(&tracer("players"), json!(true)),
+        Definition::boolean(&tracer("player-distance-check"), "Distance Check", false)
+            .when(&tracer("players"), json!(true)),
+        distance(
+            "player-distance",
+            "Player Distance",
+            "player-distance-check",
+        ),
+        Definition::new(
+            &tracer("player-color"),
+            "Player Color",
+            Kind::Color,
+            json!(0xff00_96ff_u32),
+        )
+        .when(&tracer("players"), json!(true)),
+        Definition::boolean(&tracer("animals"), "Render Animals", false),
+        Definition::boolean(&tracer("animal-distance-check"), "Distance Check", false)
+            .when(&tracer("animals"), json!(true)),
+        distance(
+            "animal-distance",
+            "Animal Distance",
+            "animal-distance-check",
+        ),
+        Definition::new(
+            &tracer("animal-color"),
+            "Animal Color",
+            Kind::Color,
+            json!(0xffff_ffff_u32),
+        )
+        .when(&tracer("animals"), json!(true)),
+        Definition::boolean(&tracer("mobs"), "Render Mobs", false),
+        Definition::boolean(&tracer("mob-distance-check"), "Distance Check", false)
+            .when(&tracer("mobs"), json!(true)),
+        distance("mob-distance", "Mob Distance", "mob-distance-check"),
+        Definition::new(
+            &tracer("mob-color"),
+            "Mob Color",
+            Kind::Color,
+            json!(0xffff_9a00_u32),
+        )
+        .when(&tracer("mobs"), json!(true)),
+    ]
+}
+
+/// The camera for one frame: the interpolated eye and the unit view vector.
+#[derive(Clone, Copy, Debug)]
+pub struct Camera {
+    pub eye: [f64; 3],
+    pub look: [f64; 3],
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+/// `ESP3D.onRender3D`: a box around each other player's bounding box, grown
+/// by the HitBoxes expansion with "Hitbox" on, plus the true box in the
+/// inverse colour with "Show Normal".
+pub fn esp(
+    settings: &Settings,
+    entities: &[EntityView],
+    people: &impl People,
+    hitbox_expansion: Option<f64>,
+    out: &mut Vec<Line>,
+) {
+    let key = |k: &str| format!("{ESP}.{k}");
+    let hitbox = boolean(settings, &key("hitbox"), false);
+    let show_normal = boolean(settings, &key("show-normal"), false);
+    let invisibles = boolean(settings, &key("invisibles"), false);
+    let base = color(settings, &key("player-color"), 0xff24_c164);
+    for e in entities {
+        if e.class != EntityClass::Player || !e.alive() || (!invisibles && e.fully_invisible()) {
+            continue;
+        }
+        let color = person_color(settings, e, people).unwrap_or(base);
+        let offset = [0, 1, 2].map(|i| e.position[i] - e.tick_position[i]);
+        let grow = if hitbox {
+            hitbox_expansion.unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let corner =
+            |p: [f64; 3], sign: f64| Point([0, 1, 2].map(|i| p[i] + offset[i] + sign * grow));
+        outline_box(
+            out,
+            corner(e.bounds.min, -1.0),
+            corner(e.bounds.max, 1.0),
+            color,
+            1.5,
+        );
+        if grow > 0.0 && show_normal {
+            let inverse = 0x4600_0000 | (!color & 0x00ff_ffff);
+            let at = |p: [f64; 3]| Point([0, 1, 2].map(|i| p[i] + offset[i]));
+            outline_box(out, at(e.bounds.min), at(e.bounds.max), inverse, 1.5);
+        }
+    }
+}
+
+/// `Tracers.onRender`: a line from just in front of the eye to each
+/// selected entity's eye height. Players, mobs (monsters) and animals (other
+/// living entities) each have a toggle, a colour and an optional distance
+/// range. "Color by distance" shades red (near) to green (far) around the
+/// median distance, and "Highlight if focusing" draws players looking at
+/// the viewer (within 5 degrees) thicker and outlined, others thinner.
+pub fn tracers(
+    settings: &Settings,
+    camera: &Camera,
+    entities: &[EntityView],
+    people: &impl People,
+    out: &mut Vec<Line>,
+) {
+    let key = |k: &str| format!("{TRACERS}.{k}");
+    let invisibles = boolean(settings, &key("invisibles"), false);
+    let enemy_only = boolean(settings, &key("enemy-only"), false);
+    let mut selected: Vec<(&EntityView, u32, f64)> = Vec::new();
+    for e in entities {
+        if !e.alive() || (!invisibles && e.fully_invisible()) {
+            continue;
+        }
+        let d = distance(camera.eye, e.position);
+        let (group, default) = match e.class {
+            EntityClass::Player => ("player", 0xff00_96ff),
+            EntityClass::Monster => ("mob", 0xffff_9a00),
+            _ => ("animal", 0xffff_ffff),
+        };
+        let plural = match group {
+            "player" => "players",
+            "mob" => "mobs",
+            _ => "animals",
+        };
+        if !boolean(settings, &key(plural), group == "player") {
+            continue;
+        }
+        if e.class == EntityClass::Player && enemy_only && !people.enemy(&e.name) {
+            continue;
+        }
+        if boolean(settings, &key(&format!("{group}-distance-check")), false) {
+            let [lo, hi] = range(settings, &key(&format!("{group}-distance")), [0.0, 32.0]);
+            if d < lo || d > hi {
+                continue;
+            }
+        }
+        let color = (e.class == EntityClass::Player)
+            .then(|| person_color(settings, e, people))
+            .flatten()
+            .unwrap_or_else(|| color(settings, &key(&format!("{group}-color")), default));
+        selected.push((e, color, d));
+    }
+    if selected.is_empty() {
+        return;
+    }
+    if boolean(settings, &key("color-by-distance"), false) {
+        let mut distances: Vec<f64> = selected.iter().map(|s| s.2).collect();
+        distances.sort_by(f64::total_cmp);
+        let median = distances[distances.len() / 2].max(1.0);
+        for s in &mut selected {
+            let t = (s.2 / (median * 2.0)).clamp(0.0, 1.0);
+            let red = ((1.0 - t) * 255.0) as u32;
+            let green = (t * 255.0) as u32;
+            s.1 = (s.1 & 0xff00_0000) | (red << 16) | (green << 8);
+        }
+    }
+    let focusing =
+        |e: &EntityView| e.class == EntityClass::Player && looking_at(e, camera.eye) < 5.0;
+    let highlight = boolean(settings, &key("highlight-focusing"), false)
+        && selected.iter().any(|s| focusing(s.0));
+    let start = Point([0, 1, 2].map(|i| camera.eye[i] + camera.look[i]));
+    // Farthest first, so nearer tracers draw on top.
+    selected.sort_by(|a, b| b.2.total_cmp(&a.2));
+    for (e, color, _) in selected {
+        let eye_height = (e.bounds.max[1] - e.bounds.min[1]) * 0.85;
+        let end = Point([e.position[0], e.position[1] + eye_height, e.position[2]]);
+        let (width, outlined) = if !highlight {
+            (1.0, false)
+        } else if focusing(e) {
+            (3.0, true)
+        } else {
+            (0.75, false)
+        };
+        if outlined {
+            out.push(Line {
+                start,
+                end,
+                color: 0xff00_0000,
+                width: width * 1.5,
+            });
+        }
+        out.push(Line {
+            start,
+            end,
+            color,
+            width,
+        });
+    }
+}
+
+/// Degrees between `e`'s view and the direction from it to `target`
+/// (`RotationUtil.M`), using the snapshot's yaw and pitch when present.
+fn looking_at(e: &EntityView, target: [f64; 3]) -> f64 {
+    let Some((yaw, pitch)) = e.look else {
+        return f64::INFINITY;
+    };
+    let (yaw, pitch) = (f64::from(yaw).to_radians(), f64::from(pitch).to_radians());
+    let view = [
+        -yaw.sin() * pitch.cos(),
+        -pitch.sin(),
+        yaw.cos() * pitch.cos(),
+    ];
+    let eye_height = (e.bounds.max[1] - e.bounds.min[1]) * 0.85;
+    let from = [e.position[0], e.position[1] + eye_height, e.position[2]];
+    let to = [0, 1, 2].map(|i| target[i] - from[i]);
+    let length = (to[0] * to[0] + to[1] * to[1] + to[2] * to[2]).sqrt();
+    if length < 1e-6 {
+        return 0.0;
+    }
+    let dot = (0..3).map(|i| view[i] * to[i] / length).sum::<f64>();
+    dot.clamp(-1.0, 1.0).acos().to_degrees()
+}

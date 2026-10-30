@@ -88,6 +88,8 @@ pub struct EntityView {
     pub vehicle: bool,
     /// Raising a shield (`RotationUtil.n`).
     pub blocking: bool,
+    /// Head yaw and pitch, when the host tracks them.
+    pub look: Option<(f32, f32)>,
 }
 
 impl EntityView {

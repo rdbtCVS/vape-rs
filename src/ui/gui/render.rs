@@ -1398,6 +1398,12 @@ impl Gui {
             Hit::Cycle("friends.use".into(), vec![json!(false), json!(true)]),
         );
         y += 17.0;
+        y = self.settings(view, l, x, y, |d| {
+            matches!(
+                d.id.as_str(),
+                "friends.recolor" | "friends.color" | "enemies.use-color" | "enemies.color"
+            )
+        });
         for person in &view.people {
             let row = Rect(x + 5.0, y, FRAME_WIDTH - 10.0, 20.0);
             l.rounded(row, 0xff1e1d1e);

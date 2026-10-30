@@ -315,7 +315,11 @@ impl Default for Runtime {
         for definition in super::modules::combat::aim_assist::definitions() {
             settings.define(definition).unwrap();
         }
-        for definition in super::modules::render::storage_esp::definitions() {
+        for definition in super::modules::render::storage_esp::definitions()
+            .into_iter()
+            .chain(super::modules::render::esp::definitions())
+            .chain(super::modules::render::esp::people_definitions())
+        {
             settings.define(definition).unwrap();
         }
         for definition in inventory_runtime::definitions() {
@@ -1274,6 +1278,37 @@ impl Runtime {
         let people = self.target_people();
         self.trigger_bot.input(&options, tick, pressed, &people)
     }
+    /// Which world-line sources are on: (StorageESP, ESP or Tracers).
+    pub fn world_line_sources(&self) -> (bool, bool) {
+        (
+            self.enabled(ModuleId::StorageEsp),
+            self.enabled(ModuleId::Esp) || self.enabled(ModuleId::Tracers),
+        )
+    }
+    /// The through-wall lines of StorageESP, ESP and Tracers for one frame.
+    pub fn world_lines(
+        &self,
+        camera: &super::modules::render::esp::Camera,
+        entities: &[super::targeting::entities::EntityView],
+        storage: &[(super::modules::render::storage_esp::Storage, [i32; 3])],
+    ) -> Vec<super::modules::render::world::Line> {
+        use super::modules::render::{esp, storage_esp};
+        let mut out = Vec::new();
+        if self.enabled(ModuleId::StorageEsp) {
+            storage_esp::lines(&self.settings, storage, &mut out);
+        }
+        let people = self.target_people();
+        if self.enabled(ModuleId::Esp) {
+            let expansion = self
+                .enabled(ModuleId::HitBoxes)
+                .then(|| super::modules::blatant::hitbox_expansion(&self.settings));
+            esp::esp(&self.settings, entities, &people, expansion, &mut out);
+        }
+        if self.enabled(ModuleId::Tracers) {
+            esp::tracers(&self.settings, camera, entities, &people, &mut out);
+        }
+        out
+    }
     /// The local friend (when "Use Friends" is on) and enemy name lists.
     pub fn target_people(&self) -> super::targeting::filter::NameLists {
         let names = |relation: &str| -> Vec<String> {
@@ -1840,6 +1875,8 @@ impl Runtime {
                 | ModuleId::Sprint
                 | ModuleId::Panic
                 | ModuleId::StorageEsp
+                | ModuleId::Esp
+                | ModuleId::Tracers
                 | ModuleId::Parkour
                 | ModuleId::AimAssist
                 | ModuleId::SafeWalk

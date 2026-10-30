@@ -613,3 +613,30 @@ Validation: `cargo check`, fmt and lib Clippy pass; stage/audit passes with
 34 hooks and 20 support modules; pinned host check passes. No game scenario
 ran (implementation-first request), so through-wall rendering and the grid
 drag are compile-only.
+
+## 2026-10-30: ESP, Tracers, StorageESP container types
+
+- StorageESP covers the reference toggles and colours for chests, trapped
+  chests, hoppers, furnaces (plus blast furnaces and smokers), dispensers,
+  droppers and shulker boxes, identified by block name. Ender chests have
+  no host block entity and stay pending (needs a block scan), as do fill and
+  Outline open.
+- ESP (`render.esp`, 3D mode only): through-wall boxes around other
+  players at their interpolated position, grown by the HitBoxes expansion
+  with "Hitbox" and HitBoxes on, plus the true box in the inverse colour at
+  alpha 70 with "Show Normal".
+- Tracers (`render.tracers`): through-wall lines from the first-person eye
+  (one block ahead) to players, mobs and animals at eye height, with
+  per-group toggles, distance ranges and colours, Color by distance, and
+  Highlight if focusing (players looking at you within 5 degrees, using new
+  `EntityView::look` head angles).
+- Friend/enemy recolour settings (`friends.recolor`/`friends.color`,
+  `enemies.use-color`/`enemies.color`) appear in the Friends frame and
+  apply to ESP and Tracers.
+- The runtime's `world_lines` builds all three; `world-lines-hook`
+  converts them to host lines that go through the existing on-top path.
+
+Validation: `cargo check`, fmt and lib Clippy pass; stage/audit passes with
+34 hooks and 20 support modules; pinned host check passes. No tests were
+added or run and no game scenario ran (implementation-first request), so
+all of this is compile-only.

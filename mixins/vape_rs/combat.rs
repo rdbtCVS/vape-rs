@@ -87,6 +87,7 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
             visible: visible(current, mob.kind.eye_height),
             vehicle: Some(mob.id) == game.riding,
             blocking: e.blocking,
+            look: Some((mob.head_yaw, mob.head_pitch)),
         });
     }
     if let Some(host) = &game.lan {
@@ -110,6 +111,7 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
                 visible: visible(guest.position, 1.62),
                 vehicle: false,
                 blocking: false,
+                look: Some((guest.head_yaw, guest.pitch)),
             });
         }
     }

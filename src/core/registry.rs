@@ -65,6 +65,8 @@ registry! {
     Sprint => "combat.sprint", "Sprint", "Combat", None, [];
     Panic => "utility.panic", "Panic", "Utility", None, ["F10"];
     StorageEsp => "render.storage-esp", "StorageESP", "Render", None, [];
+    Esp => "render.esp", "ESP", "Render", None, [];
+    Tracers => "render.tracers", "Tracers", "Render", None, [];
     Parkour => "world.parkour", "Parkour", "World", None, [];
     AimAssist => "combat.aim-assist", "AimAssist", "Combat", None, [];
     SafeWalk => "world.safe-walk", "SafeWalk", "World", None, [];
