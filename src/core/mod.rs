@@ -324,6 +324,7 @@ impl Default for Runtime {
             .chain(super::modules::render::name_tags::definitions())
             .chain(super::modules::render::item_esp::definitions())
             .chain(super::modules::blatant::outbound::definitions())
+            .chain(super::modules::render::anti_debuff::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -1386,6 +1387,13 @@ impl Runtime {
     pub fn outbound_flush(&mut self) -> bool {
         self.outbound.take_flush()
     }
+    /// AntiDebuff's effects to take off the local player this tick.
+    pub fn anti_debuff(&self) -> Vec<&'static str> {
+        if !self.enabled(ModuleId::AntiDebuff) || !self.session.in_world() {
+            return Vec::new();
+        }
+        super::modules::render::anti_debuff::removed(&self.settings)
+    }
     /// Regen's extra status packets this tick.
     pub fn regen_packets(&self, vitals: super::modules::blatant::outbound::Vitals) -> u32 {
         if !self.enabled(ModuleId::Regen) || !self.session.in_world() {
@@ -2049,7 +2057,8 @@ impl Runtime {
                 | ModuleId::FakeLag
                 | ModuleId::NoItemRelease
                 | ModuleId::PotionSaver
-                | ModuleId::Regen => continue,
+                | ModuleId::Regen
+                | ModuleId::AntiDebuff => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

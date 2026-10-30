@@ -12,14 +12,14 @@ excluded; all other retained scope remains open as listed below.
 
 ## Connected native implementation
 
-The runtime registers 52 modules, all with normal local activation, binds,
-profile persistence and GUI access. The twenty-three newest (marked †) are
+The runtime registers 53 modules, all with normal local activation, binds,
+profile persistence and GUI access. The twenty-four newest (marked †) are
 compile-only: no game scenario has run for them yet.
 
 | Area | Modules |
 | --- | --- |
 | HUD (legit, HUD group) | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
-| Render | Fullbright, StorageESP (partial: through-wall outlines for chests, trapped chests, hoppers, furnaces, dispensers, droppers, shulkers; no ender chests/fill), ESP (partial: 3D mode only), Tracers (partial), Trajectories (partial), NameTags† (partial), ItemESP†, friend/enemy recolour settings, and the former HUD-editor Game group: NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
+| Render | Fullbright, StorageESP (partial: through-wall outlines for chests, trapped chests, hoppers, furnaces, dispensers, droppers, shulkers; no ender chests/fill), ESP (partial: 3D mode only), Tracers (partial), Trajectories (partial), NameTags† (partial), ItemESP†, AntiDebuff†, friend/enemy recolour settings, and the former HUD-editor Game group: NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
 | World / movement | FastPlace, AutoFish, Sprint (baseline), Parkour (experimental), SafeWalk, Anti-AFK† |
 | Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open), WTap† |

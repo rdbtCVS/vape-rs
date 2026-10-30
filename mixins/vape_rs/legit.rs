@@ -41,3 +41,21 @@ pub(crate) fn frame(game: &mut crate::game::Game<'_>) {
         }
     }
 }
+
+/// AntiDebuff (reference `onTick`): the chosen effects leave the client's
+/// effect list, and slowness its movement-speed modifier.
+pub(crate) fn anti_debuff(game: &mut crate::game::Game<'_>) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let removed = with_client(&client, |runtime| runtime.anti_debuff());
+    for id in removed {
+        if game.potions.effects.get(id).is_none() {
+            continue;
+        }
+        game.potions.effects.list.retain(|e| e.id != id);
+        if let Some((attribute, modifier, _, operation)) = horizon_client::effects::effect_modifier(id)
+            && let Some(player) = game.player.as_mut()
+        {
+            let _ = player.set_modifier(attribute, modifier, 0.0, operation, false);
+        }
+    }
+}

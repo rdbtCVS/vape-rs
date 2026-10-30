@@ -43,4 +43,5 @@ fn tick(game: &mut crate::game::Game<'_>) {
     crate::game::vape_combat::reach_tick(game);
     crate::game::vape_combat::movement_tick(game);
     crate::game::remote::vape_packets::tick(game);
+    crate::game::vape_legit::anti_debuff(game);
 }

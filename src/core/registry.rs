@@ -96,6 +96,7 @@ registry! {
     NoItemRelease => "combat.no-item-release", "NoItemRelease", "Other", None, [];
     PotionSaver => "blatant.potion-saver", "PotionSaver", "Other", None, [];
     Regen => "blatant.regen", "Regen", "Other", None, [];
+    AntiDebuff => "render.anti-debuff", "AntiDebuff", "Render", None, [];
 }
 
 impl ModuleId {

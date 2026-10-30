@@ -200,7 +200,11 @@ impl Outbound {
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
             {
-                let sign = if self.chokes.is_multiple_of(2) { -1.0 } else { 1.0 };
+                let sign = if self.chokes.is_multiple_of(2) {
+                    -1.0
+                } else {
+                    1.0
+                };
                 let yaw = f64::from(ctx.yaw).to_radians();
                 self.breadcrumbs.push([
                     ctx.position[0] + 0.2 * sign * yaw.cos(),

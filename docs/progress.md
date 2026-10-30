@@ -714,3 +714,24 @@ Validation: lib build, fmt and lib Clippy pass; stage/audit passes with 36
 hooks and 22 support modules; the pinned host check passes (0 errors, the
 existing private-interface warnings unchanged). Compile-only: no tests and
 no game scenario ran.
+
+## 2026-10-30: AntiDebuff; InvWalk and KeepSprint blocked
+
+- AntiDebuff (`render.anti-debuff`, Render): every client tick, Remove
+  Nausea and Remove Blindness take those effects off the local player's
+  client effect list; Remove Slowness (with Remove Effects) takes off
+  slowness and its `minecraft:effect.slowness` movement-speed modifier.
+  Difference from the reference: Remove Blindness without Remove Effects
+  is render-only there, but here it also lifts the client's blind sprint
+  block, because the host reads blindness from the same list. No new hook;
+  it runs from the existing client tick hook (`vape_legit::anti_debuff`).
+- InvWalk is blocked on a host capability. `Game::tick` gates movement keys
+  with a local `playing = screen == Playing` before building `Keys`, and
+  the existing hook kinds (HEAD, MODIFY_ARG on a call) cannot reach it.
+- KeepSprint is not ported. The host applies no client-side attack
+  slowdown (vanilla's motion x0.6 and sprint stop in `Player.attack`), so
+  the module has nothing to modify. Revisit if the host adds it.
+
+Validation: fmt and lib Clippy pass; stage/audit passes (36 hooks, 22
+support modules, unchanged); the pinned host check passes with 0 errors.
+Compile-only: no tests and no game scenario ran.
