@@ -12,8 +12,8 @@ excluded; all other retained scope remains open as listed below.
 
 ## Connected native implementation
 
-The runtime registers 40 modules, all with normal local activation, binds,
-profile persistence and GUI access. The thirteen newest (marked †) are
+The runtime registers 43 modules, all with normal local activation, binds,
+profile persistence and GUI access. The sixteen newest (marked †) are
 compile-only: no game scenario has run for them yet.
 
 | Area | Modules |
@@ -24,8 +24,8 @@ compile-only: no game scenario has run for them yet.
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
 | World / movement | FastPlace, AutoFish, Sprint (baseline), Parkour (experimental), SafeWalk, Anti-AFK† |
 | Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open), WTap† |
-| Other (exact-name search only) | HitBoxes†, Timer†, Fly†, NoFall† (Normal/AntiCheat), Step† (step height only) |
-| Hidden (never listed) | NoSlowdown† (sprint re-enable open) |
+| Other (exact-name search only) | HitBoxes†, Timer†, Fly†, NoFall† (Normal/AntiCheat), Step† (step height only), LongJump†, AntiFall† |
+| Hidden (never listed) | NoSlowdown† (sprint re-enable open), Speed† (Bhop/AntiCheat B) |
 | Utility | Panic (configurable bind, optional re-enable) |
 
 The local foundation includes typed settings/editors, chord/held bindings,
@@ -141,13 +141,15 @@ Worker B has an observe-only inbound boundary: Velocity works, but Blink,
 FakeLag and Backtrack need a cancellable inbound or outbound point.
 `handle_packet` has macros, so look for a macro-free dispatch or a mixin-tool
 change. Worker C has SafeWalk on the movement writer; KeepSprint, WTap,
-NoSlowdown and AutoLadder still need writer priorities. Worker D (camera,
+NoSlowdown and AutoLadder still need writer priorities (WTap and
+Anti-AFK now request through the writer). Worker D (camera,
 projection, world text) hasn't started.
 
-**Validation debt first.** The eight compile-only modules above each need a
+**Validation debt first.** The compile-only (†) modules above each need a
 fresh-home integrated-server scenario (clicker CPS and hold/release, Reach
 range, HitBoxes expansion, Timer rate, Fly motion, NoFall status packets,
-NoSlowdown item-use speed), and the GUI scenarios should be rerun against
+NoSlowdown item-use speed, Speed/LongJump motion, AntiFall lagback, WTap,
+Anti-AFK, Step, Time Changer, Weather), and the GUI scenarios should be rerun against
 the interface-font text.
 
 1. **Combat / targeting:** AimAssist Adaptive mode; Reach Misplace,
@@ -157,9 +159,11 @@ the interface-font text.
    already calls), HitSwap/AutoMace (TriggerBot's cooldown bypass) and the
    remaining combat rows. A shared rotation owner is needed once more than
    AimAssist turns the view.
-2. **Movement / packets:** movement-writer priorities, then KeepSprint, WTap,
-   NoSlowdown's sprint re-enable, AutoLadder; a cancellable inbound/outbound packet boundary for
-   JumpReset, KnockbackDelay, Blink, FakeLag, Backtrack; then NoFall's jump-key detail, Speed, Scaffold modes, Clutch, MLG,
+2. **Movement / packets:** KeepSprint (no client-side slowdown on Horizon's
+   remote attack path to cancel), NoSlowdown's sprint re-enable, AutoLadder,
+   Strafe (needs AimAssist's current target exposed), Step's position packets
+   and timer slowdown, LongJump's vine/ice factors; a cancellable inbound/outbound packet boundary for
+   JumpReset, KnockbackDelay, Blink, FakeLag, Backtrack; then NoFall's jump-key detail, Scaffold modes, Clutch, MLG,
    Freecam and the remaining world/utility rows. Parkour has an integrated-server scenario; a LAN case is still open.
 3. **Render:** connect camera/projection, world text/quads, entity snapshots
    and collision queries; finish StorageESP (fill, through-wall, all container
@@ -176,8 +180,7 @@ the interface-font text.
    inventory-free operation. Refill/ChestSteal/AutoFish need host scenarios
    for the bounded-gate recovery.
 5. **HUD / UI:** ClientSettings (floating/integrated/none), Text GUI and module
-   list, ModuleDisplayInfo; the HUD-module family (Freelook, Time/Weather
-   Changer, Reach Display, Scoreboard, Inventory Blur, Motion Blur, Block Hit
+   list, ModuleDisplayInfo; the HUD-module family (Freelook, Reach Display, Scoreboard, Inventory Blur, Motion Blur, Block Hit
    Animation, Block Render Color Override, Health); triage of the remaining
    "inherited/HUD; review" ledger rows; typography, icons, client translations
    and Windows date conventions. Panic default visibility needs verification.

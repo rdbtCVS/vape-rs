@@ -318,6 +318,20 @@ pub(super) fn inbound(game: &mut Game<'_>, packet: &horizon_protocol::packets::p
     use crate::game::vape_rs::modules::combat::velocity::Decision;
     use horizon_protocol::packets::play::Clientbound as C;
     apply_motion_override(game);
+    if let C::PlayerPosition(_) = packet {
+        // AntiFall's onPacketReceive (S08): the lagback landed.
+        let client = game.__horizon_mixins_vape_rs_client().clone();
+        if with_client(&client, |runtime| {
+            runtime.server_teleport();
+            runtime.enabled(ModuleId::AntiFall)
+        }) && let Some(player) = game.player.as_mut()
+        {
+            player.fall_distance = 0.0;
+            player.velocity.x = 0.0;
+            player.velocity.z = 0.0;
+        }
+        return;
+    }
     let C::SetEntityMotion(p) = packet else { return; };
     if !game.remote.as_ref().is_some_and(|r| r.entity_id == p.id) {
         return;
@@ -507,37 +521,110 @@ pub(super) fn clickers(game: &mut Game<'_>) {
     }
 }
 
-/// Client tick HEAD: the clickers' jitter step, Fly's move and NoSlowdown's
-/// mark for this tick's player move.
+/// Client tick HEAD: the clickers' jitter step, Fly's (else LongJump's or
+/// Speed's) move, AntiFall's lagback and NoSlowdown's mark for this tick's
+/// player move.
 pub(super) fn movement_tick(game: &mut Game<'_>) {
-    use crate::game::vape_rs::modules::blatant::{fly, no_slowdown};
+    use crate::game::vape_rs::modules::blatant::{anti_fall, fly, no_slowdown, speed};
     use winit::keyboard::KeyCode;
     let client = game.__horizon_mixins_vape_rs_client().clone();
     with_client(&client, |runtime| runtime.clicker_tick());
-    let Some(player) = game.player.as_ref() else { return; };
+    if game.player.is_none() {
+        return;
+    }
+    let active = playing(game);
     let key = |k: KeyCode| game.keys.contains(&k);
     let axis = |plus: KeyCode, minus: KeyCode| f64::from(u8::from(key(plus))) - f64::from(u8::from(key(minus)));
-    let active = playing(game);
+    let (forward, strafe) = if active {
+        (axis(KeyCode::KeyW, KeyCode::KeyS), axis(KeyCode::KeyA, KeyCode::KeyD))
+    } else {
+        (0.0, 0.0)
+    };
+    let effect = |id: &str| game.potions.effects.list.iter().find(|e| e.id == id).map(|e| e.amplifier as i32);
+    let speed_amplifier = effect("speed");
+    let jump_amplifier = effect("jump_boost");
+    let sneaking = active && (key(KeyCode::ShiftLeft) || game.toggles.is_down(0));
     let input = fly::Input {
-        forward: if active { axis(KeyCode::KeyW, KeyCode::KeyS) } else { 0.0 },
-        strafe: if active { axis(KeyCode::KeyA, KeyCode::KeyD) } else { 0.0 },
+        forward,
+        strafe,
         yaw: game.yaw,
         jump: active && key(KeyCode::Space),
         sneak: active && key(KeyCode::ShiftLeft),
-        speed_amplifier: game.potions.effects.list.iter().find(|e| e.id == "speed").map(|e| e.amplifier as i32),
+        speed_amplifier,
     };
+    let yaw = game.yaw;
+    let blocked_vertically = {
+        let entities = game.player_entity_collisions();
+        let player = game.player.as_mut().unwrap();
+        let bounds = player.bounds().move_by(horizon_core::geometry::Vec3::new(0.0, player.velocity.y, 0.0));
+        let mut motion = horizon_client::motion::MotionWorld { entities: &entities, player, scene: &mut game.world, assets: &game.pack.assets, collision_binding: game.collision, resources: game.motion };
+        !motion.no_player_collision(bounds).unwrap_or(true)
+    };
+    let player = game.player.as_ref().unwrap();
     let tick = no_slowdown::Tick {
         on_ground: player.ground.on_ground,
         in_water: player.fluids.was_touching_water,
         slowed: game.using.is_some(),
         held: held(game),
     };
-    let (fly_move, no_slow) = with_client(&client, |runtime| (runtime.fly_move(&input), runtime.no_slowdown_tick(&tick)));
+    let speed_tick = speed::Tick {
+        forward,
+        strafe,
+        yaw,
+        on_ground: player.ground.on_ground,
+        collided_vertically: player.collision.vertical,
+        blocked_vertically,
+        in_liquid: player.fluids.was_touching_water || player.is_in_lava(),
+        sneaking,
+        food: player.health.food.food,
+        speed_amplifier,
+        jump_amplifier,
+        position: [player.position.x, player.position.z],
+    };
+    // AntiFall's column scan: any non-air block below the feet.
+    let (x, z) = (player.position.x.floor() as i32, player.position.z.floor() as i32);
+    let feet = (player.position.y - 1.0).floor() as i32;
+    let air = game.world.air;
+    let over_air = game.world.block(x, feet, z) == air;
+    let block_below = (horizon_client_render::chunk::MIN_Y..=feet).rev().any(|y| game.world.block(x, y, z) != air);
+    let fall_tick = anti_fall::Tick {
+        now_ms: 0,
+        skip: player.health.health() <= 0.0 || game.creative || player.flying || game.spectator(),
+        block_below,
+        over_air,
+        on_ground: player.ground.on_ground,
+        fall_distance: player.fall_distance,
+    };
+    let (fly_move, speed_move, lagback, no_slow) = with_client(&client, |runtime| {
+        let fly_move = runtime.fly_move(&input);
+        let speed_move = if fly_move.is_none() { runtime.speed_move(&speed_tick) } else { Default::default() };
+        let lagback = runtime.anti_fall_motion(&anti_fall::Tick { now_ms: runtime.now_ms(), ..fall_tick });
+        (fly_move, speed_move, lagback, runtime.no_slowdown_tick(&tick))
+    });
     let Some(player) = game.player.as_mut() else { return; };
-    if let Some(m) = fly_move {
-        // `player.motionY = verticalMotion` alongside the replaced move.
-        player.velocity.y = m[1];
+    if let Some(height) = lagback {
+        // `setPosition(x, y + fallDistance, z)`, horizontal motion, input and
+        // fall distance zeroed.
+        player.position.y += height;
+        player.velocity.x = 0.0;
+        player.velocity.z = 0.0;
+        player.fall_distance = 0.0;
     }
-    player.vape_rs_set_fly_move(fly_move);
+    let replacement = match fly_move {
+        Some(m) => {
+            // `player.motionY = verticalMotion` alongside the replaced move.
+            player.velocity.y = m[1];
+            Some(m)
+        }
+        None if speed_move != speed::Move::default() => {
+            if let Some(y) = speed_move.y {
+                player.velocity.y = y;
+            }
+            let [mx, mz] = speed_move.horizontal.unwrap_or([f64::NAN; 2]);
+            Some([mx, speed_move.y.unwrap_or(f64::NAN), mz])
+        }
+        None => None,
+    };
+    player.vape_rs_set_fly_move(replacement);
     player.vape_rs_set_no_slowdown(no_slow);
 }

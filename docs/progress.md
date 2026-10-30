@@ -558,3 +558,32 @@ support modules; the pinned host check passes. No game scenario ran. The GUI
 scenarios that click HUD-editor rows need their coordinates moved 16 units
 down for the tab bar. Evidence:
 `docs/evidence/legit-groups-wtap-afk-step-compile.json`.
+
+## 2026-10-30 — Speed, LongJump, AntiFall (compile-only)
+
+New modules, all on the client tick HEAD next to Fly:
+
+- Speed (Hidden, as in the reference): Bhop ports BhopSpeed's stages
+  (0.25 ground start, 2.149 jump multiplier, 0.66 and 1/159 decay, the
+  vertical-collision stage reset) and AntiCheat B ports MineplexSpeed (jump
+  on vertical collision, 0.42 strafe). Speed levels add 0.15 each and Jump
+  Boost adds 0.1 per level to the jump.
+- LongJump (Other): Boost 4.1, with Toggle turning it off on landing; ports
+  the base/air speeds, the 0.666 and 1/50 decay and the movement yaw.
+- AntiFall (Other): Speed Check and Fall Dist; above the void past Fall
+  Dist, one pending pre-motion and then a lagback up by the fall distance
+  (horizontal motion and fall distance zeroed). The 250 ms window or landing
+  clears it, and so does the server position packet (now observed in the
+  inbound hook).
+
+The Fly move hook now binds the host's move, and a NaN component keeps the
+host's value, so Speed and LongJump replace only the horizontal move unless
+they jump. Fly takes precedence, then LongJump, then Speed.
+
+Not ported: LongJump's vine/ice surface factors, the effect-duration gates,
+AntiFall's Freecam check (Freecam not ported). OmniSprint is empty in the
+reference (no behaviour). Strafe needs AimAssist's current target exposed.
+
+Validation: `cargo check` passes; stage/audit passes with 33 hooks and 19
+support modules; the pinned host check passes with 0 warnings. No game
+scenario ran. Evidence: `docs/evidence/speed-longjump-antifall-compile.json`.

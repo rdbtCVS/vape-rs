@@ -90,6 +90,9 @@ pub struct Runtime {
     no_slowdown: super::modules::blatant::no_slowdown::NoSlowdown,
     wtap: super::modules::combat::wtap::WTap,
     anti_afk: super::modules::world::anti_afk::AntiAfk,
+    speed: super::modules::blatant::speed::State,
+    long_jump: super::modules::blatant::long_jump::State,
+    anti_fall: super::modules::blatant::anti_fall::State,
     /// A clicker was reset while holding its mapping down: [attack, use].
     clicker_release: [bool; 2],
     motion_override: Option<([f64; 3], [f64; 3])>,
@@ -417,6 +420,9 @@ impl Default for Runtime {
             no_slowdown: Default::default(),
             wtap: Default::default(),
             anti_afk: Default::default(),
+            speed: Default::default(),
+            long_jump: Default::default(),
+            anti_fall: Default::default(),
             clicker_release: [false; 2],
             motion_override: None,
             explosion_reentry: false,
@@ -484,6 +490,9 @@ impl Runtime {
                 ModuleId::NoSlowdown => self.no_slowdown.reset(),
                 ModuleId::WTap => self.wtap.reset(),
                 ModuleId::AntiAfk => self.anti_afk.reset(),
+                ModuleId::Speed => self.speed.reset(),
+                ModuleId::LongJump => self.long_jump.reset(),
+                ModuleId::AntiFall => self.anti_fall.reset(),
                 _ => {}
             }
         }
@@ -1184,6 +1193,56 @@ impl Runtime {
         let options = super::modules::world::anti_afk::Options::read(&self.settings);
         self.anti_afk.tick(&options, tick)
     }
+    /// LongJump's, else Speed's, replacement for this tick's pre-move (Fly
+    /// takes precedence in the caller). LongJump's Toggle turns it off on
+    /// landing.
+    pub fn speed_move(
+        &mut self,
+        tick: &super::modules::blatant::speed::Tick,
+    ) -> super::modules::blatant::speed::Move {
+        use super::modules::blatant::{long_jump, speed};
+        if !self.session.in_world() {
+            self.speed.reset();
+            self.long_jump.reset();
+            return Default::default();
+        }
+        if self.enabled(ModuleId::LongJump) {
+            let options = long_jump::Options::read(&self.settings);
+            let (movement, off) = self.long_jump.tick(&options, tick);
+            if !off {
+                return movement;
+            }
+            self.set_enabled(ModuleId::LongJump, false);
+        }
+        if self.enabled(ModuleId::Speed) {
+            let mode = speed::Mode::read(&self.settings);
+            return self.speed.pre_move(mode, tick);
+        }
+        Default::default()
+    }
+    /// AntiFall's pre-motion: the height to lag the player back up by.
+    /// `skip` covers dead, creative and flying.
+    pub fn anti_fall_motion(
+        &mut self,
+        tick: &super::modules::blatant::anti_fall::Tick,
+    ) -> Option<f64> {
+        use super::modules::blatant::anti_fall;
+        if !self.enabled(ModuleId::AntiFall) || !self.session.in_world() {
+            self.anti_fall.reset();
+            return None;
+        }
+        let options = anti_fall::Options::read(&self.settings);
+        let skip = tick.skip
+            || self.enabled(ModuleId::Fly)
+            || (options.speed_check && self.enabled(ModuleId::Speed));
+        self.anti_fall
+            .pre_motion(&options, &anti_fall::Tick { skip, ..*tick })
+    }
+    /// A server position correction (AntiFall's lagback landed).
+    pub fn server_teleport(&mut self) {
+        let now = self.now_ms();
+        self.anti_fall.teleported(now);
+    }
     pub fn now_ms(&self) -> u64 {
         self.macro_origin.elapsed().as_millis() as u64
     }
@@ -1798,7 +1857,10 @@ impl Runtime {
                 | ModuleId::Weather
                 | ModuleId::AntiAfk
                 | ModuleId::Step
-                | ModuleId::WTap => continue,
+                | ModuleId::WTap
+                | ModuleId::Speed
+                | ModuleId::LongJump
+                | ModuleId::AntiFall => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

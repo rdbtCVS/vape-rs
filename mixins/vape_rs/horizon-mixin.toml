@@ -418,7 +418,10 @@ target = "horizon_client::motion::MotionWorld<'_,'_,'_>::move_self"
 kind = "HEAD"
 cancellable = true
 helper = "adapters/fly_move.rs"
-bindings = [{ name = "world", ty = "&mut crate::motion::MotionWorld<'_, '_, '_>", value = "&mut *self" }]
+bindings = [
+  { name = "world", ty = "&mut crate::motion::MotionWorld<'_, '_, '_>", value = "&mut *self" },
+  { name = "movement", ty = "horizon_core::geometry::Vec3", value = "movement" },
+]
 
 # NoFall and Fly at the local player's motion packet.
 [[module]]

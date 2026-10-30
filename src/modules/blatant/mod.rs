@@ -1,9 +1,12 @@
 // The reference's blatant modules (`gg.vape.module.blatant`). HitBoxes,
 // Timer, Fly and NoFall are Category.OTHER (listed only on an exact search);
 // NoSlowdown is Category.HIDDEN.
+pub mod anti_fall;
 pub mod fly;
+pub mod long_jump;
 pub mod no_fall;
 pub mod no_slowdown;
+pub mod speed;
 
 use super::super::core::settings::{Definition, Settings};
 use serde_json::Value;
@@ -28,6 +31,9 @@ pub fn definitions() -> Vec<Definition> {
     out.extend(fly::definitions());
     out.extend(no_fall::definitions());
     out.extend(no_slowdown::definitions());
+    out.extend(speed::definitions());
+    out.extend(long_jump::definitions());
+    out.extend(anti_fall::definitions());
     out
 }
 

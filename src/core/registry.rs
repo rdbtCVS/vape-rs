@@ -83,6 +83,9 @@ registry! {
     AntiAfk => "world.anti-afk", "Anti-AFK", "World", None, [];
     Step => "blatant.step", "Step", "Other", None, [];
     WTap => "combat.wtap", "WTap", "Combat", None, [];
+    Speed => "blatant.speed", "Speed", "Hidden", None, [];
+    LongJump => "blatant.long-jump", "LongJump", "Other", None, [];
+    AntiFall => "blatant.anti-fall", "AntiFall", "Other", None, [];
 }
 
 impl ModuleId {

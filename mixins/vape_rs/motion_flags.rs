@@ -22,7 +22,8 @@ impl crate::motion::PlayerMotion {
     pub(crate) fn vape_rs_no_slowdown(&self) -> bool {
         NO_SLOWDOWN.with(|cell| cell.get() == self as *const Self as usize)
     }
-    /// Fly's replacement for this player's next self-move (`EventPreMove`).
+    /// Fly's (or Speed's / LongJump's) replacement for this player's next
+    /// self-move (`EventPreMove`); a NaN component keeps the host's.
     pub fn vape_rs_set_fly_move(&self, movement: Option<[f64; 3]>) {
         let me = self as *const Self as usize;
         FLY.with(|cell| match movement {
@@ -32,12 +33,13 @@ impl crate::motion::PlayerMotion {
         });
     }
     /// Takes the replacement once, so the re-dispatched move runs unchanged.
-    pub(crate) fn vape_rs_take_fly_move(&self) -> Option<horizon_core::geometry::Vec3> {
+    pub(crate) fn vape_rs_take_fly_move(&self, host: horizon_core::geometry::Vec3) -> Option<horizon_core::geometry::Vec3> {
         FLY.with(|cell| {
             let (who, m) = cell.get();
             (who == self as *const Self as usize).then(|| {
                 cell.set((0, [0.0; 3]));
-                horizon_core::geometry::Vec3::new(m[0], m[1], m[2])
+                let pick = |v: f64, h: f64| if v.is_nan() { h } else { v };
+                horizon_core::geometry::Vec3::new(pick(m[0], host.x), pick(m[1], host.y), pick(m[2], host.z))
             })
         })
     }
