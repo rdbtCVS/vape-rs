@@ -4,3 +4,4 @@ pub mod clicker;
 pub mod reach;
 pub mod trigger_bot;
 pub mod velocity;
+pub mod wtap;

@@ -437,9 +437,24 @@ pub(super) fn reach_tick(game: &Game<'_>) {
 }
 
 /// An attack started (`EventPostAttack`).
-pub(super) fn post_attack(game: &Game<'_>) {
+pub(super) fn post_attack(game: &mut Game<'_>) {
     let client = game.__horizon_mixins_vape_rs_client().clone();
     with_client(&client, |runtime| runtime.reach_post_attack());
+    // WTap's EventPreAttack: the crosshair mob this attack will hit.
+    let names = game.remote_player_names();
+    let target = game
+        .mob_hit()
+        .filter(|(_, d)| game.before_block(*d))
+        .and_then(|(i, _)| game.mobs.get(i))
+        .map(|mob| (names.iter().any(|(id, _)| *id == mob.id), mob.hurt_time));
+    if let Some((player, hurt_time)) = target
+        && with_client(&client, |runtime| {
+            runtime.wtap_attack(player, hurt_time);
+            runtime.enabled(ModuleId::WTap)
+        })
+    {
+        crate::game::vape_input_delays::movement_again(game);
+    }
 }
 
 /// Frame HEAD: AutoClicker and RightClicker through the host's attack/use

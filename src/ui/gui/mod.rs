@@ -177,6 +177,7 @@ enum Hit {
     Sync,
     Hud,
     HudBack,
+    HudGroup(&'static str),
     Popup,
     Toggle(String),
     Expand(String),
@@ -358,6 +359,8 @@ pub struct Gui {
     pub open: bool,
     pub hud_editor: bool,
     pub hud_regions: Vec<HudRegion>,
+    /// The HUD editor frame's group tab: Favorite, All, HUD or Game.
+    hud_group: &'static str,
     dragging_hud: Option<(String, f32, f32)>,
     /// The module whose settings are expanded under its row.
     pub selected: Option<String>,
@@ -407,6 +410,7 @@ impl Default for Gui {
             open: false,
             hud_editor: false,
             hud_regions: Vec::new(),
+            hud_group: "All",
             dragging_hud: None,
             selected: None,
             status: String::new(),

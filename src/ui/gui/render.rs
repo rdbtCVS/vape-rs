@@ -28,6 +28,8 @@ const COLUMNS: [&str; 11] = [
 ];
 const NAV: &str = "gui";
 pub(super) const HUD: &str = "HUD";
+/// The reference's `HudModuleGroup` tabs, in order.
+const HUD_GROUPS: [&str; 4] = ["Favorite", "All", "HUD", "Game"];
 
 const COMBAT: [&str; 7] = [
     "     ##", "    ###", "   ### ", "# ###  ", " ###   ", " ##    ", "#  #   ",
@@ -327,7 +329,7 @@ impl Gui {
                 "Settings" => {
                     self.settings(view, &mut body, x, top, |d| d.id.starts_with("client."))
                 }
-                HUD => self.module_list(view, &mut body, x, top, |m| m.category == "Legit"),
+                HUD => self.hud_body(view, &mut body, x, top),
                 category => self.module_list(view, &mut body, x, top, |m| m.category == category),
             }
         };
@@ -429,6 +431,36 @@ impl Gui {
             );
             l.hit(Rect(x + FRAME_WIDTH - dx - 3.0, y + 3.0, 13.0, 16.0), hit);
         }
+    }
+    /// `HudModuleSelectorFrame`: a Favorite/All/HUD/Game tab bar over the
+    /// legit (HUD-editor) modules, filtered by the selected group.
+    fn hud_body(&self, view: &View, l: &mut Layout, x: f32, top: f32) -> f32 {
+        let mut tx = x + 6.0;
+        for group in HUD_GROUPS {
+            let width = text_advance(group, SMALL_SCALE);
+            let selected = self.hud_group == group;
+            l.row_label(
+                tx,
+                top,
+                14.0,
+                group,
+                if selected { FG } else { MUTED },
+                SMALL_SCALE,
+                Align::Left,
+            );
+            if selected {
+                l.fill(Rect(tx, top + 11.5, width, 0.75), ACCENT);
+            }
+            l.hit(Rect(tx - 2.0, top, width + 4.0, 14.0), Hit::HudGroup(group));
+            tx += width + 9.0;
+        }
+        l.fill(Rect(x, top + 14.0, FRAME_WIDTH, 0.5), OUTLINE);
+        let group = self.hud_group;
+        16.0 + self.module_list(view, l, x, top + 16.0, |m| match group {
+            "Favorite" => m.favorite && matches!(m.category.as_str(), "HUD" | "Game"),
+            "All" => matches!(m.category.as_str(), "HUD" | "Game"),
+            group => m.category == group,
+        })
     }
     fn nav_body(&self, view: &View, l: &mut Layout, x: f32, top: f32) -> f32 {
         if self.searching && !self.search.is_empty() {

@@ -47,6 +47,7 @@ fn frame(game: &mut crate::game::Game<'_>) {
     });
     let gamma = crate::game::vape_rs::core::with_client(&client, |runtime| runtime.fullbright_gamma(game.settings.gamma, game.player.is_some() && game.title.is_none()));
     if let Some(gamma) = gamma && let Some(renderer) = game.renderer.as_mut() { renderer.gamma = gamma; }
+    crate::game::vape_legit::frame(game);
     crate::game::remote::vape_macros::frame(game);
     crate::game::vape_combat::clickers(game);
     // Timer: the clock's next advance runs at this speed (1.0 when off).

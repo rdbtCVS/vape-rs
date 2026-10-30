@@ -333,6 +333,10 @@ impl Gui {
                 self.hud_editor = true;
                 self.dragging = None;
             }
+            Hit::HudGroup(group) => {
+                self.hud_group = group;
+                self.scrolls.remove(render::HUD);
+            }
             Hit::HudBack => {
                 self.hud_editor = false;
                 self.dragging_hud = None;

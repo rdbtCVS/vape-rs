@@ -88,6 +88,8 @@ pub struct Runtime {
     reach: super::modules::combat::reach::Reach,
     no_fall: super::modules::blatant::no_fall::NoFall,
     no_slowdown: super::modules::blatant::no_slowdown::NoSlowdown,
+    wtap: super::modules::combat::wtap::WTap,
+    anti_afk: super::modules::world::anti_afk::AntiAfk,
     /// A clicker was reset while holding its mapping down: [attack, use].
     clicker_release: [bool; 2],
     motion_override: Option<([f64; 3], [f64; 3])>,
@@ -298,6 +300,9 @@ impl Default for Runtime {
             .chain(super::modules::combat::clicker::right_definitions())
             .chain(super::modules::combat::reach::definitions())
             .chain(super::modules::blatant::definitions())
+            .chain(super::modules::legit::definitions())
+            .chain(super::modules::combat::wtap::definitions())
+            .chain(super::modules::world::anti_afk::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -410,6 +415,8 @@ impl Default for Runtime {
             reach: Default::default(),
             no_fall: Default::default(),
             no_slowdown: Default::default(),
+            wtap: Default::default(),
+            anti_afk: Default::default(),
             clicker_release: [false; 2],
             motion_override: None,
             explosion_reentry: false,
@@ -475,6 +482,8 @@ impl Runtime {
                 ModuleId::Reach => self.reach.reset(),
                 ModuleId::NoFall => self.no_fall.reset(),
                 ModuleId::NoSlowdown => self.no_slowdown.reset(),
+                ModuleId::WTap => self.wtap.reset(),
+                ModuleId::AntiAfk => self.anti_afk.reset(),
                 _ => {}
             }
         }
@@ -1132,6 +1141,49 @@ impl Runtime {
         self.no_slowdown.tick(&options, tick)
     }
     /// Monotonic milliseconds for module timers.
+    /// Time Changer: the time of day to show (the frame keeps the day count).
+    pub fn time_override(&self) -> Option<i64> {
+        (self.enabled(ModuleId::TimeChanger) && self.session.in_world())
+            .then(|| super::modules::legit::time_of_day(&self.settings))
+    }
+    /// Weather: the rain and (when set) thunder strength to show.
+    pub fn weather_override(&self) -> Option<(f32, Option<f32>)> {
+        (self.enabled(ModuleId::Weather) && self.session.in_world())
+            .then(|| super::modules::legit::weather(&self.settings))
+    }
+    /// Step: a one-block step height this tick.
+    pub fn step_active(&self, sneaking: bool, on_ground: bool) -> bool {
+        self.enabled(ModuleId::Step) && self.session.in_world() && !sneaking && on_ground
+    }
+    /// WTap's pre-attack: `player` when the target is a player.
+    pub fn wtap_attack(&mut self, player: bool, hurt_time: i32) {
+        if self.enabled(ModuleId::WTap) && self.session.interactive() {
+            let options = super::modules::combat::wtap::Options::read(&self.settings);
+            let now = self.now_ms();
+            self.wtap.pre_attack(&options, now, player, hurt_time);
+        }
+    }
+    /// WTap's tick: whether forward is held released.
+    pub fn wtap_release(&mut self, screen: bool) -> bool {
+        if !self.enabled(ModuleId::WTap) {
+            return false;
+        }
+        let options = super::modules::combat::wtap::Options::read(&self.settings);
+        let now = self.now_ms();
+        self.wtap
+            .tick(&options, now, screen || !self.session.interactive())
+    }
+    pub fn anti_afk_tick(
+        &mut self,
+        tick: &super::modules::world::anti_afk::Tick,
+    ) -> super::modules::world::anti_afk::Actions {
+        if !self.enabled(ModuleId::AntiAfk) || !self.session.in_world() {
+            self.anti_afk.reset();
+            return Default::default();
+        }
+        let options = super::modules::world::anti_afk::Options::read(&self.settings);
+        self.anti_afk.tick(&options, tick)
+    }
     pub fn now_ms(&self) -> u64 {
         self.macro_origin.elapsed().as_millis() as u64
     }
@@ -1741,7 +1793,12 @@ impl Runtime {
                 | ModuleId::Timer
                 | ModuleId::Fly
                 | ModuleId::NoFall
-                | ModuleId::NoSlowdown => continue,
+                | ModuleId::NoSlowdown
+                | ModuleId::TimeChanger
+                | ModuleId::Weather
+                | ModuleId::AntiAfk
+                | ModuleId::Step
+                | ModuleId::WTap => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

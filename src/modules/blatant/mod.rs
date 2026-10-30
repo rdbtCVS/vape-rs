@@ -10,6 +10,8 @@ use serde_json::Value;
 
 pub const HITBOXES: &str = "blatant.hitboxes";
 pub const TIMER: &str = "blatant.timer";
+/// Step (reference `Step`): no settings; see `Runtime::step_active`.
+pub const STEP: &str = "blatant.step";
 
 pub fn definitions() -> Vec<Definition> {
     let mut out = vec![

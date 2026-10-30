@@ -46,6 +46,8 @@ impl Axis {
 pub enum Owner {
     Sprint,
     Parkour,
+    AntiAfk,
+    WTap,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

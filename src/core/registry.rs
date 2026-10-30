@@ -43,25 +43,25 @@ macro_rules! registry {
 }
 
 registry! {
-    Coordinates => "hud.coordinates", "Coords", "Legit", Some((8.0, 8.0)), ["F8"];
-    Fps => "hud.fps", "FPS", "Legit", Some((8.0, 36.0)), ["F9"];
-    Compass => "hud.compass", "Compass", "Legit", Some((46.0, 200.0)), [];
-    NoHurtCamera => "render.no-hurt-camera", "NoHurtCam", "Legit", None, [];
+    Coordinates => "hud.coordinates", "Coords", "HUD", Some((8.0, 8.0)), ["F8"];
+    Fps => "hud.fps", "FPS", "HUD", Some((8.0, 36.0)), ["F9"];
+    Compass => "hud.compass", "Compass", "HUD", Some((46.0, 200.0)), [];
+    NoHurtCamera => "render.no-hurt-camera", "NoHurtCam", "Game", None, [];
     AutoTool => "world.auto-tool", "AutoTool", "World", None, [];
-    Clock => "hud.clock", "Clock", "Legit", Some((250.0, 8.0)), [];
-    Keystrokes => "hud.keystrokes", "Keystrokes", "Legit", Some((8.0, 120.0)), [];
-    ArmorStatus => "hud.armor", "Armor Status", "Legit", Some((330.0, 100.0)), [];
-    PotionEffects => "hud.potions", "Potion Effects", "Legit", Some((240.0, 180.0)), [];
+    Clock => "hud.clock", "Clock", "HUD", Some((250.0, 8.0)), [];
+    Keystrokes => "hud.keystrokes", "Keystrokes", "HUD", Some((8.0, 120.0)), [];
+    ArmorStatus => "hud.armor", "Armor Status", "HUD", Some((330.0, 100.0)), [];
+    PotionEffects => "hud.potions", "Potion Effects", "HUD", Some((240.0, 180.0)), [];
     AutoArmor => "inventory.auto-armor", "AutoArmor", "Inventory", None, [];
     AutoTotem => "inventory.auto-totem", "AutoTotem", "Inventory", None, [];
     Refill => "inventory.refill", "Refill", "Inventory", None, [];
     ChestSteal => "world.chest-steal", "ChestSteal", "World", None, [];
     FastPlace => "world.fast-place", "FastPlace", "World", None, [];
     Fullbright => "render.fullbright", "Fullbright", "Render", None, [];
-    ClearWater => "render.clear-water", "Clear Water", "Legit", None, [];
+    ClearWater => "render.clear-water", "Clear Water", "Game", None, [];
     AutoFish => "utility.auto-fish", "AutoFish", "World", None, [];
-    NoJumpDelay => "legit.no-jump-delay", "NoJumpDelay", "Legit", None, [];
-    NoClickDelay => "legit.no-click-delay", "NoClickDelay", "Legit", None, [];
+    NoJumpDelay => "legit.no-jump-delay", "NoJumpDelay", "Game", None, [];
+    NoClickDelay => "legit.no-click-delay", "NoClickDelay", "Game", None, [];
     Sprint => "combat.sprint", "Sprint", "Combat", None, [];
     Panic => "utility.panic", "Panic", "Utility", None, ["F10"];
     StorageEsp => "render.storage-esp", "StorageESP", "Render", None, [];
@@ -78,6 +78,11 @@ registry! {
     Fly => "blatant.fly", "Fly", "Other", None, [];
     NoFall => "blatant.no-fall", "NoFall", "Other", None, [];
     NoSlowdown => "blatant.no-slowdown", "NoSlowdown", "Hidden", None, [];
+    TimeChanger => "legit.time-changer", "Time Changer", "Game", None, [];
+    Weather => "legit.weather", "Weather", "Game", None, [];
+    AntiAfk => "world.anti-afk", "Anti-AFK", "World", None, [];
+    Step => "blatant.step", "Step", "Other", None, [];
+    WTap => "combat.wtap", "WTap", "Combat", None, [];
 }
 
 impl ModuleId {

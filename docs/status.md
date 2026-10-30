@@ -12,18 +12,19 @@ excluded; all other retained scope remains open as listed below.
 
 ## Connected native implementation
 
-The runtime registers 35 modules, all with normal local activation, binds,
-profile persistence and GUI access. The eight newest (marked †) are
+The runtime registers 40 modules, all with normal local activation, binds,
+profile persistence and GUI access. The thirteen newest (marked †) are
 compile-only: no game scenario has run for them yet.
 
 | Area | Modules |
 | --- | --- |
-| HUD | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
-| Render | NoHurtCam, Fullbright, Clear Water, StorageESP (partial: chest/furnace outlines) |
+| HUD (legit, HUD group) | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
+| Game (legit, Game group) | NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
+| Render | Fullbright, StorageESP (partial: chest/furnace outlines) |
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
-| World / movement | FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Sprint (baseline), Parkour (experimental), SafeWalk |
-| Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open) |
-| Other (exact-name search only) | HitBoxes†, Timer†, Fly†, NoFall† (Normal/AntiCheat) |
+| World / movement | FastPlace, AutoFish, Sprint (baseline), Parkour (experimental), SafeWalk, Anti-AFK† |
+| Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open), WTap† |
+| Other (exact-name search only) | HitBoxes†, Timer†, Fly†, NoFall† (Normal/AntiCheat), Step† (step height only) |
 | Hidden (never listed) | NoSlowdown† (sprint re-enable open) |
 | Utility | Panic (configurable bind, optional re-enable) |
 
@@ -42,8 +43,8 @@ and Favorites/HUD-editor footer icons. Each category, Favorites, Profiles,
 Macros, Friends and client Settings is its own 110-unit draggable,
 collapsible, scrolling frame. Frames stack under the shortest column and
 persist in `ui.frames`. Module rows toggle on click, and their dots expand
-inline settings and a favourite star. HUD and legit modules are listed in the
-HUD editor's frame. Pixel icons are authored rather than copied from the
+inline settings and a favourite star. HUD and Game legit modules are listed in the
+HUD editor's frame under its Favorite/All/HUD/Game tabs. Pixel icons are authored rather than copied from the
 reference images. All GUI text uses Horizon's bundled interface font (Geist)
 rasterized at its on-screen size; the GUI scale setting applies when its
 slider is released. Not ported: the Text GUI overlay, notifications and the

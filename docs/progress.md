@@ -523,3 +523,38 @@ Validation:
 - The host check and fast build pass.
 - A fresh isolated-home screenshot shows the main, Combat and Settings frames with crisp text and untruncated labels at GUI scale 1.
 - The scale-on-release behaviour was not exercised in a live session.
+
+## HUD/Game legit groups; Time Changer, Weather, Anti-AFK, Step, WTap (2026-10-30)
+
+Category fix: the old "Legit" category put NoHurtCam, Clear Water,
+NoJumpDelay and NoClickDelay under HUD. The reference's `HudModuleGroup`
+splits legit modules into HUD (Coords, FPS, Compass, Clock, Keystrokes,
+Armor Status, Potion Effects) and Game (the rest). The registry now uses
+those two categories, and the HUD editor frame has the reference's
+Favorite/All/HUD/Game tab bar (`HudModuleSelectorFrame`), defaulting to All.
+
+New modules (compile-only):
+
+- Time Changer (Game): the client world's time of day follows the hour
+  setting every frame (the day count is kept).
+- Weather (Game): Clear zeroes rain and thunder strength, Raining sets rain
+  to 1; the strengths saved on enable come back on disable.
+- Anti-AFK (World): random start delay, then small view turns and 100-200 ms
+  walks towards a random point within a block (Keep close returns to the
+  origin); the user's movement keys restart the delay. Walks go through the
+  movement writer.
+- Step (Other): a transient +0.4 `step_height` modifier while on the ground
+  and not sneaking.
+- WTap (Combat): on a remote attack against a (vulnerable) player, with the
+  chance, forward is released through the movement writer after the release
+  delay and handed back after the re-press delay. The writer runs again at
+  attack time so the release hits the attack's tick.
+
+Not ported: the HUD editor search box; Step's position packets and timer
+slowdown; Anti-AFK silent aim. KeepSprint stays deferred.
+
+Validation: `cargo check` passes; stage/audit passes with 33 hooks and 19
+support modules; the pinned host check passes. No game scenario ran. The GUI
+scenarios that click HUD-editor rows need their coordinates moved 16 units
+down for the tab bar. Evidence:
+`docs/evidence/legit-groups-wtap-afk-step-compile.json`.

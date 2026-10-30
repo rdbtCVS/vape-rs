@@ -297,6 +297,13 @@ file = "crates/horizon-client/src/game.rs"
 name = "vape_parkour"
 source = "parkour.rs"
 
+# Time Changer and Weather, from the frame adapter.
+[[module]]
+id = "legit"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_legit"
+source = "legit.rs"
+
 [[module]]
 id = "combat"
 file = "crates/horizon-client/src/game.rs"
