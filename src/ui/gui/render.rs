@@ -188,22 +188,24 @@ impl Gui {
         names.sort();
         names.into_iter().map(|(_, _, n)| n).collect()
     }
+    fn placed(&self, name: &str) -> bool {
+        name == NAV || self.panels.get(name).is_some_and(|p| p.column.is_some())
+    }
     /// Gives newly opened frames the bottom of the shortest column, as the
     /// reference stacks its frames.
-    fn assign_columns(&mut self) {
+    fn assign_columns(&mut self, view: &View) {
         let columns = self.columns();
         let mut heights: Vec<f32> = (0..columns)
             .map(|c| {
-                let x = Self::column_x(c);
-                self.panel_rects
+                self.column_names(c, None)
                     .iter()
-                    .filter(|(_, r)| r.0 < x + FRAME_WIDTH && r.0 + r.2 > x)
-                    .map(|(_, r)| r.1 + r.3)
-                    .fold(0.0, f32::max)
+                    .filter(|n| self.placed(n))
+                    .map(|n| self.natural_height(view, n) + 6.0)
+                    .sum()
             })
             .collect();
         for name in COLUMNS {
-            if !self.is_open(name) || self.panels.get(name).is_some_and(|p| p.column.is_some()) {
+            if !self.is_open(name) || self.placed(name) {
                 continue;
             }
             let column = (0..columns).fold(
@@ -216,10 +218,56 @@ impl Gui {
                 .map(|n| self.slot(n).1 + 1)
                 .max()
                 .unwrap_or(0);
-            heights[column] += HEADER_HEIGHT + ROW_HEIGHT * 3.0;
+            heights[column] += self.natural_height(view, name) + 6.0;
             let panel = self.panels.entry(name.into()).or_default();
             panel.column = Some(column);
             panel.row = row;
+        }
+    }
+    /// Moves frames that would run past the bottom of the screen to the
+    /// bottom of the shortest other column they fit in whole; frames that
+    /// fit nowhere stay and scroll. Except `skip`, the frame being dragged.
+    fn reflow(&mut self, view: &View, skip: Option<&str>) {
+        let limit = self.logical().1 - 6.0;
+        let columns = self.columns();
+        let mut stacks: Vec<Vec<(String, f32)>> = (0..columns)
+            .map(|c| {
+                self.column_names(c, skip)
+                    .into_iter()
+                    .map(|n| {
+                        let h = self.natural_height(view, &n);
+                        (n, h)
+                    })
+                    .collect()
+            })
+            .collect();
+        // Where the next frame in a stack would start.
+        let bottom = |stack: &[(String, f32)]| stack.iter().fold(6.0, |y, (_, h)| y + h + 6.0);
+        for column in 0..columns {
+            let (mut i, mut y) = (0, 6.0);
+            while i < stacks[column].len() {
+                let height = stacks[column][i].1;
+                if y + height > limit {
+                    let target = (0..columns)
+                        .filter(|&c| c != column && bottom(&stacks[c]) + height <= limit)
+                        .min_by(|&a, &b| bottom(&stacks[a]).total_cmp(&bottom(&stacks[b])));
+                    if let Some(target) = target {
+                        let row = stacks[target]
+                            .iter()
+                            .map(|(n, _)| self.slot(n).1 + 1)
+                            .max()
+                            .unwrap_or(0);
+                        let frame = stacks[column].remove(i);
+                        let panel = self.panels.entry(frame.0.clone()).or_default();
+                        panel.column = Some(target);
+                        panel.row = row;
+                        stacks[target].push(frame);
+                        continue;
+                    }
+                }
+                y += height + 6.0;
+                i += 1;
+            }
         }
     }
     /// Drops a dragged frame into the grid slot nearest its free position.
@@ -297,8 +345,9 @@ impl Gui {
             l.button(Rect(6.0, height - 20.0, 40.0, 14.0), "BACK", Hit::HudBack);
             self.panel(view, &mut l, HUD, None);
         } else {
-            self.assign_columns();
+            self.assign_columns(view);
             let dragged = self.dragging.as_ref().map(|d| d.0.clone());
+            self.reflow(view, dragged.as_deref());
             for column in 0..self.columns() {
                 let mut y = 6.0;
                 for name in self.column_names(column, dragged.as_deref()) {
@@ -389,18 +438,7 @@ impl Gui {
         let content = if collapsed {
             0.0
         } else {
-            match name {
-                NAV => self.nav_body(view, &mut body, x, top),
-                "Favorites" => self.module_list(view, &mut body, x, top, |m| m.favorite),
-                "Friends" => self.friends_body(view, &mut body, x, top),
-                "Profiles" => self.profiles_body(view, &mut body, x, top),
-                "Macros" => self.macros_body(view, &mut body, x, top),
-                "Settings" => {
-                    self.settings(view, &mut body, x, top, |d| d.id.starts_with("client."))
-                }
-                HUD => self.hud_body(view, &mut body, x, top),
-                category => self.module_list(view, &mut body, x, top, |m| m.category == category),
-            }
+            self.body(view, &mut body, name, x, top)
         };
         let overflow = (content - room).max(0.0);
         self.scrolls.insert(name.into(), scroll.min(overflow));
@@ -450,6 +488,38 @@ impl Gui {
         }
         self.panel_rects.push((name.into(), rect));
         rect
+    }
+    /// A frame's content, drawn from `top`; returns its full height.
+    fn body(&self, view: &View, l: &mut Layout, name: &str, x: f32, top: f32) -> f32 {
+        match name {
+            NAV => self.nav_body(view, l, x, top),
+            "Favorites" => self.module_list(view, l, x, top, |m| m.favorite),
+            "Friends" => self.friends_body(view, l, x, top),
+            "Profiles" => self.profiles_body(view, l, x, top),
+            "Macros" => self.macros_body(view, l, x, top),
+            "Settings" => self.settings(view, l, x, top, |d| d.id.starts_with("client.")),
+            HUD => self.hud_body(view, l, x, top),
+            category => self.module_list(view, l, x, top, |m| m.category == category),
+        }
+    }
+    /// A frame's unscrolled height with every expanded row shown.
+    fn natural_height(&self, view: &View, name: &str) -> f32 {
+        let header = if name == NAV {
+            NAV_HEADER_HEIGHT
+        } else {
+            HEADER_HEIGHT
+        };
+        if self.panels.get(name).is_some_and(|p| p.collapsed) && name != NAV {
+            return header;
+        }
+        let content = self.body(
+            view,
+            &mut Layout::new(Rect(0.0, 0.0, 0.0, 0.0)),
+            name,
+            0.0,
+            0.0,
+        );
+        header + content + if content > 0.0 { 2.0 } else { 0.0 }
     }
     fn nav_header(&self, l: &mut Layout, x: f32, y: f32) {
         let h = NAV_HEADER_HEIGHT;

@@ -763,3 +763,27 @@ open PR in either repo touches them.
 Validation: stage/audit passes (36 hooks, 22 support modules); the pinned
 host check passes with 0 errors. Compile-only: no tests and no game
 scenario ran.
+
+## 2026-10-30: GUI frames reflow off-screen overflow
+
+User request: tiled click-GUI frames reorder themselves when they run below
+the screen.
+
+- Each frame, after placement, a reflow pass measures every open frame's
+  full unscrolled height (collapsed frames count only their header). A
+  frame whose bottom would pass the screen bottom (6-unit margin) moves to
+  the bottom of the shortest other column it fits in whole; the frames
+  below it move up. Frames that fit nowhere stay and scroll as before. The
+  frame being dragged is excluded. Moves change the stored `column`/`row`,
+  so they persist with the next `ui.frames` save, like newly opened frames.
+- Fixed newly opened frames always landing in column 0: the shortest-column
+  choice read `panel_rects` after they had been cleared for the frame. It
+  now uses the same measured heights. This was why
+  `navigation_opens_category_frames_whose_rows_toggle_modules` failed on
+  the previous commit.
+
+Validation: 109 lib tests pass (new
+`frames_past_the_screen_bottom_move_to_a_column_with_room`), fmt and
+all-target Clippy with `-D warnings` pass; stage/audit passes (36 hooks, 22
+support modules); payload tests and the pinned host check pass. No game
+scenario ran.

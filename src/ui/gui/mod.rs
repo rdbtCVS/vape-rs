@@ -934,6 +934,48 @@ mod tests {
         assert_eq!(restored.slot("gui"), (1, 0));
     }
     #[test]
+    fn frames_past_the_screen_bottom_move_to_a_column_with_room() {
+        let mut gui = Gui {
+            open: true,
+            ..Gui::default()
+        };
+        let mut view = view();
+        view.modules = ["Render", "Combat"]
+            .into_iter()
+            .flat_map(|category| {
+                (0..6).map(move |i| ModuleView {
+                    id: format!("{category}.m{i}"),
+                    name: format!("M{i}"),
+                    category: category.into(),
+                    enabled: false,
+                    favorite: false,
+                })
+            })
+            .collect();
+        // Two 142-unit frames stacked in one column overrun a 300-unit screen.
+        for (row, name) in ["Render", "Combat"].into_iter().enumerate() {
+            gui.panels.insert(
+                name.into(),
+                Panel {
+                    open: true,
+                    column: Some(1),
+                    row,
+                    ..Panel::default()
+                },
+            );
+        }
+        gui.frame(&view, (400.0, 300.0));
+        assert_eq!(gui.slot("Render"), (1, 0));
+        assert_eq!(gui.slot("Combat"), (2, 0));
+        assert!(gui.panel_rects.iter().all(|(_, r)| r.1 + r.3 <= 294.0));
+        // Collapsed, both fit again and nothing moves.
+        gui.panels.get_mut("Combat").unwrap().collapsed = true;
+        gui.panels.get_mut("Combat").unwrap().column = Some(1);
+        gui.panels.get_mut("Combat").unwrap().row = 1;
+        gui.frame(&view, (400.0, 300.0));
+        assert_eq!(gui.slot("Combat"), (1, 1));
+    }
+    #[test]
     fn unicode_caret_selection_deletion_and_clipboard() {
         let mut gui = Gui {
             open: true,

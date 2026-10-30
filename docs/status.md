@@ -1,7 +1,7 @@
 # Current implementation handoff
 
 Updated 2026-10-30 after the clicker/Reach/blatant-movement batch and the
-interface-font GUI text. Before that came the classic V4 click-GUI remake;
+interface-font GUI text, and the GUI frame overflow reflow. Before that came the classic V4 click-GUI remake;
 the round before
 added live entity snapshots, the reference target filter, AimAssist (Simple),
 TriggerBot, SafeWalk and Velocity, each with fresh-home integrated-server
@@ -44,7 +44,10 @@ collapsible, scrolling frame. Frames stack under the shortest column and
 persist in `ui.frames`. Frames tile in a grid of columns: each stacks
 directly under the one above it, so expanding settings pushes lower frames
 down instead of overlapping them; dragging a frame drops it into the nearest
-column at the row under the pointer (`column`/`row` in `ui.frames`). Module rows toggle on click, and their dots expand
+column at the row under the pointer (`column`/`row` in `ui.frames`). A frame
+that would run past the bottom of the screen moves to the bottom of the
+shortest other column it fits in whole (frames that fit nowhere stay and
+scroll). Module rows toggle on click, and their dots expand
 inline settings and a favourite star. HUD and Game legit modules are listed in the
 HUD editor's frame under its Favorite/All/HUD tabs. Pixel icons are authored rather than copied from the
 reference images. All GUI text uses Horizon's bundled interface font (Geist)
