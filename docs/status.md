@@ -139,8 +139,10 @@ where stated; they are unfinished implementation.
 
 **Round status.** Worker A's foundation (entity snapshots, target filter,
 host `Entity.turn`) is done, with AimAssist and TriggerBot as consumers.
-Worker B has an observe-only inbound boundary: Velocity works, but Blink,
-FakeLag and Backtrack need a cancellable inbound or outbound point.
+Worker B has an observe-only inbound boundary (Velocity works) and a
+cancellable outbound one (`outbound-packet`: Blink, FakeLag, NoItemRelease,
+PotionSaver, Regen; remote servers only). Bi-directional Blink, JumpReset,
+KnockbackDelay and Backtrack still need a cancellable inbound point;
 `handle_packet` has macros, so look for a macro-free dispatch or a mixin-tool
 change. Worker C has SafeWalk on the movement writer; KeepSprint, WTap,
 NoSlowdown and AutoLadder still need writer priorities (WTap and
@@ -161,11 +163,13 @@ the interface-font text.
    already calls), HitSwap/AutoMace (TriggerBot's cooldown bypass) and the
    remaining combat rows. A shared rotation owner is needed once more than
    AimAssist turns the view.
-2. **Movement / packets:** KeepSprint (no client-side slowdown on Horizon's
-   remote attack path to cancel), NoSlowdown's sprint re-enable, AutoLadder,
+2. **Movement / packets:** KeepSprint (blocked: Horizon's remote attack path
+   has no client-side slowdown to change; an upcoming Horizon update adds it),
+   InvWalk (blocked: `Game::tick` gates movement keys on a local
+   `screen == Playing` that no hook kind reaches), NoSlowdown's sprint re-enable, AutoLadder,
    Strafe (needs AimAssist's current target exposed), Step's position packets
-   and timer slowdown, LongJump's vine/ice factors; a cancellable inbound/outbound packet boundary for
-   JumpReset, KnockbackDelay, Blink, FakeLag, Backtrack; then NoFall's jump-key detail, Scaffold modes, Clutch, MLG,
+   and timer slowdown, LongJump's vine/ice factors; a cancellable inbound packet boundary for
+   JumpReset, KnockbackDelay, Blink Bi-directional, Backtrack; then NoFall's jump-key detail, Scaffold modes, Clutch, MLG,
    Freecam and the remaining world/utility rows. Parkour has an integrated-server scenario; a LAN case is still open.
 3. **Render:** connect camera/projection, world text/quads and collision
    queries; finish StorageESP (fill, ender chests, Outline open), ESP
@@ -178,8 +182,8 @@ the interface-font text.
    an explicit host geometry hook ([block-overlay.md](specs/block-overlay.md)).
 4. **Inventory / consumables:** InventoryManager rule model and editor frames,
    InvCleaner, AutoHotbar, InventoryFill, custom item-name/potion metadata,
-   ThrowPot, ThrowDebuff, AntiDebuff, AutoHeal, ArmorSwitch, Refill pots/soup
-   modes and double-click, InvWalk, NoItemRelease. AutoTotem still lacks silent
+   ThrowPot, ThrowDebuff, AutoHeal, ArmorSwitch, Refill pots/soup
+   modes and double-click. AutoTotem still lacks silent
    opening, random slot, extra timing variance, count display and
    inventory-free operation. Refill/ChestSteal/AutoFish need host scenarios
    for the bounded-gate recovery.
