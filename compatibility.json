@@ -24,7 +24,8 @@
     "crates/horizon-client/src/motion.rs": "e09b88ab79a3f28a9b2e59dcf19ac97a273f0e132abba9f59dd36aa69decce46",
     "crates/horizon-client/src/game/lan_particles.rs": "363b57c9e5048006baa1fb71050404872c7f2f6d3b302c78d027cf7fa6ed2862",
     "crates/horizon-client/src/clock.rs": "6d5d5e5dfa577d4086c7632ce3a1db35e60bc3cf6e97dce823bdba15c196981a",
-    "crates/horizon-client/src/ui_theme.rs": "d5d42115f49ec259425d007195d55d6df8f1e347ed5e2bd9ef9267d543b805bc"
+    "crates/horizon-client/src/ui_theme.rs": "d5d42115f49ec259425d007195d55d6df8f1e347ed5e2bd9ef9267d543b805bc",
+    "crates/horizon-client/src/gizmos.rs": "8c9a6d60c729b4bc9291683c7087aeb281f27a22de5d870fc0a231f6aa2841ae"
   },
   "reference_revision": "3d600a48106822755cea2d633062e5ab1f383d48",
   "validated_platforms": [],

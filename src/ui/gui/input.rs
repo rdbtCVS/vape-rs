@@ -254,7 +254,10 @@ impl Gui {
             self.dragging_hud = None;
             self.setting_drag = None;
             self.text_drag = None;
-            if self.dragging.take().is_some() {
+            if let Some((name, ..)) = self.dragging.take() {
+                if name != render::HUD {
+                    self.drop_panel(&name);
+                }
                 return vec![Action::Layout(self.layout_value())];
             }
             return Vec::new();
@@ -304,7 +307,10 @@ impl Gui {
         }
         match hit {
             Hit::Drag(name) if button == "MouseLeft" => {
-                let (x, y) = self.pos(&name);
+                let (x, y) = self
+                    .rect_of(&name)
+                    .map_or_else(|| self.pos(&name), |r| (r.0, r.1));
+                self.panels.entry(name.clone()).or_default().pos = Some((x, y));
                 self.dragging = Some((name, local.0 - x, local.1 - y));
             }
             Hit::Collapse(name) => {

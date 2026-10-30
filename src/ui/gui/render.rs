@@ -27,9 +27,11 @@ const COLUMNS: [&str; 11] = [
     "Settings",
 ];
 const NAV: &str = "gui";
+const COLUMN_PITCH: f32 = 116.0;
 pub(super) const HUD: &str = "HUD";
-/// The reference's `HudModuleGroup` tabs, in order.
-const HUD_GROUPS: [&str; 4] = ["Favorite", "All", "HUD", "Game"];
+/// The reference's `HudModuleGroup` tabs, in order. The GAME group's modules
+/// are listed under the Render category instead (user request 2026-10-30).
+const HUD_GROUPS: [&str; 3] = ["Favorite", "All", "HUD"];
 
 const COMBAT: [&str; 7] = [
     "     ##", "    ###", "   ### ", "# ###  ", " ###   ", " ##    ", "#  #   ",
@@ -157,31 +159,100 @@ impl Gui {
     fn default_pos(&self, name: &str) -> (f32, f32) {
         let (width, _) = self.logical();
         match name {
-            NAV => (6.0, 6.0),
             HUD => ((width - FRAME_WIDTH) / 2.0, 6.0),
-            _ => self.place(),
+            _ => (6.0, 6.0),
         }
     }
-    /// The top of the shortest column right of the navigation frame, below
-    /// the frames already drawn there, as the reference stacks its frames.
-    fn place(&self) -> (f32, f32) {
-        let (width, _) = self.logical();
-        let columns = ((width - 122.0) / 116.0).floor().max(1.0) as usize;
-        (0..columns)
-            .map(|column| {
-                let x = 122.0 + column as f32 * 116.0;
-                let bottom = self
-                    .panel_rects
+    /// Grid columns that fit the screen; frames tile 116 units apart.
+    pub(super) fn columns(&self) -> usize {
+        ((self.logical().0 - 6.0) / COLUMN_PITCH).floor().max(1.0) as usize
+    }
+    fn column_x(column: usize) -> f32 {
+        6.0 + column as f32 * COLUMN_PITCH
+    }
+    /// A frame's grid column (kept on screen) and row; the navigation frame
+    /// defaults to the top of the first column.
+    pub(super) fn slot(&self, name: &str) -> (usize, usize) {
+        let panel = self.panels.get(name);
+        let column = panel.and_then(|p| p.column).unwrap_or(0);
+        (column.min(self.columns() - 1), panel.map_or(0, |p| p.row))
+    }
+    /// The open frames tiled in `column`, top to bottom, except `skip`.
+    pub(super) fn column_names(&self, column: usize, skip: Option<&str>) -> Vec<String> {
+        let mut names: Vec<(usize, usize, String)> = std::iter::once(NAV)
+            .chain(COLUMNS)
+            .enumerate()
+            .filter(|(_, n)| self.is_open(n) && Some(*n) != skip && self.slot(n).0 == column)
+            .map(|(i, n)| (self.slot(n).1, i, n.to_string()))
+            .collect();
+        names.sort();
+        names.into_iter().map(|(_, _, n)| n).collect()
+    }
+    /// Gives newly opened frames the bottom of the shortest column, as the
+    /// reference stacks its frames.
+    fn assign_columns(&mut self) {
+        let columns = self.columns();
+        let mut heights: Vec<f32> = (0..columns)
+            .map(|c| {
+                let x = Self::column_x(c);
+                self.panel_rects
                     .iter()
                     .filter(|(_, r)| r.0 < x + FRAME_WIDTH && r.0 + r.2 > x)
-                    .map(|(_, r)| r.1 + r.3 + 6.0)
-                    .fold(6.0, f32::max);
-                (x, bottom)
+                    .map(|(_, r)| r.1 + r.3)
+                    .fold(0.0, f32::max)
             })
-            .fold(
-                (122.0, f32::INFINITY),
-                |best, c| if c.1 < best.1 { c } else { best },
-            )
+            .collect();
+        for name in COLUMNS {
+            if !self.is_open(name) || self.panels.get(name).is_some_and(|p| p.column.is_some()) {
+                continue;
+            }
+            let column = (0..columns).fold(
+                0,
+                |best, c| if heights[c] < heights[best] { c } else { best },
+            );
+            let row = self
+                .column_names(column, None)
+                .iter()
+                .map(|n| self.slot(n).1 + 1)
+                .max()
+                .unwrap_or(0);
+            heights[column] += HEADER_HEIGHT + ROW_HEIGHT * 3.0;
+            let panel = self.panels.entry(name.into()).or_default();
+            panel.column = Some(column);
+            panel.row = row;
+        }
+    }
+    /// Drops a dragged frame into the grid slot nearest its free position.
+    pub(super) fn drop_panel(&mut self, name: &str) {
+        let Some((x, y)) = self.panels.get(name).and_then(|p| p.pos) else {
+            return;
+        };
+        let column = (((x - 6.0) / COLUMN_PITCH).round().max(0.0) as usize).min(self.columns() - 1);
+        let mut names = self.column_names(column, Some(name));
+        let index = names
+            .iter()
+            .filter(|n| {
+                self.panel_rects
+                    .iter()
+                    .find(|(m, _)| m == *n)
+                    .is_some_and(|(_, r)| r.1 + r.3 / 2.0 < y)
+            })
+            .count();
+        names.insert(index, name.into());
+        for (row, n) in names.into_iter().enumerate() {
+            let panel = self.panels.entry(n).or_default();
+            panel.column = Some(column);
+            panel.row = row;
+        }
+        if let Some(panel) = self.panels.get_mut(name) {
+            panel.pos = None;
+        }
+    }
+    pub(super) fn rect_of(&self, name: &str) -> Option<Rect> {
+        self.panel_rects
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, r)| *r)
     }
     /// A frame's position, kept on screen with at least its header visible.
     pub(super) fn pos(&self, name: &str) -> (f32, f32) {
@@ -224,15 +295,20 @@ impl Gui {
                 Align::Left,
             );
             l.button(Rect(6.0, height - 20.0, 40.0, 14.0), "BACK", Hit::HudBack);
-            self.panel(view, &mut l, HUD);
+            self.panel(view, &mut l, HUD, None);
         } else {
-            let mut names: Vec<String> = std::iter::once(NAV.to_string())
-                .chain(COLUMNS.iter().map(|c| c.to_string()))
-                .filter(|n| self.is_open(n) && !self.order.contains(n))
-                .collect();
-            names.extend(self.order.iter().filter(|n| self.is_open(n)).cloned());
-            for name in names {
-                self.panel(view, &mut l, &name);
+            self.assign_columns();
+            let dragged = self.dragging.as_ref().map(|d| d.0.clone());
+            for column in 0..self.columns() {
+                let mut y = 6.0;
+                for name in self.column_names(column, dragged.as_deref()) {
+                    let rect = self.panel(view, &mut l, &name, Some((Self::column_x(column), y)));
+                    y = rect.1 + rect.3 + 6.0;
+                }
+            }
+            // The dragged frame follows the pointer above the grid.
+            if let Some(name) = dragged.filter(|n| self.is_open(n)) {
+                self.panel(view, &mut l, &name, None);
             }
         }
         self.popups(view, &mut l);
@@ -294,18 +370,11 @@ impl Gui {
             hud_editor: self.hud_editor,
         }
     }
-    /// One frame: outline, header and a body clipped to the screen, which
-    /// scrolls when it does not fit.
-    fn panel(&mut self, view: &View, l: &mut Layout, name: &str) {
-        // A frame opened without a saved position keeps the spot it gets on
-        // its first frame, so later openings do not move it.
-        if name != NAV && name != HUD && self.panels.get(name).is_some_and(|p| p.pos.is_none()) {
-            let spot = self.place();
-            if let Some(panel) = self.panels.get_mut(name) {
-                panel.pos = Some(spot);
-            }
-        }
-        let (x, y) = self.pos(name);
+    /// One frame at its grid slot `at` (or its free position): outline,
+    /// header and a body clipped to the screen, which scrolls when it does
+    /// not fit. Returns the painted rectangle.
+    fn panel(&mut self, view: &View, l: &mut Layout, name: &str, at: Option<(f32, f32)>) -> Rect {
+        let (x, y) = at.unwrap_or_else(|| self.pos(name));
         let (_, height) = self.logical();
         let header = if name == NAV {
             NAV_HEADER_HEIGHT
@@ -380,6 +449,7 @@ impl Gui {
             );
         }
         self.panel_rects.push((name.into(), rect));
+        rect
     }
     fn nav_header(&self, l: &mut Layout, x: f32, y: f32) {
         let h = NAV_HEADER_HEIGHT;
@@ -432,7 +502,7 @@ impl Gui {
             l.hit(Rect(x + FRAME_WIDTH - dx - 3.0, y + 3.0, 13.0, 16.0), hit);
         }
     }
-    /// `HudModuleSelectorFrame`: a Favorite/All/HUD/Game tab bar over the
+    /// `HudModuleSelectorFrame`: a Favorite/All/HUD tab bar over the
     /// legit (HUD-editor) modules, filtered by the selected group.
     fn hud_body(&self, view: &View, l: &mut Layout, x: f32, top: f32) -> f32 {
         let mut tx = x + 6.0;
@@ -457,8 +527,8 @@ impl Gui {
         l.fill(Rect(x, top + 14.0, FRAME_WIDTH, 0.5), OUTLINE);
         let group = self.hud_group;
         16.0 + self.module_list(view, l, x, top + 16.0, |m| match group {
-            "Favorite" => m.favorite && matches!(m.category.as_str(), "HUD" | "Game"),
-            "All" => matches!(m.category.as_str(), "HUD" | "Game"),
+            "Favorite" => m.favorite && m.category == "HUD",
+            "All" => m.category == "HUD",
             group => m.category == group,
         })
     }

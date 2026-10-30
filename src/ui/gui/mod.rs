@@ -255,10 +255,15 @@ struct Editor {
     text: String,
     kind: Kind,
 }
-/// One draggable frame. A missing position uses the default column layout.
+/// One frame. Click-GUI frames tile in columns (`column`, stacked by `row`)
+/// so expanding one pushes the frames below it down instead of overlapping
+/// them; `pos` is the free position of the HUD editor frame and of a frame
+/// while it is being dragged to another slot.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Panel {
     pos: Option<(f32, f32)>,
+    column: Option<usize>,
+    row: usize,
     open: bool,
     collapsed: bool,
 }
@@ -470,10 +475,17 @@ impl Gui {
                 .zip(state.get("y").and_then(Value::as_f64))
                 .map(|(x, y)| (x as f32, y as f32))
                 .filter(|p| p.0.is_finite() && p.1.is_finite());
+            let column = state
+                .get("column")
+                .and_then(Value::as_u64)
+                .map(|c| c.min(64) as usize);
+            let row = state.get("row").and_then(Value::as_u64).unwrap_or(0) as usize;
             self.panels.insert(
                 name.clone(),
                 Panel {
-                    pos,
+                    pos: pos.filter(|_| name == render::HUD),
+                    column,
+                    row,
                     open: state.get("open").and_then(Value::as_bool).unwrap_or(false),
                     collapsed: state
                         .get("collapsed")
@@ -489,7 +501,11 @@ impl Gui {
                 .iter()
                 .map(|(name, panel)| {
                     let mut state = json!({"open": panel.open, "collapsed": panel.collapsed});
-                    if let Some((x, y)) = panel.pos {
+                    if let Some(column) = panel.column {
+                        state["column"] = json!(column);
+                        state["row"] = json!(panel.row);
+                    }
+                    if let Some((x, y)) = panel.pos.filter(|_| name == render::HUD) {
                         state["x"] = json!(x);
                         state["y"] = json!(y);
                     }
@@ -906,16 +922,16 @@ mod tests {
         let view = view();
         gui.frame(&view, (400.0, 300.0));
         assert!(gui.mouse("MouseLeft", true, (20.0, 10.0), &view).is_empty());
-        gui.pointer((60.0, 50.0));
-        let released = gui.mouse("MouseLeft", false, (60.0, 50.0), &view);
+        gui.pointer((150.0, 50.0));
+        let released = gui.mouse("MouseLeft", false, (150.0, 50.0), &view);
         let [Action::Layout(layout)] = &released[..] else {
             panic!("{released:?}");
         };
-        assert_eq!(layout["gui"]["x"], json!(46.0));
-        assert_eq!(layout["gui"]["y"], json!(46.0));
+        assert_eq!(layout["gui"]["column"], json!(1));
+        assert_eq!(layout["gui"]["row"], json!(0));
         let mut restored = Gui::default();
         restored.restore_layout(&json!({ "frames": layout }));
-        assert_eq!(restored.pos("gui"), (46.0, 46.0));
+        assert_eq!(restored.slot("gui"), (1, 0));
     }
     #[test]
     fn unicode_caret_selection_deletion_and_clipboard() {

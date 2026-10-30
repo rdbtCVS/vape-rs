@@ -32,6 +32,8 @@ pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> Contr
         let max = [min[0] + 1.0, min[1] + 1.0, min[2] + 1.0];
         gizmos.cuboid(min, max, color, 1.5);
     }
-    lines.extend(gizmos.lines);
+    // A negative width marks a line for the always-on-top pass, so storage
+    // outlines show through walls (see the `vape_on_top` gizmos module).
+    lines.extend(gizmos.lines.into_iter().map(|l| Line { width: -l.width, ..l }));
     ControlFlow::Break(lines)
 }

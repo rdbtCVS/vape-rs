@@ -292,6 +292,24 @@ bindings = [
 ]
 
 [[module]]
+id = "on-top"
+file = "crates/horizon-client/src/gizmos.rs"
+name = "vape_on_top"
+source = "on_top.rs"
+
+[[injection]]
+id = "on-top-hook"
+target = "horizon_client::gizmos::camera_relative"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/on_top.rs"
+bindings = [
+ { name = "lines", ty = "&[Line]", value = "lines" },
+ { name = "camera", ty = "[f64; 3]", value = "camera" },
+ { name = "view", ty = "glam::Mat4", value = "view" },
+]
+
+[[module]]
 id = "parkour"
 file = "crates/horizon-client/src/game.rs"
 name = "vape_parkour"

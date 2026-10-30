@@ -19,8 +19,7 @@ compile-only: no game scenario has run for them yet.
 | Area | Modules |
 | --- | --- |
 | HUD (legit, HUD group) | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
-| Game (legit, Game group) | NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
-| Render | Fullbright, StorageESP (partial: chest/furnace outlines) |
+| Render | Fullbright, StorageESP (partial: chest/furnace outlines, drawn through walls), and the former HUD-editor Game group: NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
 | World / movement | FastPlace, AutoFish, Sprint (baseline), Parkour (experimental), SafeWalk, Anti-AFK† |
 | Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open), WTap† |
@@ -42,9 +41,12 @@ rows; a MISC section (Friends, Profiles with the current profile, Macros);
 and Favorites/HUD-editor footer icons. Each category, Favorites, Profiles,
 Macros, Friends and client Settings is its own 110-unit draggable,
 collapsible, scrolling frame. Frames stack under the shortest column and
-persist in `ui.frames`. Module rows toggle on click, and their dots expand
+persist in `ui.frames`. Frames tile in a grid of columns: each stacks
+directly under the one above it, so expanding settings pushes lower frames
+down instead of overlapping them; dragging a frame drops it into the nearest
+column at the row under the pointer (`column`/`row` in `ui.frames`). Module rows toggle on click, and their dots expand
 inline settings and a favourite star. HUD and Game legit modules are listed in the
-HUD editor's frame under its Favorite/All/HUD/Game tabs. Pixel icons are authored rather than copied from the
+HUD editor's frame under its Favorite/All/HUD tabs. Pixel icons are authored rather than copied from the
 reference images. All GUI text uses Horizon's bundled interface font (Geist)
 rasterized at its on-screen size; the GUI scale setting applies when its
 slider is released. Not ported: the Text GUI overlay, notifications and the

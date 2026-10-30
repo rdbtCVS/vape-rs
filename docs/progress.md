@@ -587,3 +587,29 @@ reference (no behaviour). Strafe needs AimAssist's current target exposed.
 Validation: `cargo check` passes; stage/audit passes with 33 hooks and 19
 support modules; the pinned host check passes with 0 warnings. No game
 scenario ran. Evidence: `docs/evidence/speed-longjump-antifall-compile.json`.
+
+## 2026-10-30: tiled GUI frames, StorageESP through walls, Game group moved to Render
+
+User-requested fixes before the next plan batch:
+
+- Click-GUI frames tile in a grid of 116-unit columns. Each frame sits
+  directly under the one above it in its column, so expanding module
+  settings pushes the frames below down instead of overlapping them.
+  Dragging a frame floats it under the pointer; releasing drops it into the
+  nearest column at the row under the pointer. `ui.frames` stores
+  `column`/`row` (old `x`/`y` positions are ignored, except the HUD editor
+  frame's). Newly opened frames go to the bottom of the shortest column.
+- StorageESP outlines now draw through walls. The fishing-line hook marks
+  them with a negative width; a new cancellable HEAD hook on
+  `horizon_client::gizmos::camera_relative` (support module `vape_on_top`)
+  removes marked lines from the frame's depth-tested set and appends them to
+  its always-on-top set on the next call. `render` itself cannot be hooked
+  (closures/`?` are rejected by the mixin planner).
+- NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer and
+  Weather moved from the HUD editor's Game group to the Render category; the
+  HUD editor tabs are Favorite/All/HUD.
+
+Validation: `cargo check`, fmt and lib Clippy pass; stage/audit passes with
+34 hooks and 20 support modules; pinned host check passes. No game scenario
+ran (implementation-first request), so through-wall rendering and the grid
+drag are compile-only.
