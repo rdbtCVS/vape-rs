@@ -504,3 +504,22 @@ Not ported:
 - Reach and HitBoxes for LAN guests.
 
 KeepSprint stays deferred. Evidence: `docs/evidence/clickers-reach-blatant-compile.json`.
+
+## Click GUI interface font and GUI scale release (2026-10-30)
+
+Text:
+
+- The click GUI no longer scales the bitmap game font. All text and edit fields are drawn in Horizon's bundled interface font (Geist, through `ui_theme::Ui`), rasterized at the final on-screen size.
+- A new support module, `smooth-text` in `ui_theme.rs`, exposes the theme's crate-private measure and line drawing as `Ui` methods.
+- Fills, text and clips are now placed directly in screen space.
+- Truncation and caret placement use a proportional advance estimate for that font instead of a fixed 6-pixel cell.
+
+GUI scale: the slider's value still tracks the drag, but the layout only rescales on release. Rescaling mid-drag moved the slider under the cursor.
+
+Validation:
+
+- `cargo check --all-targets` and 108 lib tests pass.
+- Stage/audit passes with 33 hooks and 18 support modules.
+- The host check and fast build pass.
+- A fresh isolated-home screenshot shows the main, Combat and Settings frames with crisp text and untruncated labels at GUI scale 1.
+- The scale-on-release behaviour was not exercised in a live session.

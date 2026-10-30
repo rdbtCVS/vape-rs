@@ -226,11 +226,8 @@ impl Gui {
             return vec![Self::drag_action(drag, local.0)];
         }
         if let Some(drag) = self.text_drag.clone() {
-            let offset = ((local.0 - drag.rect.0 - 4.0) / CHAR_WIDTH)
-                .round()
-                .max(0.0) as usize;
             self.edit_text(|cursor, text| {
-                cursor.caret = offset.min(text.chars().count());
+                cursor.caret = caret_at(text, local.0 - drag.rect.0 - 4.0);
                 cursor.anchor = drag.anchor;
             });
         }

@@ -873,11 +873,14 @@ impl Runtime {
             .get("client.multi-bind")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        self.gui.user_scale = self
-            .settings
-            .get("client.gui-scale")
-            .and_then(Value::as_f64)
-            .unwrap_or(1.0) as f32;
+        // Rescaling mid-drag moves the slider under the cursor, so apply on release.
+        if !self.gui.dragging_setting("client.gui-scale") {
+            self.gui.user_scale = self
+                .settings
+                .get("client.gui-scale")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0) as f32;
+        }
         Some(self.gui.frame(&self.gui_view(), viewport))
     }
     pub fn gui_pointer(&mut self, cursor: (f32, f32)) {

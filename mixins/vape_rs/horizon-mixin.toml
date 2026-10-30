@@ -437,3 +437,9 @@ ordinal = 0
 argument = 2
 helper = "adapters/send_state_ground.rs"
 bindings = [{ name = "value", ty = "bool", value = "$value" }]
+
+[[module]]
+id = "smooth-text"
+file = "crates/horizon-client/src/ui_theme.rs"
+name = "vape_smooth_text"
+source = "smooth_text.rs"

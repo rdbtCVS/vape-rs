@@ -108,18 +108,25 @@ fn contrast(color: u32) -> u32 {
 /// Truncates to an estimated width; the painter's clip bounds the rest.
 /// Approximate host-font advance of a field-scale label.
 fn text_width(text: &str) -> f32 {
-    text.chars().count() as f32 * CHAR_WIDTH
+    text_advance(text, FIELD_SCALE)
 }
 fn fit(text: &str, width: f32, scale: f32) -> String {
-    let max = (width / (6.0 * scale)).floor().max(1.0) as usize;
-    if text.chars().count() <= max {
-        text.into()
-    } else {
-        text.chars()
-            .take(max.saturating_sub(2))
-            .chain("..".chars())
-            .collect()
+    if text_advance(text, scale) <= width {
+        return text.into();
     }
+    let room = width - text_advance("..", scale);
+    let mut pen = 0.0;
+    let mut out: String = text
+        .chars()
+        .take_while(|&c| {
+            pen += advance(c) * scale;
+            pen <= room
+        })
+        .collect();
+    if out.is_empty() {
+        out.extend(text.chars().next());
+    }
+    out + ".."
 }
 fn short_key(key: &str) -> &str {
     key.strip_prefix("Key")
@@ -236,7 +243,7 @@ impl Gui {
         };
         if !status.is_empty() {
             let text = fit(&status, width - 20.0, FIELD_SCALE);
-            let w = text.chars().count() as f32 * 6.0 * FIELD_SCALE + 12.0;
+            let w = text_width(&text) + 12.0;
             l.rounded(Rect((width - w) / 2.0, height - 18.0, w, 13.0), INSET);
             l.row_label(
                 width / 2.0,

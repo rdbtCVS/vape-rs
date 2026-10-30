@@ -27,13 +27,40 @@ pub const FRAME_WIDTH: f32 = 110.0;
 pub const HEADER_HEIGHT: f32 = 20.0;
 pub const NAV_HEADER_HEIGHT: f32 = 22.0;
 pub const ROW_HEIGHT: f32 = 20.0;
-/// Host bitmap-font scales standing in for the reference smooth-font sizes.
+/// Text scales relative to the painter's 8-pixel line (the interface font is
+/// drawn at a 9-pixel em per unit of scale).
 const TITLE_SCALE: f32 = 0.8;
 const ROW_SCALE: f32 = 0.75;
 const FIELD_SCALE: f32 = 0.7;
 const SMALL_SCALE: f32 = 0.55;
-/// Average glyph advance of the host font at the field scale.
-const CHAR_WIDTH: f32 = 6.0 * FIELD_SCALE;
+/// Estimated advance of `c` in the painter's interface font at scale 1, in
+/// units of its 9-pixel em. Layout stays painter-independent, so truncation
+/// and pointer placement use this table; the painter measures exactly.
+fn advance(c: char) -> f32 {
+    9.0 * match c {
+        'i' | 'l' | 'j' | '.' | ',' | ':' | ';' | '\'' | '|' | '!' | 'I' => 0.26,
+        ' ' | 'f' | 't' | 'r' | '(' | ')' | '[' | ']' | '-' => 0.36,
+        'm' | 'w' | 'M' | 'W' => 0.8,
+        'A'..='Z' => 0.66,
+        '0'..='9' => 0.58,
+        _ => 0.54,
+    }
+}
+fn text_advance(text: &str, scale: f32) -> f32 {
+    text.chars().map(advance).sum::<f32>() * scale
+}
+/// The caret index nearest `x` pixels into `text` at the field scale.
+fn caret_at(text: &str, x: f32) -> usize {
+    let mut pen = 0.0;
+    for (i, c) in text.chars().enumerate() {
+        let w = advance(c) * FIELD_SCALE;
+        if x < pen + w / 2.0 {
+            return i;
+        }
+        pen += w;
+    }
+    text.chars().count()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect(pub f32, pub f32, pub f32, pub f32);
@@ -584,17 +611,18 @@ impl Gui {
         };
         Ok(Action::Set(editor.id.clone(), value))
     }
-    // The retained GUI's text painter owns proportional-font measurement.  Input
-    // stays painter-independent, so pointer placement uses an average cell at
-    // the field text scale; keyboard navigation
-    // remains character-indexed and precise.
+    // The retained GUI's text painter owns exact measurement. Input stays
+    // painter-independent, so pointer placement uses the advance estimate at
+    // the field text scale; keyboard navigation remains character-indexed.
     fn cursor_at(&mut self, rect: Rect, local_x: f32) {
-        let offset = ((local_x - rect.0 - 4.0) / CHAR_WIDTH).round().max(0.0) as usize;
         self.edit_text(|cursor, text| {
-            let at = offset.min(text.chars().count());
+            let at = caret_at(text, local_x - rect.0 - 4.0);
             cursor.caret = at;
             cursor.anchor = at;
         });
+    }
+    pub fn dragging_setting(&self, setting: &str) -> bool {
+        matches!(&self.setting_drag, Some(SettingDrag::Number { id, .. }) if id == setting)
     }
     fn quantized_slider(x: f32, rect: Rect, min: f64, max: f64, step: f64) -> f64 {
         let t = ((x - rect.0) / rect.2.max(1.0)).clamp(0.0, 1.0) as f64;
