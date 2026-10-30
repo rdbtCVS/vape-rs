@@ -22,7 +22,8 @@
     "crates/horizon-client/src/game/fishing.rs": "0b45a5abf73f1124168741ce94fd89d46ecea55fee9f1a0a2af4fdd020b39006",
     "crates/horizon-client/src/game/pad.rs": "cafc6af30c64a698b49365623d9b91e4ec4f836f4fe92f3234c3ab72c8f00c20",
     "crates/horizon-client/src/motion.rs": "e09b88ab79a3f28a9b2e59dcf19ac97a273f0e132abba9f59dd36aa69decce46",
-    "crates/horizon-client/src/game/lan_particles.rs": "363b57c9e5048006baa1fb71050404872c7f2f6d3b302c78d027cf7fa6ed2862"
+    "crates/horizon-client/src/game/lan_particles.rs": "363b57c9e5048006baa1fb71050404872c7f2f6d3b302c78d027cf7fa6ed2862",
+    "crates/horizon-client/src/clock.rs": "6d5d5e5dfa577d4086c7632ce3a1db35e60bc3cf6e97dce823bdba15c196981a"
   },
   "reference_revision": "3d600a48106822755cea2d633062e5ab1f383d48",
   "validated_platforms": [],

@@ -353,3 +353,87 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "packet", ty = "&horizon_protocol::packets::play::Explode", value = "p" },
 ]
+
+# Reach and HitBoxes: every entity pick (crosshair, attacks, interactions)
+# with Reach's range and the expanded boxes.
+[[injection]]
+id = "entity-pick"
+target = "horizon_client::game::Game<'_>::mob_hit"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/entity_pick.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+
+# Reach's EventPostAttack on the remote attack path (the local path rides
+# auto-tool-attack).
+[[injection]]
+id = "remote-attack"
+target = "horizon_client::game::remote::Game<'_>::remote_start_attack"
+kind = "HEAD"
+helper = "adapters/remote_attack.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+# Timer: the client clock advances by the scaled frame time.
+[[module]]
+id = "timer"
+file = "crates/horizon-client/src/clock.rs"
+name = "vape_timer"
+source = "timer.rs"
+
+[[injection]]
+id = "timer-advance"
+target = "horizon_client::clock::FixedStep::advance"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/timer_advance.rs"
+bindings = [
+  { name = "clock", ty = "&mut crate::clock::FixedStep", value = "&mut *self" },
+  { name = "elapsed", ty = "std::time::Duration", value = "elapsed" },
+]
+
+# NoSlowdown and Fly: marks on the local player for its next move.
+[[module]]
+id = "motion-flags"
+file = "crates/horizon-client/src/motion.rs"
+name = "vape_motion_flags"
+source = "motion_flags.rs"
+
+[[injection]]
+id = "no-slowdown"
+target = "horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick"
+kind = "HEAD"
+helper = "adapters/no_slowdown.rs"
+bindings = [{ name = "world", ty = "&mut crate::motion::MotionWorld<'_, '_, '_>", value = "&mut *self" }]
+
+[[injection]]
+id = "fly-move"
+target = "horizon_client::motion::MotionWorld<'_,'_,'_>::move_self"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/fly_move.rs"
+bindings = [{ name = "world", ty = "&mut crate::motion::MotionWorld<'_, '_, '_>", value = "&mut *self" }]
+
+# NoFall and Fly at the local player's motion packet.
+[[module]]
+id = "movement"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_movement"
+source = "movement.rs"
+
+[[injection]]
+id = "send-state"
+target = "horizon_client::game::remote::Game<'_>::remote_send_state"
+kind = "HEAD"
+helper = "adapters/send_state.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "send-state-ground"
+target = "horizon_client::game::remote::Game<'_>::remote_send_state"
+kind = "MODIFY_ARG"
+selector = "r.position_sender.update"
+require = 1
+ordinal = 0
+argument = 2
+helper = "adapters/send_state_ground.rs"
+bindings = [{ name = "value", ty = "bool", value = "$value" }]

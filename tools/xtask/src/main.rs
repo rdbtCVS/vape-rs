@@ -524,6 +524,8 @@ fn audit(root: &Path) -> Result<()> {
         return Err("unexpected owned state".into());
     }
     let mut expected = Vec::new();
+    // MODIFY_ARG sites: (file, function, the generated `({ helper; name })` callee).
+    let mut expected_args: Vec<(String, String, syn::Expr)> = Vec::new();
     for declaration in declarations {
         let id = declaration["id"].as_str().ok_or("missing hook id")?;
         let injection = injections
@@ -535,8 +537,15 @@ fn audit(root: &Path) -> Result<()> {
             .map(serde_json::to_value)
             .transpose()?
             .unwrap_or_else(|| json!([]));
-        if declaration["kind"].as_str() != Some("HEAD")
-            || injection["kind"] != "HEAD"
+        let kind = declaration["kind"].as_str().unwrap_or("");
+        let argument_matches = kind != "MODIFY_ARG"
+            || (injection["selector"].as_str() == declaration.get("selector").and_then(toml::Value::as_str)
+                && injection["argument"].as_i64() == declaration.get("argument").and_then(toml::Value::as_integer)
+                && injection["require"].as_i64() == declaration.get("require").and_then(toml::Value::as_integer)
+                && injection["ordinal"].as_i64() == declaration.get("ordinal").and_then(toml::Value::as_integer));
+        if !matches!(kind, "HEAD" | "MODIFY_ARG")
+            || injection["kind"].as_str() != Some(kind)
+            || !argument_matches
             || injection["target"].as_str() != declaration["target"].as_str()
             || injection["bindings"] != bindings
             || injection["cancellable"].as_bool()
@@ -558,6 +567,14 @@ fn audit(root: &Path) -> Result<()> {
             return Err(format!("helper source differs from plan: {id}").into());
         }
         let name = &helper.sig.ident;
+        if kind == "MODIFY_ARG" {
+            expected_args.push((
+                string(injection, "file")?.to_owned(),
+                string(injection, "target")?.rsplit("::").next().unwrap().to_owned(),
+                syn::parse2(quote!(({ #helper #name })))?,
+            ));
+            continue;
+        }
         let args = injection["bindings"]
             .as_array()
             .ok_or("missing bindings")?
@@ -584,6 +601,7 @@ fn audit(root: &Path) -> Result<()> {
     let files = expected
         .iter()
         .map(|(file, _, _)| file.clone())
+        .chain(expected_args.iter().map(|(file, _, _)| file.clone()))
         .chain(expected_modules.iter().map(|(file, _)| file.clone()))
         .collect::<std::collections::BTreeSet<_>>();
     for file in &files {
@@ -601,6 +619,11 @@ fn audit(root: &Path) -> Result<()> {
                 .iter()
                 .filter(|(file, _, _)| file == path)
                 .map(|(_, name, stmt)| (name.clone(), stmt.clone()))
+                .collect(),
+            arguments: expected_args
+                .iter()
+                .filter(|(file, _, _)| file == path)
+                .map(|(_, name, callee)| (name.clone(), callee.clone()))
                 .collect(),
         };
         for (_, module) in expected_modules.iter().filter(|(file, _)| file == path) {
@@ -649,7 +672,7 @@ fn audit(root: &Path) -> Result<()> {
         }
     }
     println!(
-        "audit: original AST restored after removing exactly {} HEAD hooks and {} support modules; other inputs unchanged",
+        "audit: original AST restored after removing exactly {} hooks and {} support modules; other inputs unchanged",
         injections.len(),
         modules.len()
     );
@@ -664,8 +687,40 @@ fn canonical_statement(statement: &syn::Stmt) -> String {
 struct Strip {
     removed: usize,
     expected: Vec<(String, syn::Stmt)>,
+    arguments: Vec<(String, syn::Expr)>,
+}
+/// Unwraps `({ helper; name })(original)` argument modifiers back to `original`.
+struct StripArguments<'a> {
+    callees: Vec<String>,
+    removed: &'a mut usize,
+}
+impl VisitMut for StripArguments<'_> {
+    fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
+        syn::visit_mut::visit_expr_mut(self, expr);
+        if let syn::Expr::Call(call) = expr
+            && call.args.len() == 1
+            && self.callees.contains(&canonical_expr(&call.func))
+        {
+            *expr = call.args[0].clone();
+            *self.removed += 1;
+        }
+    }
+}
+fn canonical_expr(expr: &syn::Expr) -> String {
+    canonical_statement(&syn::Stmt::Expr(expr.clone(), Some(Default::default())))
 }
 impl Strip {
+    fn strip_arguments(&mut self, function: &syn::Ident, block: &mut syn::Block) {
+        let callees = self
+            .arguments
+            .iter()
+            .filter(|(name, _)| function == name)
+            .map(|(_, callee)| canonical_expr(callee))
+            .collect::<Vec<_>>();
+        if !callees.is_empty() {
+            StripArguments { callees, removed: &mut self.removed }.visit_block_mut(block);
+        }
+    }
     fn strip_head(&mut self, function: &syn::Ident, block: &mut syn::Block) {
         for (name, statement) in &self.expected {
             if function == name
@@ -682,9 +737,11 @@ impl Strip {
 impl VisitMut for Strip {
     fn visit_impl_item_fn_mut(&mut self, function: &mut syn::ImplItemFn) {
         self.strip_head(&function.sig.ident, &mut function.block);
+        self.strip_arguments(&function.sig.ident, &mut function.block);
     }
     fn visit_item_fn_mut(&mut self, function: &mut syn::ItemFn) {
         self.strip_head(&function.sig.ident, &mut function.block);
+        self.strip_arguments(&function.sig.ident, &mut function.block);
     }
 }
 

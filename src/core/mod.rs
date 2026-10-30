@@ -83,6 +83,13 @@ pub struct Runtime {
     aim_clock: Option<std::time::Instant>,
     trigger_bot: super::modules::combat::trigger_bot::TriggerBot,
     velocity: super::modules::combat::velocity::Velocity,
+    left_clicker: super::modules::combat::clicker::Engine,
+    right_clicker: super::modules::combat::clicker::Engine,
+    reach: super::modules::combat::reach::Reach,
+    no_fall: super::modules::blatant::no_fall::NoFall,
+    no_slowdown: super::modules::blatant::no_slowdown::NoSlowdown,
+    /// A clicker was reset while holding its mapping down: [attack, use].
+    clicker_release: [bool; 2],
     motion_override: Option<([f64; 3], [f64; 3])>,
     explosion_reentry: bool,
     hud_state: super::ui::hud_state::HudState,
@@ -286,6 +293,14 @@ impl Default for Runtime {
         for definition in super::modules::combat::velocity::definitions() {
             settings.define(definition).unwrap();
         }
+        for definition in super::modules::combat::clicker::left_definitions()
+            .into_iter()
+            .chain(super::modules::combat::clicker::right_definitions())
+            .chain(super::modules::combat::reach::definitions())
+            .chain(super::modules::blatant::definitions())
+        {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::combat::trigger_bot::definitions() {
             settings.define(definition).unwrap();
         }
@@ -390,6 +405,12 @@ impl Default for Runtime {
             aim_clock: None,
             trigger_bot: Default::default(),
             velocity: Default::default(),
+            left_clicker: super::modules::combat::clicker::Engine::new(0x5851_f42d_4c95_7f2d),
+            right_clicker: super::modules::combat::clicker::Engine::new(0x2c1b_3c6d_4a1f_9e37),
+            reach: Default::default(),
+            no_fall: Default::default(),
+            no_slowdown: Default::default(),
+            clicker_release: [false; 2],
             motion_override: None,
             explosion_reentry: false,
             hud_state: super::ui::hud_state::HudState::default(),
@@ -449,6 +470,11 @@ impl Runtime {
                     self.trigger_bot.reset();
                 }
                 ModuleId::Velocity => self.reset_velocity(),
+                ModuleId::AutoClicker => self.clicker_release[0] |= self.left_clicker.reset(),
+                ModuleId::RightClicker => self.clicker_release[1] |= self.right_clicker.reset(),
+                ModuleId::Reach => self.reach.reset(),
+                ModuleId::NoFall => self.no_fall.reset(),
+                ModuleId::NoSlowdown => self.no_slowdown.reset(),
                 _ => {}
             }
         }
@@ -491,6 +517,15 @@ impl Runtime {
         }
         if id.starts_with("combat.velocity.") {
             self.reset_velocity();
+        }
+        if id.starts_with("combat.auto-clicker.") {
+            self.clicker_release[0] |= self.left_clicker.reset();
+        }
+        if id.starts_with("combat.right-clicker.") {
+            self.clicker_release[1] |= self.right_clicker.reset();
+        }
+        if id.starts_with("combat.reach.") {
+            self.reach.reset();
         }
         self.dirty = true;
         Ok(())
@@ -907,6 +942,11 @@ impl Runtime {
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();
+        self.clicker_release[0] |= self.left_clicker.reset();
+        self.clicker_release[1] |= self.right_clicker.reset();
+        self.reach.reset();
+        self.no_fall.reset();
+        self.no_slowdown.reset();
     }
     fn reset_velocity(&mut self) {
         self.velocity.reset();
@@ -923,6 +963,9 @@ impl Runtime {
     /// Marks the next explosion as Velocity's own re-dispatch.
     pub fn set_explosion_reentry(&mut self) {
         self.explosion_reentry = true;
+    }
+    pub fn explosion_reentry_pending(&self) -> bool {
+        self.explosion_reentry
     }
     pub fn take_explosion_reentry(&mut self) -> bool {
         std::mem::take(&mut self.explosion_reentry)
@@ -958,6 +1001,107 @@ impl Runtime {
         }
         let options = super::modules::combat::velocity::Options::read(&self.settings);
         self.velocity.tick(&options, water, velocity)
+    }
+    /// One frame of a clicker (`right` for RightClicker). Inactive clickers
+    /// reset; the actions include any release a reset left pending.
+    pub fn clicker_frame(
+        &mut self,
+        right: bool,
+        input: &super::modules::combat::clicker::Input,
+    ) -> super::modules::combat::clicker::Actions {
+        use super::modules::combat::clicker::{Actions, Options, LEFT, RIGHT};
+        let (module, prefix) = if right { (ModuleId::RightClicker, RIGHT) } else { (ModuleId::AutoClicker, LEFT) };
+        let active = self.enabled(module) && self.session.interactive();
+        let slot = usize::from(right);
+        let engine = if right { &mut self.right_clicker } else { &mut self.left_clicker };
+        let mut out = if active {
+            engine.frame(&Options::read(&self.settings, prefix), input)
+        } else {
+            self.clicker_release[slot] |= engine.reset();
+            Actions::default()
+        };
+        out.release |= std::mem::take(&mut self.clicker_release[slot]);
+        out
+    }
+    /// The clickers' pre-tick jitter step.
+    pub fn clicker_tick(&mut self) {
+        use super::modules::combat::clicker::{Options, LEFT, RIGHT};
+        if self.enabled(ModuleId::AutoClicker) {
+            self.left_clicker.tick(&Options::read(&self.settings, LEFT));
+        }
+        if self.enabled(ModuleId::RightClicker) {
+            self.right_clicker.tick(&Options::read(&self.settings, RIGHT));
+        }
+    }
+    /// Reach's pre-tick target trace (Advanced mode).
+    pub fn reach_tick(&mut self, player: super::modules::combat::reach::Player, traced: Option<i32>) {
+        if !self.enabled(ModuleId::Reach) || !self.session.in_world() {
+            self.reach.reset();
+            return;
+        }
+        let options = super::modules::combat::reach::Options::read(&self.settings);
+        self.reach.pre_tick(&options, player, traced);
+    }
+    pub fn reach_post_attack(&mut self) {
+        if self.enabled(ModuleId::Reach) {
+            let options = super::modules::combat::reach::Options::read(&self.settings);
+            self.reach.post_attack(&options);
+        }
+    }
+    /// The entity pick range and box expansion, or None for the host's own.
+    pub fn pick_range(&mut self, player: super::modules::combat::reach::Player) -> Option<(f64, f64)> {
+        let reach = self.enabled(ModuleId::Reach);
+        let hitboxes = self.enabled(ModuleId::HitBoxes);
+        if !reach && !hitboxes {
+            return None;
+        }
+        let range = if reach {
+            let options = super::modules::combat::reach::Options::read(&self.settings);
+            self.reach.distance(&options, player)
+        } else {
+            super::modules::combat::reach::BASE
+        };
+        let expand = if hitboxes { super::modules::blatant::hitbox_expansion(&self.settings) } else { 0.0 };
+        Some((range, expand))
+    }
+    /// Timer's speed for the game clock (1.0 when off or out of a world).
+    pub fn timer_speed(&self) -> f32 {
+        if self.enabled(ModuleId::Timer) && self.session.in_world() {
+            super::modules::blatant::timer_speed(&self.settings)
+        } else {
+            1.0
+        }
+    }
+    /// Fly's replacement move this tick, when enabled.
+    pub fn fly_move(&self, input: &super::modules::blatant::fly::Input) -> Option<[f64; 3]> {
+        if !self.enabled(ModuleId::Fly) || !self.session.in_world() {
+            return None;
+        }
+        let options = super::modules::blatant::fly::Options::read(&self.settings);
+        Some(super::modules::blatant::fly::movement(&options, input))
+    }
+    /// NoFall's pre-motion step; `skip` covers dead, creative and flying.
+    pub fn no_fall_motion(&mut self, skip: bool, fall_distance: f32, motion_y: f64) -> super::modules::blatant::no_fall::Effects {
+        if !self.enabled(ModuleId::NoFall) || !self.session.in_world() {
+            self.no_fall.reset();
+            return Default::default();
+        }
+        let mode = super::modules::blatant::no_fall::Mode::read(&self.settings);
+        let skip = skip || self.enabled(ModuleId::Fly);
+        self.no_fall.pre_motion(mode, skip, fall_distance, motion_y)
+    }
+    pub fn no_slowdown_knockback(&mut self) {
+        if self.enabled(ModuleId::NoSlowdown) {
+            self.no_slowdown.knockback();
+        }
+    }
+    pub fn no_slowdown_tick(&mut self, tick: &super::modules::blatant::no_slowdown::Tick) -> bool {
+        if !self.enabled(ModuleId::NoSlowdown) || !self.session.in_world() {
+            self.no_slowdown.reset();
+            return false;
+        }
+        let options = super::modules::blatant::no_slowdown::Options::read(&self.settings);
+        self.no_slowdown.tick(&options, tick)
     }
     /// Monotonic milliseconds for module timers.
     pub fn now_ms(&self) -> u64 {
@@ -1561,7 +1705,15 @@ impl Runtime {
                 | ModuleId::AimAssist
                 | ModuleId::SafeWalk
                 | ModuleId::TriggerBot
-                | ModuleId::Velocity => continue,
+                | ModuleId::Velocity
+                | ModuleId::AutoClicker
+                | ModuleId::RightClicker
+                | ModuleId::Reach
+                | ModuleId::HitBoxes
+                | ModuleId::Timer
+                | ModuleId::Fly
+                | ModuleId::NoFall
+                | ModuleId::NoSlowdown => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {
@@ -1646,6 +1798,14 @@ impl Runtime {
 pub type Client = std::sync::Arc<std::sync::Mutex<Runtime>>;
 pub fn with_client<T>(client: &Client, action: impl FnOnce(&mut Runtime) -> T) -> T {
     action(&mut client.lock().expect("vape-rs client runtime poisoned"))
+}
+/// `with_client` for host queries that may run while the runtime is already
+/// held on this thread (a pick inside an adapter): None instead of blocking.
+pub fn try_with_client<T>(client: &Client, action: impl FnOnce(&mut Runtime) -> T) -> Option<T> {
+    match client.try_lock() {
+        Ok(mut runtime) => Some(action(&mut runtime)),
+        Err(_) => None,
+    }
 }
 
 #[cfg(test)]

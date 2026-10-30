@@ -323,6 +323,7 @@ pub(super) fn inbound(game: &mut Game<'_>, packet: &horizon_protocol::packets::p
         return;
     }
     let client = game.__horizon_mixins_vape_rs_client().clone();
+    with_client(&client, |runtime| runtime.no_slowdown_knockback());
     let (active, friends) = with_client(&client, |runtime| (runtime.velocity_active(), runtime.friend_keys()));
     if !active || game.player.is_none() {
         return;
@@ -344,6 +345,9 @@ pub(super) fn explosion(game: &mut Game<'_>, p: &horizon_protocol::packets::play
     let Some(push) = p.knockback else { return ControlFlow::Continue(()); };
     let client = game.__horizon_mixins_vape_rs_client().clone();
     let (active, reentry, friends) = with_client(&client, |runtime| {
+        if !runtime.explosion_reentry_pending() {
+            runtime.no_slowdown_knockback();
+        }
         (runtime.velocity_active(), runtime.take_explosion_reentry(), runtime.friend_keys())
     });
     if reentry || !active || game.player.is_none() {
@@ -372,4 +376,153 @@ pub(super) fn velocity_tick(game: &mut Game<'_>) {
     {
         player.velocity = horizon_core::geometry::Vec3::new(next[0], next[1], next[2]);
     }
+}
+
+/// `isReachAllowed`'s local player state.
+fn reach_player(game: &Game<'_>) -> crate::game::vape_rs::modules::combat::reach::Player {
+    let player = game.player.as_ref();
+    crate::game::vape_rs::modules::combat::reach::Player {
+        sprinting: player.is_some_and(|p| p.sprinting),
+        in_liquid: player.is_some_and(|p| p.fluids.was_touching_water || p.is_in_lava()),
+    }
+}
+
+/// The host's `mob_hit` with another range and every box grown by `expand`
+/// (the entity's pick border plus HitBoxes' expansion).
+fn mob_hit_with(game: &Game<'_>, reach: f64, expand: f64) -> Option<(usize, f64)> {
+    let (eye, dir) = game.aim()?;
+    let grow = horizon_core::geometry::Vec3::new(expand, expand, expand);
+    let mut best: Option<(usize, f64)> = None;
+    for (i, m) in game.mobs.iter().enumerate() {
+        if !m.alive() || Some(m.id) == game.riding {
+            continue;
+        }
+        let bounds = if expand > 0.0 { m.bounds().inflate(grow) } else { m.bounds() };
+        if let Some(t) = super::ray_box(eye, dir, reach, bounds)
+            && best.is_none_or(|b| t < b.1)
+        {
+            best = Some((i, t));
+        }
+    }
+    best
+}
+
+/// `mob_hit` HEAD (cancellable): Reach's range and HitBoxes' expansion for
+/// every entity pick (crosshair, attacks, interactions). Creative keeps the
+/// host's own 5-block reach.
+pub(super) fn pick(game: &Game<'_>) -> core::ops::ControlFlow<Option<(usize, f64)>> {
+    use core::ops::ControlFlow;
+    if game.serving.is_some() || game.options.dedicated.is_some() || game.creative {
+        return ControlFlow::Continue(());
+    }
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let player = reach_player(game);
+    match crate::game::vape_rs::core::try_with_client(&client, |runtime| runtime.pick_range(player)).flatten() {
+        Some((reach, expand)) => ControlFlow::Break(mob_hit_with(game, reach, expand)),
+        None => ControlFlow::Continue(()),
+    }
+}
+
+/// Client tick HEAD: Reach's Advanced-mode target trace at the maximum range.
+pub(super) fn reach_tick(game: &Game<'_>) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let max = with_client(&client, |runtime| {
+        runtime.enabled(ModuleId::Reach).then(|| {
+            crate::game::vape_rs::modules::combat::reach::Options::read(runtime.settings()).range.1
+        })
+    });
+    let traced = max.and_then(|max| mob_hit_with(game, max, 0.0)).map(|(i, _)| game.mobs[i].id as i32);
+    let player = reach_player(game);
+    with_client(&client, |runtime| runtime.reach_tick(player, traced));
+}
+
+/// An attack started (`EventPostAttack`).
+pub(super) fn post_attack(game: &Game<'_>) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    with_client(&client, |runtime| runtime.reach_post_attack());
+}
+
+/// Frame HEAD: AutoClicker and RightClicker through the host's attack/use
+/// mappings (`setKeyBindState` + `KeyMapping.click`).
+pub(super) fn clickers(game: &mut Game<'_>) {
+    use crate::game::vape_rs::modules::combat::clicker::Input;
+    if game.serving.is_some() || game.options.dedicated.is_some() {
+        return;
+    }
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let (now, left_on, right_on) = with_client(&client, |runtime| {
+        (runtime.now_ms(), runtime.enabled(ModuleId::AutoClicker), runtime.enabled(ModuleId::RightClicker))
+    });
+    let playing = playing(game) && game.player.is_some();
+    let held = held(game);
+    // Trigger mode and Break blocks read the crosshair.
+    let entity_hit = left_on && game.mob_hit().is_some_and(|(_, d)| game.before_block(d));
+    let block_hit = left_on && !entity_hit && game.pick().is_some();
+    let sneaking = game.keys.contains(&winit::keyboard::KeyCode::ShiftLeft);
+    for (right, on) in [(false, left_on), (true, right_on)] {
+        let input = Input {
+            now_ms: now,
+            playing,
+            attack_held: on && game.toggles.is_down(if right { 3 } else { 2 }),
+            attack_mapped: if right { game.right } else { game.left },
+            held: held.clone(),
+            entity_hit,
+            block_hit,
+            sneaking,
+        };
+        let actions = with_client(&client, |runtime| runtime.clicker_frame(right, &input));
+        if actions.release {
+            if right { game.right = false } else { game.left = false }
+        }
+        if actions.press {
+            if right {
+                crate::game::remote::vape_macros::use_once(game);
+                game.right = true;
+            } else {
+                crate::game::remote::vape_macros::attack_once(game);
+                game.left = true;
+            }
+        }
+        if actions.turn != (0, 0) {
+            let mut rotation = horizon_client::mouse::Rotation { x_rot: game.pitch, y_rot: game.yaw, x_rot_o: game.pitch, y_rot_o: game.yaw };
+            rotation.turn(f64::from(actions.turn.0), f64::from(actions.turn.1));
+            game.yaw = rotation.y_rot;
+            game.pitch = rotation.x_rot;
+        }
+    }
+}
+
+/// Client tick HEAD: the clickers' jitter step, Fly's move and NoSlowdown's
+/// mark for this tick's player move.
+pub(super) fn movement_tick(game: &mut Game<'_>) {
+    use crate::game::vape_rs::modules::blatant::{fly, no_slowdown};
+    use winit::keyboard::KeyCode;
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    with_client(&client, |runtime| runtime.clicker_tick());
+    let Some(player) = game.player.as_ref() else { return; };
+    let key = |k: KeyCode| game.keys.contains(&k);
+    let axis = |plus: KeyCode, minus: KeyCode| f64::from(u8::from(key(plus))) - f64::from(u8::from(key(minus)));
+    let active = playing(game);
+    let input = fly::Input {
+        forward: if active { axis(KeyCode::KeyW, KeyCode::KeyS) } else { 0.0 },
+        strafe: if active { axis(KeyCode::KeyA, KeyCode::KeyD) } else { 0.0 },
+        yaw: game.yaw,
+        jump: active && key(KeyCode::Space),
+        sneak: active && key(KeyCode::ShiftLeft),
+        speed_amplifier: game.potions.effects.list.iter().find(|e| e.id == "speed").map(|e| e.amplifier as i32),
+    };
+    let tick = no_slowdown::Tick {
+        on_ground: player.ground.on_ground,
+        in_water: player.fluids.was_touching_water,
+        slowed: game.using.is_some(),
+        held: held(game),
+    };
+    let (fly_move, no_slow) = with_client(&client, |runtime| (runtime.fly_move(&input), runtime.no_slowdown_tick(&tick)));
+    let Some(player) = game.player.as_mut() else { return; };
+    if let Some(m) = fly_move {
+        // `player.motionY = verticalMotion` alongside the replaced move.
+        player.velocity.y = m[1];
+    }
+    player.vape_rs_set_fly_move(fly_move);
+    player.vape_rs_set_no_slowdown(no_slow);
 }

@@ -462,3 +462,45 @@ The six GUI-driving scenarios (GUI, HUD editor, HUD detail, text editor, AutoToo
 Validation: fmt, Clippy, 104 runtime + 3 audit tests and 104 payload tests pass. Stage/audit: 26 HEAD hooks and 14 support modules; host check and fast build pass. On that build, in fresh isolated homes, all of these pass: GUI (11 checks), HUD editor plus binding capture, HUD detail, text editor (private Xvfb display), AutoTool, NoHurtCam, lifecycle, profile plus corrupt profile, and smoke 27/27. Evidence: docs/evidence/classic-gui-validation.json. Ledger: client.ui, client.profiles and client.friends → `integrated`.
 
 Not covered: Macros frame editing, header search, and frame drag/collapse/scroll in a real session (unit tests only); GUI scales other than 1 and windows other than 800×600. The Text GUI overlay and notifications are not ported.
+
+## Clickers, Reach and blatant movement modules (2026-10-30)
+
+New core modules, all compile-only:
+
+- AutoClicker and RightClicker. RightClicker adds a start delay and a sneak-only option.
+- Reach, in Normal and Advanced chance modes.
+- HitBoxes and Timer.
+- Fly, using the 45° strafe speed logic with vertical speed.
+- NoFall, in Normal and AntiCheat. AntiCheat sends a MovePlayerStatus true/false pair.
+- NoSlowdown, with an item whitelist and deferred knockback.
+
+Fly, NoFall, HitBoxes and Timer sit in the "Other" category, which the GUI lists only on an exact name search. NoSlowdown is "Hidden" and never listed.
+
+New host hooks:
+
+- entity-pick: Reach and HitBoxes ray range and box expansion.
+- remote-attack: the Reach post-attack hook.
+- timer-advance: a scaled `FixedStep::advance`.
+- no-slowdown: suppresses the item-use slowdown.
+- fly-move: replaces `move_self`.
+- send-state, plus send-state-ground (MODIFY_ARG on the `on_ground` argument of `position_sender.update`).
+
+The xtask audit now also verifies MODIFY_ARG declarations: selector, argument, ordinal and require. It strips their `({ helper })(arg)` wrappers when restoring the AST. `clock.rs` gained a pinned source hash.
+
+Validation:
+
+- `cargo check --all-targets` passes.
+- Stage/audit passes with 33 hooks (32 HEAD + 1 MODIFY_ARG) and 17 support modules.
+- The pinned horizon-client check passes with warnings only.
+- No game scenario was run; these are not validated.
+
+Not ported:
+
+- Reach Misplace.
+- HitBoxes interact-at clamp.
+- NoSlowdown's Sprint re-enable.
+- NoFall's jump-key detail.
+- RightClicker's use claim and offhand whitelist.
+- Reach and HitBoxes for LAN guests.
+
+KeepSprint stays deferred. Evidence: `docs/evidence/clickers-reach-blatant-compile.json`.

@@ -70,6 +70,14 @@ registry! {
     SafeWalk => "world.safe-walk", "SafeWalk", "World", None, [];
     TriggerBot => "combat.trigger-bot", "TriggerBot", "Combat", None, [];
     Velocity => "combat.velocity", "Velocity", "Utility", None, [];
+    AutoClicker => "combat.auto-clicker", "AutoClicker", "Combat", None, [];
+    RightClicker => "combat.right-clicker", "RightClicker", "Combat", None, [];
+    Reach => "combat.reach", "Reach", "Combat", None, [];
+    HitBoxes => "blatant.hitboxes", "HitBoxes", "Other", None, [];
+    Timer => "blatant.timer", "Timer", "Other", None, [];
+    Fly => "blatant.fly", "Fly", "Other", None, [];
+    NoFall => "blatant.no-fall", "NoFall", "Other", None, [];
+    NoSlowdown => "blatant.no-slowdown", "NoSlowdown", "Hidden", None, [];
 }
 
 impl ModuleId {

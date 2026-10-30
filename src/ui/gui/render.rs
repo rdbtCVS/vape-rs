@@ -426,7 +426,16 @@ impl Gui {
     fn nav_body(&self, view: &View, l: &mut Layout, x: f32, top: f32) -> f32 {
         if self.searching && !self.search.is_empty() {
             let query = self.search.to_lowercase();
-            return self.module_list(view, l, x, top, |m| m.name.to_lowercase().contains(&query));
+            // The reference lists Category.OTHER (blatant) modules only on an
+            // exact name match; Category.HIDDEN modules never.
+            return self.module_list(view, l, x, top, |m| {
+                let name = m.name.to_lowercase();
+                match m.category.as_str() {
+                    "Other" => name == query,
+                    "Hidden" => false,
+                    _ => name.contains(&query),
+                }
+            });
         }
         let mut y = top;
         for name in CATEGORIES {
