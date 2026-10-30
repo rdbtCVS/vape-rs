@@ -471,3 +471,25 @@ id = "smooth-text"
 file = "crates/horizon-client/src/ui_theme.rs"
 name = "vape_smooth_text"
 source = "smooth_text.rs"
+
+# NameTags and ItemESP: through-wall tags drawn with the host's name tag
+# quads; NameTags replaces the host's player tags while it renders players.
+[[module]]
+id = "name-tags"
+file = "crates/horizon-client/src/game/names.rs"
+name = "vape_name_tags"
+source = "name_tags.rs"
+
+[[injection]]
+id = "name-tags-hook"
+target = "horizon_client::game::names::Game<'_>::name_tag_geometry"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/name_tags.rs"
+bindings = [
+ { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+ { name = "camera", ty = "glam::DVec3", value = "camera" },
+ { name = "alpha", ty = "f64", value = "alpha" },
+ { name = "out", ty = "&mut Vec<Vertex>", value = "&mut *out" },
+ { name = "see_through", ty = "&mut Vec<Vertex>", value = "&mut *see_through" },
+]

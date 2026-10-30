@@ -89,6 +89,8 @@ registry! {
     Speed => "blatant.speed", "Speed", "Hidden", None, [];
     LongJump => "blatant.long-jump", "LongJump", "Other", None, [];
     AntiFall => "blatant.anti-fall", "AntiFall", "Other", None, [];
+    NameTags => "render.name-tags", "NameTags", "Render", None, [];
+    ItemEsp => "render.item-esp", "ItemESP", "Render", None, [];
 }
 
 impl ModuleId {

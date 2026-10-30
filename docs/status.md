@@ -12,14 +12,14 @@ excluded; all other retained scope remains open as listed below.
 
 ## Connected native implementation
 
-The runtime registers 43 modules, all with normal local activation, binds,
+The runtime registers 45 modules, all with normal local activation, binds,
 profile persistence and GUI access. The sixteen newest (marked †) are
 compile-only: no game scenario has run for them yet.
 
 | Area | Modules |
 | --- | --- |
 | HUD (legit, HUD group) | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
-| Render | Fullbright, StorageESP (partial: through-wall outlines for chests, trapped chests, hoppers, furnaces, dispensers, droppers, shulkers; no ender chests/fill), ESP (partial: 3D mode only), Tracers (partial), Trajectories (partial), friend/enemy recolour settings, and the former HUD-editor Game group: NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
+| Render | Fullbright, StorageESP (partial: through-wall outlines for chests, trapped chests, hoppers, furnaces, dispensers, droppers, shulkers; no ender chests/fill), ESP (partial: 3D mode only), Tracers (partial), Trajectories (partial), NameTags† (partial), ItemESP†, friend/enemy recolour settings, and the former HUD-editor Game group: NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
 | World / movement | FastPlace, AutoFish, Sprint (baseline), Parkour (experimental), SafeWalk, Anti-AFK† |
 | Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open), WTap† |
@@ -171,7 +171,7 @@ the interface-font text.
    queries; finish StorageESP (fill, ender chests, Outline open), ESP
    (2D/outline/skeleton, health bar, names, priority/enemy/bot filters) and
    Tracers (enemy list, bots, third-person origin), Trajectories (shooter motion,
-   crossbow); then Nametags, ItemESP,
+   crossbow), NameTags (equipment row, creative marker); then
    Search, SpawnerFinder, Chams, Xray, Projectiles, Arrows,
    Indicators, Bedplates, Explosions. **BlockOverlay** transparent fill still
    needs an opaque-body-safe geometry insertion capability in the mixin tool or

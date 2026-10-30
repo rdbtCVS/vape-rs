@@ -320,6 +320,8 @@ impl Default for Runtime {
             .chain(super::modules::render::esp::definitions())
             .chain(super::modules::render::esp::people_definitions())
             .chain(super::modules::render::trajectories::definitions())
+            .chain(super::modules::render::name_tags::definitions())
+            .chain(super::modules::render::item_esp::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -1345,6 +1347,66 @@ impl Runtime {
         }
         out
     }
+    /// Whether NameTags and ItemESP draw this frame.
+    pub fn world_tag_sources(&self) -> (bool, bool) {
+        (
+            self.enabled(ModuleId::NameTags),
+            self.enabled(ModuleId::ItemEsp),
+        )
+    }
+    /// NameTags replaces the host's player tags while it renders players.
+    pub fn name_tags_replace_players(&self) -> bool {
+        self.enabled(ModuleId::NameTags)
+            && super::modules::render::name_tags::replaces_players(&self.settings)
+    }
+    /// The NameTags tag for one entity; friends show their alias and,
+    /// with "Recolor visuals", the friend colour.
+    pub fn name_tag(
+        &self,
+        subject: &super::modules::render::name_tags::Subject,
+        own_threat: f64,
+    ) -> Option<super::modules::render::name_tags::Tag> {
+        if !self.enabled(ModuleId::NameTags) {
+            return None;
+        }
+        let friends = self.friend_keys();
+        let friend = friends
+            .iter()
+            .any(|f| !subject.name.is_empty() && f.eq_ignore_ascii_case(&subject.name));
+        let alias = friend.then(|| {
+            self.people()
+                .into_iter()
+                .find(|p| p.relation == "friends" && p.name.eq_ignore_ascii_case(&subject.name))
+                .map_or_else(|| subject.name.clone(), |p| p.alias)
+        });
+        let recolor = self
+            .settings
+            .get("friends.recolor")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let color = recolor.then(|| {
+            self.settings
+                .get("friends.color")
+                .and_then(Value::as_u64)
+                .map_or(0xff42_f489, |c| c as u32)
+        });
+        super::modules::render::name_tags::tag(
+            &self.settings,
+            subject,
+            own_threat,
+            alias.as_deref().map(|a| (a, color)),
+        )
+    }
+    /// ItemESP's tags for the frame's dropped items.
+    pub fn item_labels(
+        &self,
+        items: &[super::modules::render::item_esp::Dropped],
+    ) -> Vec<super::modules::render::item_esp::Label> {
+        if !self.enabled(ModuleId::ItemEsp) {
+            return Vec::new();
+        }
+        super::modules::render::item_esp::labels(&self.settings, items)
+    }
     /// The local friend (when "Use Friends" is on) and enemy name lists.
     pub fn target_people(&self) -> super::targeting::filter::NameLists {
         let names = |relation: &str| -> Vec<String> {
@@ -1934,7 +1996,9 @@ impl Runtime {
                 | ModuleId::WTap
                 | ModuleId::Speed
                 | ModuleId::LongJump
-                | ModuleId::AntiFall => continue,
+                | ModuleId::AntiFall
+                | ModuleId::NameTags
+                | ModuleId::ItemEsp => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

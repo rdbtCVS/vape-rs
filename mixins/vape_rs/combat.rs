@@ -11,7 +11,7 @@ fn lerp(previous: [f64; 3], current: [f64; 3], partial: f64) -> [f64; 3] {
     [0, 1, 2].map(|i| previous[i] + (current[i] - previous[i]) * partial)
 }
 
-fn item_score(game: &Game<'_>, item: Option<&str>, armor: bool) -> f64 {
+pub(super) fn item_score(game: &Game<'_>, item: Option<&str>, armor: bool) -> f64 {
     let Some(info) = item.and_then(|id| game.res.items().get(id)) else {
         return 0.0;
     };

@@ -657,3 +657,29 @@ all of this is compile-only.
 
 Validation: `cargo check`, fmt and lib Clippy pass; stage/audit passes with
 34 hooks and 20 support modules; pinned host check passes. Compile-only, with no tests and no game scenario.
+
+## 2026-10-30: NameTags and ItemESP
+
+- New cancellable HEAD hook `name-tags-hook` on
+  `game::names::Game::name_tag_geometry`, with support module
+  `vape_name_tags` placed in `names.rs` so it can call the host's private
+  `name_tags` and `name_tag_quads`. Tags are drawn with the host font and
+  background into the see-through set (through walls) and scaled about the
+  camera, so a tag's size follows the reference scale without new geometry.
+- NameTags (`render.name-tags`): players, animals and mobs groups with
+  Health (half-hearts, coloured by fraction), Distance, Effects (absorption,
+  currently always 0 because the host mob has no absorption field), Max
+  Distance, Strength Indicator (weapon plus armor score against the local
+  player's), Ignore Invisibles, Hide bots (no AntiBot yet), Auto Scale,
+  Scale and Opacity (applied when not in line of sight). Friends show
+  their alias and the friend colour. While players render, the host's own
+  player tags are left out. Pending: equipment row and enchantment
+  overlay, creative `[C]` for remote players, Calculate Effects.
+- ItemESP (`render.item-esp`): tags over dropped items with names,
+  `xN` counts, Distance, Group Items (proximity groups rebuilt each frame),
+  Auto Scale, Scale, Whitelist Only and Allowed Items.
+
+Validation: `cargo check`, fmt and lib Clippy pass; stage/audit passes with
+35 hooks and 21 support modules; the pinned host check passes (its existing
+private-interface warnings are unchanged). Compile-only: no tests and no
+game scenario ran.
