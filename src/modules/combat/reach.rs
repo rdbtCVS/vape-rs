@@ -14,9 +14,23 @@ pub const BASE: f64 = 3.0;
 pub fn definitions() -> Vec<Definition> {
     let key = |k: &str| format!("{ID}.{k}");
     vec![
-        Definition::new(&key("range"), "Range", Kind::Range { min: 3.0, max: 4.0, step: 0.01 }, json!([3.0, 3.1])),
+        Definition::new(
+            &key("range"),
+            "Range",
+            Kind::Range {
+                min: 3.0,
+                max: 4.0,
+                step: 0.01,
+            },
+            json!([3.0, 3.1]),
+        ),
         Definition::number(&key("chance"), "Chance", 0.0, 50.0, 100.0, 1.0),
-        Definition::choice(&key("chance-mode"), "Chance mode", &["Advanced", "Normal"], "Advanced"),
+        Definition::choice(
+            &key("chance-mode"),
+            "Chance mode",
+            &["Advanced", "Normal"],
+            "Advanced",
+        ),
         Definition::boolean(&key("vertical-check"), "Vertical check", false),
         Definition::boolean(&key("only-sprinting"), "Only while sprinting", false),
         Definition::boolean(&key("disable-in-water"), "Disable in water", false),
@@ -37,7 +51,12 @@ impl Options {
         let get = |k: &str| settings.get(&format!("{ID}.{k}"));
         let boolean = |k: &str| get(k).and_then(Value::as_bool).unwrap_or(false);
         let range = get("range").and_then(Value::as_array);
-        let at = |i: usize, d: f64| range.and_then(|r| r.get(i)).and_then(Value::as_f64).unwrap_or(d);
+        let at = |i: usize, d: f64| {
+            range
+                .and_then(|r| r.get(i))
+                .and_then(Value::as_f64)
+                .unwrap_or(d)
+        };
         Self {
             range: (at(0, 3.0), at(1, 3.1)),
             chance: get("chance").and_then(Value::as_f64).unwrap_or(50.0),
@@ -52,7 +71,11 @@ impl Options {
             let s = format!("{v:.2}");
             s.trim_end_matches('0').trim_end_matches('.').to_owned()
         };
-        if self.range.0 == self.range.1 { f(self.range.0) } else { format!("{}-{}", f(self.range.0), f(self.range.1)) }
+        if self.range.0 == self.range.1 {
+            f(self.range.0)
+        } else {
+            format!("{}-{}", f(self.range.0), f(self.range.1))
+        }
     }
 }
 
@@ -74,14 +97,22 @@ pub struct Reach {
 
 impl Default for Reach {
     fn default() -> Self {
-        Self { hit_cooldown: 0, reach_active: false, last_target: None, rng: 0x2545_f491_4f6c_dd1d }
+        Self {
+            hit_cooldown: 0,
+            reach_active: false,
+            last_target: None,
+            rng: 0x2545_f491_4f6c_dd1d,
+        }
     }
 }
 
 impl Reach {
     pub fn reset(&mut self) {
         let rng = self.rng;
-        *self = Self { rng, ..Self::default() };
+        *self = Self {
+            rng,
+            ..Self::default()
+        };
     }
     fn next_int(&mut self, bound: u64) -> u64 {
         self.rng ^= self.rng << 13;
@@ -130,7 +161,11 @@ impl Reach {
     }
     /// `getReachDistance`.
     pub fn distance(&mut self, o: &Options, p: Player) -> f64 {
-        let extend = if o.advanced { self.reach_active } else { self.roll(o) };
+        let extend = if o.advanced {
+            self.reach_active
+        } else {
+            self.roll(o)
+        };
         if !Self::allowed(o, p) || !extend {
             return BASE;
         }

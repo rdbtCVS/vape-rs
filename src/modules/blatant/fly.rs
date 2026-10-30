@@ -10,7 +10,14 @@ pub const ID: &str = "blatant.fly";
 pub fn definitions() -> Vec<Definition> {
     vec![
         Definition::number(&format!("{ID}.speed"), "Speed", 0.1, 0.5, 5.0, 0.1),
-        Definition::number(&format!("{ID}.vertical-speed"), "Vertical Speed", 0.1, 0.2, 5.0, 0.1),
+        Definition::number(
+            &format!("{ID}.vertical-speed"),
+            "Vertical Speed",
+            0.1,
+            0.2,
+            5.0,
+            0.1,
+        ),
     ]
 }
 
@@ -22,8 +29,16 @@ pub struct Options {
 
 impl Options {
     pub fn read(settings: &Settings) -> Self {
-        let get = |k: &str, d: f64| settings.get(&format!("{ID}.{k}")).and_then(Value::as_f64).unwrap_or(d);
-        Self { speed: get("speed", 0.5), vertical_speed: get("vertical-speed", 0.2) }
+        let get = |k: &str, d: f64| {
+            settings
+                .get(&format!("{ID}.{k}"))
+                .and_then(Value::as_f64)
+                .unwrap_or(d)
+        };
+        Self {
+            speed: get("speed", 0.5),
+            vertical_speed: get("vertical-speed", 0.2),
+        }
     }
 }
 

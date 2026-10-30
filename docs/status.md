@@ -1,6 +1,8 @@
 # Current implementation handoff
 
-Updated 2026-10-30 after the classic V4 click-GUI remake. The previous round
+Updated 2026-10-30 after the clicker/Reach/blatant-movement batch and the
+interface-font GUI text. Before that came the classic V4 click-GUI remake;
+the round before
 added live entity snapshots, the reference target filter, AimAssist (Simple),
 TriggerBot, SafeWalk and Velocity, each with fresh-home integrated-server
 host scenarios. Single
@@ -10,8 +12,9 @@ excluded; all other retained scope remains open as listed below.
 
 ## Connected native implementation
 
-The runtime registers 27 modules, all with normal local activation, binds,
-profile persistence and GUI access:
+The runtime registers 35 modules, all with normal local activation, binds,
+profile persistence and GUI access. The eight newest (marked †) are
+compile-only: no game scenario has run for them yet.
 
 | Area | Modules |
 | --- | --- |
@@ -19,7 +22,9 @@ profile persistence and GUI access:
 | Render | NoHurtCam, Fullbright, Clear Water, StorageESP (partial: chest/furnace outlines) |
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
 | World / movement | FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Sprint (baseline), Parkour (experimental), SafeWalk |
-| Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity |
+| Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open) |
+| Other (exact-name search only) | HitBoxes†, Timer†, Fly†, NoFall† (Normal/AntiCheat) |
+| Hidden (never listed) | NoSlowdown† (sprint re-enable open) |
 | Utility | Panic (configurable bind, optional re-enable) |
 
 The local foundation includes typed settings/editors, chord/held bindings,
@@ -39,16 +44,13 @@ collapsible, scrolling frame. Frames stack under the shortest column and
 persist in `ui.frames`. Module rows toggle on click, and their dots expand
 inline settings and a favourite star. HUD and legit modules are listed in the
 HUD editor's frame. Pixel icons are authored rather than copied from the
-reference images. Not ported: the Text GUI overlay, notifications and the
+reference images. All GUI text uses Horizon's bundled interface font (Geist)
+rasterized at its on-screen size; the GUI scale setting applies when its
+slider is released. Not ported: the Text GUI overlay, notifications and the
 online PUBLIC profiles (replaced by a local IMPORT).
 
 Unconnected groundwork present in source (no module uses it yet):
 
-- Targeting is now connected: `vape_combat::snapshot` provides live entity
-  views and `targeting::filter` the reference target filter; AimAssist is
-  the first consumer ([aim-assist.json](evidence/aim-assist.json)).
-- Clicker timing: Normal/Extra click-interval primitives in
-  `src/modules/combat/click_timing.rs` (unit-tested only).
 - World render: world-space line/box primitives and bounded projectile
   prediction with caller-supplied collision (`src/modules/render/world.rs`).
 - Movement: `core::movement_input::Writer` is now the single writer of
@@ -58,11 +60,15 @@ Unconnected groundwork present in source (no module uses it yet):
 
 ## Evidence and limits
 
-- Current tree: **102 runtime tests + 3 audit tests** and 102 emitted-payload
-  tests pass; fmt and Clippy (all targets, warnings denied) pass; exact
-  native stage/audit passes with **26 HEAD hooks and 14 support modules (no
-  owned state)** on published horizon-mixins `07dab17`; host check and fast
-  build pass.
+- Current tree: **108 runtime lib tests** pass; fmt and Clippy (all
+  targets, warnings denied) pass; exact native stage/audit passes with **33
+  hooks (32 HEAD + 1 MODIFY_ARG) and 18 support modules (no owned state)** on
+  published horizon-mixins `07dab17`; host check and fast build pass. The
+  emitted-payload and audit test suites were not rerun for the latest batch.
+- **Clickers/Reach/blatant batch**
+  ([clickers-reach-blatant-compile.json](evidence/clickers-reach-blatant-compile.json)):
+  compile-only. **Interface-font GUI text** has one fresh-home screenshot
+  check; the existing GUI scenarios were not rerun against it.
 - **Packaging** ([hnmod-packaging.json](evidence/hnmod-packaging.json)):
   `tools/bundle.py` emits `dist/vape_rs-0.1.0-dev.hnmod`, and Horizon's registry
   check accepts it. `tools/launcher_build.py` builds it along the launcher's
@@ -88,8 +94,8 @@ Unconnected groundwork present in source (no module uses it yet):
 - StorageESP, AutoTool, profile, lifecycle and NoHurtCam pass on the new pin. Refill, ChestSteal, AutoFish, FastPlace, Fullbright,
   Clear Water, the delay removals and localization still have compile/unit
   evidence only.
-- Ledger: 16 integrated, 32 implemented-core, 13 excluded-approved, 2
-  not-applicable-reviewed, 409 not-started, 0 validated
+- Ledger: 16 integrated, 48 implemented-core, 13 excluded-approved, 2
+  not-applicable-reviewed, 393 not-started, 0 validated
   ([decisions](decisions.md) explains `integrated` vs `validated`).
 - [hooks.md](hooks.md) lists every current target and module.
 
@@ -119,6 +125,9 @@ Concrete implementation milestones:
 | `d146567` | Live entity snapshots, reference target filter, item-limit groups, AimAssist (Simple) |
 | `ce3dca4` | SafeWalk, TriggerBot, Velocity (server-thread path); per-module combat resets |
 | `725d322` | Handoff refresh (its extra Velocity hooks were later removed with the single-player mode decision) |
+| `530b106` | Classic V4 click GUI |
+| `f73ca64` | AutoClicker, RightClicker, Reach, HitBoxes, Timer, Fly, NoFall, NoSlowdown (compile-only); MODIFY_ARG audit support |
+| `951a729` | GUI text in the interface font; GUI scale applied on release |
 
 ## Open dependencies and next work
 
@@ -134,23 +143,22 @@ change. Worker C has SafeWalk on the movement writer; KeepSprint, WTap,
 NoSlowdown and AutoLadder still need writer priorities. Worker D (camera,
 projection, world text) hasn't started.
 
-**Drafted, not registered:** `docs/drafts/clicker.rs` holds a port of
-the reference click engine: Normal/Extra/Extra+ timing, the hold/release
-cycle, jitter and break blocks, with unit tests written but never compiled.
-Next steps: move it to `src/modules/combat/`, register it, add a physical attack-held flag in `Runtime::input`,
-add an adapter (press = `attack_once` + `game.left = true`, release =
-`game.left = false`), and write a host scenario for AutoClicker and then
-RightClicker.
+**Validation debt first.** The eight compile-only modules above each need a
+fresh-home integrated-server scenario (clicker CPS and hold/release, Reach
+range, HitBoxes expansion, Timer rate, Fly motion, NoFall status packets,
+NoSlowdown item-use speed), and the GUI scenarios should be rerun against
+the interface-font text.
 
-1. **Combat / targeting:** AimAssist Adaptive mode; AutoClicker and
-   RightClicker (engine drafted); HitSelect, BlockHit, Reach, Hitboxes,
+1. **Combat / targeting:** AimAssist Adaptive mode; Reach Misplace,
+   HitBoxes interact-at clamp, RightClicker use claim/offhand whitelist and
+   Reach/HitBoxes for LAN guests; HitSelect, BlockHit,
    KillAura (non-AI), SilentAura PID, AntiBot (teammate/bot checks the filter
    already calls), HitSwap/AutoMace (TriggerBot's cooldown bypass) and the
    remaining combat rows. A shared rotation owner is needed once more than
    AimAssist turns the view.
 2. **Movement / packets:** movement-writer priorities, then KeepSprint, WTap,
-   NoSlowdown, AutoLadder; a cancellable inbound/outbound packet boundary for
-   JumpReset, KnockbackDelay, Blink, FakeLag, Backtrack; then NoFall, Speed, Fly, Timer, Scaffold modes, Clutch, MLG,
+   NoSlowdown's sprint re-enable, AutoLadder; a cancellable inbound/outbound packet boundary for
+   JumpReset, KnockbackDelay, Blink, FakeLag, Backtrack; then NoFall's jump-key detail, Speed, Scaffold modes, Clutch, MLG,
    Freecam and the remaining world/utility rows. Parkour has an integrated-server scenario; a LAN case is still open.
 3. **Render:** connect camera/projection, world text/quads, entity snapshots
    and collision queries; finish StorageESP (fill, through-wall, all container
@@ -191,7 +199,7 @@ published main `07dab17387480ac03829584d9d1ee9912c9bb515`, unpatched. See compat
 Prepared resource directory located for this workspace:
 
 ```text
-<launcher-dir>/versions/nightly-2026-10-28-9b772b2/.local/horizon-client/26.3
+<launcher-dir>/versions/nightly-2026-10-29-a305d38/.local/horizon-client/26.3
 ```
 
 Use those resources read-only and tools/native_session.py with fresh homes and

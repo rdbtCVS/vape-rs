@@ -102,8 +102,8 @@ impl ExtraPlus {
     }
     fn retarget(&mut self, now: u64) {
         self.target_offset = (self.unit() * 2.0 - 1.0) * 0.75;
-        self.target_cps =
-            ((self.minimum + self.maximum) * 0.5 + self.target_offset).clamp(self.minimum, self.maximum);
+        self.target_cps = ((self.minimum + self.maximum) * 0.5 + self.target_offset)
+            .clamp(self.minimum, self.maximum);
         self.next_target = now + self.duration(now, 30_000, 90_000);
     }
     pub fn configure(&mut self, minimum: u32, maximum: u32) {
@@ -126,11 +126,19 @@ impl ExtraPlus {
             self.retarget(now);
             self.last_click = now;
         }
-        let idle = if self.last_click == 0 { 0 } else { now.saturating_sub(self.last_click) };
+        let idle = if self.last_click == 0 {
+            0
+        } else {
+            now.saturating_sub(self.last_click)
+        };
         if idle >= 1200 {
             let recovery = idle.min(5000) as f64 / 10.0;
             self.fatigue = (self.fatigue - 0.004 * recovery).max(0.0);
-            self.burst_remaining = if self.unit() < 0.7 { 2 + self.int(4) as i32 } else { 0 };
+            self.burst_remaining = if self.unit() < 0.7 {
+                2 + self.int(4) as i32
+            } else {
+                0
+            };
             self.repeat_chance = 0.03 + self.unit() * 0.06;
             self.pause_offset = self.unit() * 0.04;
         }
@@ -186,7 +194,12 @@ impl ExtraPlus {
 pub fn left_definitions() -> Vec<Definition> {
     let key = |k: &str| format!("{LEFT}.{k}");
     let range = |k: &str, label: &str, min: f64, max: f64, step: f64, default: [f64; 2]| {
-        Definition::new(&key(k), label, Kind::Range { min, max, step }, json!(default))
+        Definition::new(
+            &key(k),
+            label,
+            Kind::Range { min, max, step },
+            json!(default),
+        )
     };
     let list = |k: &str, label: &str, default: Value| {
         Definition::new(
@@ -203,18 +216,31 @@ pub fn left_definitions() -> Vec<Definition> {
         Definition::boolean(&key("hold"), "Hold to click", true),
         Definition::boolean(&key("trigger"), "Trigger mode", false),
         Definition::boolean(&key("break-blocks"), "Break blocks", false),
-        range("break-delay", "Break blocks delay", 0.0, 2000.0, 10.0, [0.0, 10.0])
-            .when(&key("break-blocks"), json!(true)),
+        range(
+            "break-delay",
+            "Break blocks delay",
+            0.0,
+            2000.0,
+            10.0,
+            [0.0, 10.0],
+        )
+        .when(&key("break-blocks"), json!(true)),
         Definition::boolean(&key("break-whitelist"), "Break blocks whitelist", false)
             .when(&key("break-blocks"), json!(true)),
         list("break-items", "Items", json!(["pickaxes", "shovels"]))
             .when(&key("break-blocks"), json!(true))
             .when(&key("break-whitelist"), json!(true)),
         range("cps", "CPS", 1.0, 20.0, 1.0, [6.0, 13.0]),
-        Definition::choice(&key("randomization"), "Randomization", &["Normal", "Extra", "Extra+"], "Extra"),
+        Definition::choice(
+            &key("randomization"),
+            "Randomization",
+            &["Normal", "Extra", "Extra+"],
+            "Extra",
+        ),
         Definition::boolean(&key("jitter"), "Jitter", false),
         Definition::boolean(&key("limit-items"), "Limit items", false),
-        list("allowed-items", "Item whitelist", json!(["swords"])).when(&key("limit-items"), json!(true)),
+        list("allowed-items", "Item whitelist", json!(["swords"]))
+            .when(&key("limit-items"), json!(true)),
     ]
 }
 
@@ -224,15 +250,32 @@ pub fn left_definitions() -> Vec<Definition> {
 pub fn right_definitions() -> Vec<Definition> {
     let key = |k: &str| format!("{RIGHT}.{k}");
     vec![
-        Definition::new(&key("cps"), "CPS", Kind::Range { min: 1.0, max: 20.0, step: 1.0 }, json!([7.0, 13.0])),
+        Definition::new(
+            &key("cps"),
+            "CPS",
+            Kind::Range {
+                min: 1.0,
+                max: 20.0,
+                step: 1.0,
+            },
+            json!([7.0, 13.0]),
+        ),
         Definition::number(&key("start-delay"), "Start Delay", 0.0, 0.0, 1000.0, 1.0),
-        Definition::choice(&key("randomization"), "Randomization", &["Normal", "Extra", "Extra+"], "Extra+"),
+        Definition::choice(
+            &key("randomization"),
+            "Randomization",
+            &["Normal", "Extra", "Extra+"],
+            "Extra+",
+        ),
         Definition::boolean(&key("jitter"), "Jitter", false),
         Definition::boolean(&key("limit-items"), "Use item whitelist", false),
         Definition::new(
             &key("allowed-items"),
             "Item whitelist",
-            Kind::StringList { max_entries: 64, max_chars: 64 },
+            Kind::StringList {
+                max_entries: 64,
+                max_chars: 64,
+            },
             json!(["blocks"]),
         )
         .when(&key("limit-items"), json!(true)),
@@ -264,7 +307,11 @@ impl Options {
         let boolean = |k: &str| get(k).and_then(Value::as_bool).unwrap_or(false);
         let range = |k: &str| {
             let v = get(k).and_then(Value::as_array);
-            let at = |i: usize| v.and_then(|v| v.get(i)).and_then(Value::as_f64).unwrap_or(0.0);
+            let at = |i: usize| {
+                v.and_then(|v| v.get(i))
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+            };
             (at(0), at(1))
         };
         let list = |k: &str| {
@@ -293,7 +340,10 @@ impl Options {
             jitter: boolean("jitter"),
             limit_items: boolean("limit-items"),
             allowed_items: list("allowed-items"),
-            start_delay: get("start-delay").and_then(Value::as_f64).unwrap_or(0.0).max(0.0) as u64,
+            start_delay: get("start-delay")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
+                .max(0.0) as u64,
             sneak_only: boolean("sneak-only"),
         }
     }
@@ -427,7 +477,11 @@ impl Engine {
 
     fn activation_held(o: &Options, input: &Input) -> bool {
         // Without Hold to click the reference uses window focus alone.
-        if o.hold { input.attack_held } else { input.playing }
+        if o.hold {
+            input.attack_held
+        } else {
+            input.playing
+        }
     }
 
     /// `LeftClicker.shouldAllowClick`: false while mining a block.
@@ -501,7 +555,8 @@ impl Engine {
             self.stop_breaking(&mut out);
             !input.playing
         };
-        if self.breaking && input.playing && Self::activation_held(o, input) && !input.attack_mapped {
+        if self.breaking && input.playing && Self::activation_held(o, input) && !input.attack_mapped
+        {
             out.press = true;
             self.generate_jitter(o);
             self.break_attack_held = true;
@@ -528,7 +583,10 @@ impl Engine {
             out.release = false;
         }
         if o.jitter && input.playing && self.pending_jitter != (0.0, 0.0) {
-            out.turn = (self.pending_jitter.0 as i32, -(self.pending_jitter.1 as i32));
+            out.turn = (
+                self.pending_jitter.0 as i32,
+                -(self.pending_jitter.1 as i32),
+            );
             self.pending_jitter = (
                 (self.pending_jitter.0 % 1.0).trunc(),
                 (self.pending_jitter.1 % 1.0).trunc(),
@@ -588,7 +646,12 @@ mod tests {
         Options::read(&settings, LEFT)
     }
     fn input(now: u64) -> Input {
-        Input { now_ms: now, playing: true, attack_held: true, ..Input::default() }
+        Input {
+            now_ms: now,
+            playing: true,
+            attack_held: true,
+            ..Input::default()
+        }
     }
     /// Clicks per second over `ms` of 1 ms frames.
     fn run(e: &mut Engine, o: &Options, ms: u64, f: impl Fn(u64) -> Input) -> (u32, u32) {
@@ -607,14 +670,24 @@ mod tests {
         assert!(o.hold && !o.trigger && o.randomization == Randomization::Extra);
         assert_eq!(o.cps, (6, 13));
         assert_eq!(o.suffix(), "6-13cps");
-        for mode in [Randomization::Normal, Randomization::Extra, Randomization::ExtraPlus] {
+        for mode in [
+            Randomization::Normal,
+            Randomization::Extra,
+            Randomization::ExtraPlus,
+        ] {
             let mut o = options();
             o.randomization = mode;
             let mut e = Engine::new(11);
             let (presses, releases) = run(&mut e, &o, 10_000, input);
             // 6..13 CPS with the reference's phase pauses: 3.5..14 per second.
-            assert!((35..=140).contains(&presses), "{mode:?}: {presses} clicks in 10 s");
-            assert!(presses.abs_diff(releases) <= 1, "{mode:?}: {presses}/{releases}");
+            assert!(
+                (35..=140).contains(&presses),
+                "{mode:?}: {presses} clicks in 10 s"
+            );
+            assert!(
+                presses.abs_diff(releases) <= 1,
+                "{mode:?}: {presses}/{releases}"
+            );
         }
     }
 
@@ -622,8 +695,22 @@ mod tests {
     fn no_clicks_without_activation_screen_or_item() {
         let o = options();
         let mut e = Engine::new(3);
-        assert_eq!(run(&mut e, &o, 2000, |n| Input { attack_held: false, ..input(n) }).0, 0);
-        assert_eq!(run(&mut e, &o, 2000, |n| Input { playing: false, ..input(n) }).0, 0);
+        assert_eq!(
+            run(&mut e, &o, 2000, |n| Input {
+                attack_held: false,
+                ..input(n)
+            })
+            .0,
+            0
+        );
+        assert_eq!(
+            run(&mut e, &o, 2000, |n| Input {
+                playing: false,
+                ..input(n)
+            })
+            .0,
+            0
+        );
         let mut limited = options();
         limited.limit_items = true;
         assert_eq!(run(&mut Engine::new(3), &limited, 2000, input).0, 0);
@@ -642,14 +729,30 @@ mod tests {
         let mut o = options();
         o.trigger = true;
         assert_eq!(run(&mut Engine::new(5), &o, 2000, input).0, 0);
-        assert!(run(&mut Engine::new(5), &o, 2000, |n| Input { entity_hit: true, ..input(n) }).0 > 0);
+        assert!(
+            run(&mut Engine::new(5), &o, 2000, |n| Input {
+                entity_hit: true,
+                ..input(n)
+            })
+            .0 > 0
+        );
         let mut o = options();
         o.break_blocks = true;
         // Aiming at a block holds attack down to mine instead of clicking.
         let mut e = Engine::new(5);
-        let first = e.frame(&o, &Input { block_hit: true, ..input(0) });
+        let first = e.frame(
+            &o,
+            &Input {
+                block_hit: true,
+                ..input(0)
+            },
+        );
         assert!(first.press);
-        let (presses, _) = run(&mut e, &o, 1000, |n| Input { block_hit: true, attack_mapped: true, ..input(n + 1) });
+        let (presses, _) = run(&mut e, &o, 1000, |n| Input {
+            block_hit: true,
+            attack_mapped: true,
+            ..input(n + 1)
+        });
         assert_eq!(presses, 0);
         assert!(e.reset());
     }

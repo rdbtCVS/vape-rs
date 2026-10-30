@@ -11,8 +11,16 @@ pub fn definitions() -> Vec<Definition> {
     let key = |k: &str| format!("{ID}.{k}");
     vec![
         Definition::boolean(&key("limit-items"), "Limit Items", false),
-        Definition::new(&key("whitelist"), "Whitelisted", Kind::StringList { max_entries: 64, max_chars: 64 }, json!(["swords"]))
-            .when(&key("limit-items"), json!(true)),
+        Definition::new(
+            &key("whitelist"),
+            "Whitelisted",
+            Kind::StringList {
+                max_entries: 64,
+                max_chars: 64,
+            },
+            json!(["swords"]),
+        )
+        .when(&key("limit-items"), json!(true)),
     ]
 }
 

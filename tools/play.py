@@ -8,7 +8,7 @@ from native_session import BINARY, NativeSession, StaleBuild
 
 DEFAULT_RESOURCES = Path(
     '<launcher-dir>/versions/'
-    'nightly-2026-10-28-9b772b2/.local/horizon-client/26.3'
+    'nightly-2026-10-29-a305d38/.local/horizon-client/26.3'
 )
 
 

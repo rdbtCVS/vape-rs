@@ -396,7 +396,7 @@ Validation: fmt and Clippy pass; 102 runtime + 4 audit tests and 102 payload tes
 | Velocity | 10/10 |
 | Smoke | 27/27 |
 
-AutoClicker's engine (Normal/Extra/Extra+ timing, hold/release cycle, jitter, break blocks) is drafted in `docs/drafts/clicker.rs` but not yet registered.
+AutoClicker's engine (Normal/Extra/Extra+ timing, hold/release cycle, jitter, break blocks) is drafted in `docs/drafts/clicker.rs` but not yet registered. (Registered 2026-10-30; the draft was removed.)
 
 ## Single player on the integrated server only (2026-10-29)
 

@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **26 HEAD hooks, 14 support modules, no owned state**. Horizon `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main, 2026-10-29); published, unpatched horizon-mixins main `07dab17387480ac03829584d9d1ee9912c9bb515`, the pin the `.hnmod` names.
+Current audited configuration: **33 hooks (32 HEAD + 1 MODIFY_ARG), 18 support modules, no owned state**. Horizon `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main, 2026-10-29); published, unpatched horizon-mixins main `07dab17387480ac03829584d9d1ee9912c9bb515`, the pin the `.hnmod` names.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers and modules, rejects any owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
@@ -13,7 +13,7 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `client-hud` | `horizon_client::game::extras::Game<'_>::draw_extras` | Real snapshot + shared native HUD painter; F1/screen gates retained. |
 | `control-key-names` | `horizon_client::game::control::key_code` | Cancellable HEAD. Supplies missing mod/editor control-key names; continues original parser otherwise. |
 | `gui-events` | `horizon_client::game::<Game<'_> as ApplicationHandler>::window_event` | Owned-window pointer, text, IME and focus events. |
-| `gui-render` | `horizon_client::game::debug_keys::Game<'_>::draw_debug_overlay` | Paints the owned local GUI through the host atlas. |
+| `gui-render` | `horizon_client::game::debug_keys::Game<'_>::draw_debug_overlay` | Paints the owned local GUI through the host atlas, with text in the theme's interface font (`vape_smooth_text`). |
 | `game-key-capture` | `horizon_client::game::Game<'_>::mapped_key` | Cancellable HEAD (`adapters/mapped_key.rs`, binds `key`, `pressed`). Consumes handled gameplay key presses; otherwise records the canonical key event (rebound key, controller, socket) for the movement writer. |
 | `control-key-capture` | `horizon_client::game::control::Game<'_>::control_key_down` | Cancellable HEAD (`adapters/control_key.rs`, binds `key`). Same isolation for socket key presses; records keys inserted outside the toggle mappings for the movement writer. |
 | `mouse-bind` | `horizon_client::game::Game<'_>::play_mouse` | Cancellable HEAD. Physical mouse bindings/CPS/macros; consumes handled presses. |
@@ -35,6 +35,13 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `inbound-packet` | `horizon_client::game::remote::Game<'_>::handle_packet` | Observe-only HEAD: the body has macros, which the tool preserves only for non-cancellable hooks. Velocity decides on the local player's `SetEntityMotion` here. A replacement is applied right after the host's own assignment (at the next packet or tick), and only while the motion is still exactly the packet's. |
 | `explosion-push` | `horizon_client::game::lan_particles::Game<'_>::remote_explode` | Cancellable HEAD. Velocity re-runs the host handler on a copy with the scaled push, guarded against re-entry. |
 | `world-lines-hook` | `horizon_client::game::fishing::Game<'_>::fishing_line` | Cancellable HEAD. Preserves fishing lines and adds depth-tested StorageESP outlines when enabled. |
+| `entity-pick` | `horizon_client::game::Game<'_>::mob_hit` | Cancellable HEAD. Reach and HitBoxes replicate the host pick with a longer ray and inflated boxes; creative, serving and dedicated keep the host pick. Uses `try_with_client` so a held runtime lock falls through. |
+| `remote-attack` | `horizon_client::game::remote::Game<'_>::remote_start_attack` | Reach's post-attack bookkeeping on the remote (and single-player) path; `auto-tool-attack` covers the local path. |
+| `timer-advance` | `horizon_client::clock::FixedStep::advance` | Cancellable HEAD (library crate). Re-runs the clock once on elapsed time scaled by the Timer speed the frame adapter set, guarded against re-entry. |
+| `no-slowdown` | `horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick` | HEAD (library crate). Clears the item-use slowdown for the player NoSlowdown's tick marked. |
+| `fly-move` | `horizon_client::motion::MotionWorld<'_,'_,'_>::move_self` | Cancellable HEAD (library crate). Substitutes Fly's per-tick movement vector. |
+| `send-state` | `horizon_client::game::remote::Game<'_>::remote_send_state` | NoFall/Fly pre-motion: AntiCheat's MovePlayerStatus true/false pair and the ground value for this send. |
+| `send-state-ground` | `remote_send_state`, argument 2 of `r.position_sender.update` | MODIFY_ARG (`require = 1`, `ordinal = 0`). Replaces the sent `on_ground` with the pre-motion value when set. |
 
 ## Support modules
 
@@ -54,6 +61,10 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_combat` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/combat.rs` |
 | `vape_safe_walk` | `crates/horizon-client/src/motion.rs` | `mixins/vape_rs/safe_walk.rs` |
 | `vape_client_owner` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/client_owner.rs` |
+| `vape_timer` | `crates/horizon-client/src/clock.rs` | `mixins/vape_rs/timer.rs` |
+| `vape_motion_flags` | `crates/horizon-client/src/motion.rs` | `mixins/vape_rs/motion_flags.rs` |
+| `vape_movement` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/movement.rs` |
+| `vape_smooth_text` | `crates/horizon-client/src/ui_theme.rs` | `mixins/vape_rs/smooth_text.rs` |
 
 The runtime source is deterministically expanded from src/lib.rs. The published tool can't add a field to `Game<'_>`, so `vape_client_owner` keeps one Arc<Mutex<Runtime>> per thread behind the same `__horizon_mixins_vape_rs_client` accessor. Only the window thread's client Game uses it; hooks return before using it on a server or dedicated Game, and that thread drops its unused runtime when it ends. Adapters release runtime borrows before calling host actions. Session generations invalidate stale entity, slot, container and hook observations. Transient state never enters local profiles.
 

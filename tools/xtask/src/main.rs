@@ -539,10 +539,16 @@ fn audit(root: &Path) -> Result<()> {
             .unwrap_or_else(|| json!([]));
         let kind = declaration["kind"].as_str().unwrap_or("");
         let argument_matches = kind != "MODIFY_ARG"
-            || (injection["selector"].as_str() == declaration.get("selector").and_then(toml::Value::as_str)
-                && injection["argument"].as_i64() == declaration.get("argument").and_then(toml::Value::as_integer)
-                && injection["require"].as_i64() == declaration.get("require").and_then(toml::Value::as_integer)
-                && injection["ordinal"].as_i64() == declaration.get("ordinal").and_then(toml::Value::as_integer));
+            || (injection["selector"].as_str()
+                == declaration.get("selector").and_then(toml::Value::as_str)
+                && injection["argument"].as_i64()
+                    == declaration
+                        .get("argument")
+                        .and_then(toml::Value::as_integer)
+                && injection["require"].as_i64()
+                    == declaration.get("require").and_then(toml::Value::as_integer)
+                && injection["ordinal"].as_i64()
+                    == declaration.get("ordinal").and_then(toml::Value::as_integer));
         if !matches!(kind, "HEAD" | "MODIFY_ARG")
             || injection["kind"].as_str() != Some(kind)
             || !argument_matches
@@ -570,7 +576,11 @@ fn audit(root: &Path) -> Result<()> {
         if kind == "MODIFY_ARG" {
             expected_args.push((
                 string(injection, "file")?.to_owned(),
-                string(injection, "target")?.rsplit("::").next().unwrap().to_owned(),
+                string(injection, "target")?
+                    .rsplit("::")
+                    .next()
+                    .unwrap()
+                    .to_owned(),
                 syn::parse2(quote!(({ #helper #name })))?,
             ));
             continue;
@@ -718,7 +728,11 @@ impl Strip {
             .map(|(_, callee)| canonical_expr(callee))
             .collect::<Vec<_>>();
         if !callees.is_empty() {
-            StripArguments { callees, removed: &mut self.removed }.visit_block_mut(block);
+            StripArguments {
+                callees,
+                removed: &mut self.removed,
+            }
+            .visit_block_mut(block);
         }
     }
     fn strip_head(&mut self, function: &syn::Ident, block: &mut syn::Block) {

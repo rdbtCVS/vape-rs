@@ -1012,11 +1012,19 @@ impl Runtime {
         right: bool,
         input: &super::modules::combat::clicker::Input,
     ) -> super::modules::combat::clicker::Actions {
-        use super::modules::combat::clicker::{Actions, Options, LEFT, RIGHT};
-        let (module, prefix) = if right { (ModuleId::RightClicker, RIGHT) } else { (ModuleId::AutoClicker, LEFT) };
+        use super::modules::combat::clicker::{Actions, LEFT, Options, RIGHT};
+        let (module, prefix) = if right {
+            (ModuleId::RightClicker, RIGHT)
+        } else {
+            (ModuleId::AutoClicker, LEFT)
+        };
         let active = self.enabled(module) && self.session.interactive();
         let slot = usize::from(right);
-        let engine = if right { &mut self.right_clicker } else { &mut self.left_clicker };
+        let engine = if right {
+            &mut self.right_clicker
+        } else {
+            &mut self.left_clicker
+        };
         let mut out = if active {
             engine.frame(&Options::read(&self.settings, prefix), input)
         } else {
@@ -1028,16 +1036,21 @@ impl Runtime {
     }
     /// The clickers' pre-tick jitter step.
     pub fn clicker_tick(&mut self) {
-        use super::modules::combat::clicker::{Options, LEFT, RIGHT};
+        use super::modules::combat::clicker::{LEFT, Options, RIGHT};
         if self.enabled(ModuleId::AutoClicker) {
             self.left_clicker.tick(&Options::read(&self.settings, LEFT));
         }
         if self.enabled(ModuleId::RightClicker) {
-            self.right_clicker.tick(&Options::read(&self.settings, RIGHT));
+            self.right_clicker
+                .tick(&Options::read(&self.settings, RIGHT));
         }
     }
     /// Reach's pre-tick target trace (Advanced mode).
-    pub fn reach_tick(&mut self, player: super::modules::combat::reach::Player, traced: Option<i32>) {
+    pub fn reach_tick(
+        &mut self,
+        player: super::modules::combat::reach::Player,
+        traced: Option<i32>,
+    ) {
         if !self.enabled(ModuleId::Reach) || !self.session.in_world() {
             self.reach.reset();
             return;
@@ -1052,7 +1065,10 @@ impl Runtime {
         }
     }
     /// The entity pick range and box expansion, or None for the host's own.
-    pub fn pick_range(&mut self, player: super::modules::combat::reach::Player) -> Option<(f64, f64)> {
+    pub fn pick_range(
+        &mut self,
+        player: super::modules::combat::reach::Player,
+    ) -> Option<(f64, f64)> {
         let reach = self.enabled(ModuleId::Reach);
         let hitboxes = self.enabled(ModuleId::HitBoxes);
         if !reach && !hitboxes {
@@ -1064,7 +1080,11 @@ impl Runtime {
         } else {
             super::modules::combat::reach::BASE
         };
-        let expand = if hitboxes { super::modules::blatant::hitbox_expansion(&self.settings) } else { 0.0 };
+        let expand = if hitboxes {
+            super::modules::blatant::hitbox_expansion(&self.settings)
+        } else {
+            0.0
+        };
         Some((range, expand))
     }
     /// Timer's speed for the game clock (1.0 when off or out of a world).
@@ -1084,7 +1104,12 @@ impl Runtime {
         Some(super::modules::blatant::fly::movement(&options, input))
     }
     /// NoFall's pre-motion step; `skip` covers dead, creative and flying.
-    pub fn no_fall_motion(&mut self, skip: bool, fall_distance: f32, motion_y: f64) -> super::modules::blatant::no_fall::Effects {
+    pub fn no_fall_motion(
+        &mut self,
+        skip: bool,
+        fall_distance: f32,
+        motion_y: f64,
+    ) -> super::modules::blatant::no_fall::Effects {
         if !self.enabled(ModuleId::NoFall) || !self.session.in_world() {
             self.no_fall.reset();
             return Default::default();

@@ -13,7 +13,14 @@ pub const TIMER: &str = "blatant.timer";
 
 pub fn definitions() -> Vec<Definition> {
     let mut out = vec![
-        Definition::number(&format!("{HITBOXES}.expand"), "Expand amount", 0.0, 0.35, 1.0, 0.01),
+        Definition::number(
+            &format!("{HITBOXES}.expand"),
+            "Expand amount",
+            0.0,
+            0.35,
+            1.0,
+            0.01,
+        ),
         Definition::number(&format!("{TIMER}.speed"), "Speed", 0.1, 1.07, 2.0, 0.01),
     ];
     out.extend(fly::definitions());

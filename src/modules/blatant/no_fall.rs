@@ -8,7 +8,12 @@ use serde_json::Value;
 pub const ID: &str = "blatant.no-fall";
 
 pub fn definitions() -> Vec<Definition> {
-    vec![Definition::choice(&format!("{ID}.mode"), "Mode", &["Normal", "AntiCheat"], "Normal")]
+    vec![Definition::choice(
+        &format!("{ID}.mode"),
+        "Mode",
+        &["Normal", "AntiCheat"],
+        "Normal",
+    )]
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,7 +57,13 @@ impl NoFall {
     }
     /// `onMotionUpdate(EventPreMotion)`; `skip` covers the dead, creative,
     /// flying and Fly checks.
-    pub fn pre_motion(&mut self, mode: Mode, skip: bool, fall_distance: f32, motion_y: f64) -> Effects {
+    pub fn pre_motion(
+        &mut self,
+        mode: Mode,
+        skip: bool,
+        fall_distance: f32,
+        motion_y: f64,
+    ) -> Effects {
         let mut out = Effects::default();
         if skip {
             return out;
