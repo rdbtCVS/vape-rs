@@ -28,7 +28,7 @@ Do not delete the Java reference repository. The finished vape-rs distribution m
 
 | Location | Role |
 | --- | --- |
-| `<repo>` | New independent project; write implementation here |
+| `./` (this repository) | New independent project; write implementation here |
 | `../Vape-v4` | Reference implementation; do not build or execute it |
 | `../horizon` | Horizon Rust source, lowercase directory name; inspect without editing during mod development |
 | `../horizon/AGENTS.md`, `../horizon/CONTRIBUTING.md` | Read before working against Horizon; follow test/data isolation rules |

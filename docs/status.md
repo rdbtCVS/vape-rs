@@ -203,7 +203,7 @@ published main `07dab17387480ac03829584d9d1ee9912c9bb515`, unpatched. See compat
 Prepared resource directory located for this workspace:
 
 ```text
-<launcher-dir>/versions/nightly-2026-10-29-a305d38/.local/horizon-client/26.3
+<launcher-dir>/versions/<nightly>/.local/horizon-client/26.3
 ```
 
 Use those resources read-only and tools/native_session.py with fresh homes and

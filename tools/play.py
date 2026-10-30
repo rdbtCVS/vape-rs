@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """Open the development client in a fresh, visible, isolated test instance."""
 import argparse
+import os
 from pathlib import Path
 import subprocess
 
 from native_session import BINARY, NativeSession, StaleBuild
 
-DEFAULT_RESOURCES = Path(
-    '<launcher-dir>/versions/'
-    'nightly-2026-10-29-a305d38/.local/horizon-client/26.3'
-)
+DEFAULT_RESOURCES = Path(os.environ['HORIZON_RESOURCES']) if os.environ.get('HORIZON_RESOURCES') else None
 
 
 def main():
@@ -21,6 +19,8 @@ def main():
     parser.add_argument('--allow-stale', action='store_true',
                         help='launch even if the executable was not built from the current sources')
     args = parser.parse_args()
+    if args.resources is None:
+        parser.error('pass the resources directory or set HORIZON_RESOURCES')
     try:
         session = NativeSession(args.resources, prefix='manual-', allow_stale=args.allow_stale)
     except (OSError, ValueError, StaleBuild) as error:

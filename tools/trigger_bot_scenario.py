@@ -8,6 +8,7 @@ Mobs targeting on, not when looking away, not behind a screen, not with Mobs
 off, and not after disabling. Results go to result.json.
 """
 import argparse
+import os
 import json
 
 from native_session import NativeSession
@@ -143,10 +144,12 @@ def run(resources, allow_stale):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('resources', nargs='?',
-                        default='<launcher-dir>/versions/'
-                                'nightly-2026-10-28-9b772b2/.local/horizon-client/26.3')
+                        default=os.environ.get('HORIZON_RESOURCES'),
+                        help='prepared Minecraft 26.3 resources (or set HORIZON_RESOURCES)')
     parser.add_argument('--allow-stale', action='store_true')
     args = parser.parse_args()
+    if not args.resources:
+        parser.error('pass the resources directory or set HORIZON_RESOURCES')
     raise SystemExit(0 if run(args.resources, args.allow_stale) else 1)
 
 

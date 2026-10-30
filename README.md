@@ -1,97 +1,39 @@
-# vape-rs (development)
+# vape-rs
 
-Independent Rust-native Horizon mod rewrite. The full scope and completion gates are in [plan.md](plan.md); the current handoff is [docs/status.md](docs/status.md). The rewrite is incomplete. Twenty-seven modules are connected to the native client: seven HUD widgets, AimAssist (Simple mode), TriggerBot, Velocity, SafeWalk, NoHurtCam, Fullbright, Clear Water, StorageESP (partial), AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal, FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Sprint, Parkour (experimental) and Panic. Local settings/profiles/friends, macros, typed editors, binding capture and HUD placement are connected. Recent batches have compilation evidence; full gameplay/visual parity and release gates remain open. AI behavior and the online product are explicitly excluded; SilentAura’s PID and other non-AI features remain in scope.
+A from-scratch recreation of the **Vape** Minecraft client as a native Rust mod for the [Horizon](https://github.com/horizon-rust/horizon) client (Minecraft 26.3). It is not Java, not injected and has no accounts or online services: it runs locally as a Horizon native mod, and all settings, profiles, friends and macros stay on your machine.
 
-References are read-only. No Java, JNI, process injection, account service or remote backend is part of this runtime. The adjacent reconstructed Java repository is used only for static behavioral inspection.
+> **Status: work in progress.** Many modules exist, but only some have been validated in a real game, and visual/behavioral parity with the original is not claimed. See [docs/status.md](docs/status.md) and [docs/progress.md](docs/progress.md).
 
-## Development
+## What works today
 
-Use Rust 1.99.0 (rust-toolchain.toml), Git and tar; Python 3 is used only for inventory/ZIP development tools. First populate approved dependencies with `cargo fetch --locked`, then:
+- **HUD:** seven widgets with an in-game layout editor.
+- **Combat:** AimAssist (Simple mode), TriggerBot, Velocity, clickers, Reach, HitBoxes, AutoArmor, AutoTotem (partial).
+- **Movement:** Sprint, SafeWalk, Parkour (experimental), Speed, LongJump, Fly, NoFall, NoSlowdown, Step, WTap, AntiFall.
+- **World / utility:** AutoTool, Refill, ChestSteal, FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Fullbright, Clear Water, NoHurtCam, StorageESP (partial), Panic.
+- **Client:** click GUI (Right Shift), module settings and key binding, local profiles, friends/enemies, macros.
 
-```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked --offline -- -D warnings
-cargo test --workspace --locked --offline
-cargo run -p xtask --locked --offline -- payload-test
-```
+Modules start disabled. F10 turns every active module off. AI behavior and the online product are intentionally not part of this project.
 
-The AST packer reads conventional Rust module files under src and emits one source-only payload plus a content-hash source map under target. The emitted payload's tests compile in an isolated Cargo fixture with its committed lockfile. The runtime uses serde_json 1.0.151 and the native clock adapter uses chrono, both already declared and locked in the pinned host; staging verifies that contract and never injects a dependency.
+## Install
 
-The mixin tool is pinned to published, unpatched horizon-mixins main (`07dab17`, compatibility.json), the same commit the `.hnmod` names, so the launcher builds exactly what development stages. The published tool can't add a field to `Game<'_>`, so the runtime is owned per thread by the `client-owner` support module; only the window thread's client Game uses it.
-
-For native staging, review the pinned mixin sources before building them:
+Requires Horizon's launcher (0.2.27+) with a Nightly installed for Minecraft 26.3.
 
 ```sh
-git clone https://github.com/horizon-rust/horizon-mixins target/upstream/horizon-mixins
-git -C target/upstream/horizon-mixins checkout --detach 07dab17387480ac03829584d9d1ee9912c9bb515
-cargo +1.95.0 fetch --locked --manifest-path target/upstream/horizon-mixins/Cargo.toml
-cargo run -p xtask --locked --offline -- stage ../horizon
-cargo fetch --locked --manifest-path target/horizon/modded/Cargo.toml
-cargo run -p xtask --locked --offline -- check ../horizon
-cargo run -p xtask --locked --offline -- build ../horizon
-```
-
-Staging exports the committed Horizon pin from compatibility.json, ignores the original working tree, checks pristine source hashes, runs the pinned planner/transformer and audits the generated changes. Wrong pins, source drift, unexpected edits and stale bundle files fail loudly. All exports/builds remain under target. `check` type-checks the actual client binary; `test` compiles/runs embedded runtime tests; `build` compiles the client using Horizon's fast profile with audio/controllers disabled. These execute reviewed native Rust and its build scripts with normal user privileges.
-
-Run the binary only with your own compatible prepared 26.3 resources and fresh scratch homes, as required by Horizon's AGENTS.md. Never point HORIZON_HOME at real player data for tests. See [docs/hooks.md](docs/hooks.md) for integration boundaries. Right Shift opens the custom local GUI. Its pages expose module settings/binding capture, local profiles, local friend/enemy records and a local macro editor. F8/F9 are default HUD bindings and F10 disables all active modules. Modules start disabled; saved preferences restore on restart. Text rendering uses the host atlas; reference typography/layout parity remains unverified.
-
-The compatible prepared resource directory located for this workspace is:
-
-```text
-<launcher-dir>/versions/nightly-2026-10-28-9b772b2/.local/horizon-client/26.3
-```
-
-Use it read-only; every executable game run must use fresh isolated homes and working directory through tools/native_session.py. `xtask build` writes `target/host-cargo/fast/vape-rs-build.json` beside the executable (bundle hash, Horizon/mixin pins, profile/features, cargo version, executable hash, source commit/dirty flag). `play.py` and every scenario refuse to launch an executable whose identity is missing or differs from the current sources (`--allow-stale` overrides with a warning), and copy the identity into the session as build.json. Post-merge scenarios: `tools/smoke_scenario.py` and `tools/lan_scenario.py` (two owned processes over localhost LAN); see docs/evidence/postmerge-validation.json. For a visible manual test in a new disposable survival world:
-
-```sh
-python3 tools/play.py
-# Optional creative starting mode:
-
-python3 tools/play.py --creative
-```
-
-The launcher uses the resource directory above by default; supply another as a
-positional argument if needed. Each run gets fresh homes, preferences and world
-under target/scenarios/manual-*. It opens a normal visible window and retains
-that instance and game.log after quitting. Right Shift opens the GUI; all modules
-start disabled, F8/F9 toggle coordinates/FPS and F10 disables all modules. Start
-with the HUD/editor, AutoTool, Sprint, Parkour, AutoArmor, AutoTotem and Panic,
-which have host scenarios; the other newer modules still need gameplay validation.
-AutoArmor, Refill and ChestSteal are guarded out in creative, so use survival for inventory tests.
-Rebuild after source changes with `cargo run -p xtask --locked --offline -- build`.
-
-The development scenario driver accepts a prepared resource directory:
-
-```sh
-python3 tools/scenario.py /absolute/path/to/prepared/26.3
-
-```
-
-It uses a fresh working directory and isolated homes for each run, then captures input/HUD states and quits the test game. Screenshots require visual inspection; successful commands alone do not establish rendering parity.
-
-## Packaging and installing the .hnmod
-
-```sh
-python3 tools/bundle.py                 # dist/vape_rs-<version>.hnmod and .sha256
-python3 -I tools/launcher_build.py      # optional: build it the way the launcher does
-VAPE_RS_BUILD=launcher python3 tools/smoke_scenario.py /path/to/prepared/26.3
-```
-
-`bundle.py` packs the source-only bundle: `horizon-native.json` plus `mixins/vape_rs/` (only `.rs` and `.toml`, no game source or resources), with fixed timestamps so the same sources give the same bytes. The mod id is `vape_rs`, because the registry's ids allow only lowercase letters, digits and `_`. Horizon's own registry check accepts it (`cargo horizon-mod check dist/vape_rs-0.1.0-dev.hnmod`, built from the pinned Horizon). `launcher_build.py` follows the launcher's `native_mods::build` under target/launcher-build: it unpacks with the registry's path rules, runs `cargo install --git` for horizon-mixins at the bundle's pin, downloads GitHub's archive of the pinned Horizon commit, applies the mods, and builds `--profile release --features horizon-client/mods` with the launcher's Rust 1.99.1. `VAPE_RS_BUILD=launcher` makes the scenario tools run that executable.
-
-To play it with Horizon's launcher (0.2.27 or later, with an installed Nightly for Minecraft 26.3 to reuse the game files of):
-
-```sh
+python3 tools/bundle.py                      # builds dist/vape_rs-<version>.hnmod
 mkdir -p ~/vape_rs && cd ~/vape_rs && unzip /path/to/vape_rs-0.1.0-dev.hnmod
 horizon-launcher native-build ~/vape_rs --trust-native-code
 ```
 
-The launcher builds the game on Horizon `cc7bcbf` (the bundle pins it; the first build downloads Rust and takes 20 to 30 minutes) and points its "Native mods" instance at the result. Native mods run with your full OS privileges; read the source before trusting it. Settings are kept in the instance's `native-mods/vape-rs` folder. Only the Linux x86-64 build route has been exercised; Windows and macOS are untested.
+The first build downloads Rust and takes 20–30 minutes. Native mods run with your full OS privileges, so read the source first. Only Linux x86-64 has been exercised.
 
-## Tracking work
+## Building and contributing
 
-- [Feature ledger](docs/features.csv): retained entries count only when validated with real host evidence.
-- [Static discovery](docs/discovery.json): source declarations/hashes; not a completed behavior specification.
-- [Progress](docs/progress.md), [decisions](docs/decisions.md), [hooks](docs/hooks.md).
+See [docs/development.md](docs/development.md). You need Rust 1.99.0 (pinned in `rust-toolchain.toml`, required by Horizon). Never run tests against real player data.
 
-Before a release, finish the behavioral/UI audit, session ownership, gameplay/remote-client scenarios, performance measurement, provenance and fresh native installation tests. No asset redistribution rights are inferred from the reference's root CC0 notice.
+## Disclaimer
+
+This is an independent, unofficial project. It is **not affiliated with or endorsed by** the makers of Vape, Mojang or Microsoft, and contains no code or assets from them. "Minecraft" is a trademark of Mojang AB. Using client modifications on multiplayer servers can get you banned; use it where it is allowed, and at your own risk.
+
+## License
+
+[MIT](LICENSE).
