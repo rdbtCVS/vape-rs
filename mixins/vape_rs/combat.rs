@@ -118,7 +118,7 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
     out
 }
 
-fn held(game: &Game<'_>) -> HeldItem {
+pub(super) fn held(game: &Game<'_>) -> HeldItem {
     let stack = game.inventory.get(game.selected).and_then(|s| s.as_ref());
     let info = stack.and_then(|s| game.res.items().get(&s.item));
     HeldItem {

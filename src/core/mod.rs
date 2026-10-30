@@ -87,6 +87,7 @@ pub struct Runtime {
     right_clicker: super::modules::combat::clicker::Engine,
     reach: super::modules::combat::reach::Reach,
     no_fall: super::modules::blatant::no_fall::NoFall,
+    outbound: super::modules::blatant::outbound::Outbound,
     no_slowdown: super::modules::blatant::no_slowdown::NoSlowdown,
     wtap: super::modules::combat::wtap::WTap,
     anti_afk: super::modules::world::anti_afk::AntiAfk,
@@ -322,6 +323,7 @@ impl Default for Runtime {
             .chain(super::modules::render::trajectories::definitions())
             .chain(super::modules::render::name_tags::definitions())
             .chain(super::modules::render::item_esp::definitions())
+            .chain(super::modules::blatant::outbound::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -424,6 +426,7 @@ impl Default for Runtime {
             right_clicker: super::modules::combat::clicker::Engine::new(0x2c1b_3c6d_4a1f_9e37),
             reach: Default::default(),
             no_fall: Default::default(),
+            outbound: Default::default(),
             no_slowdown: Default::default(),
             wtap: Default::default(),
             anti_afk: Default::default(),
@@ -500,6 +503,10 @@ impl Runtime {
                 ModuleId::Speed => self.speed.reset(),
                 ModuleId::LongJump => self.long_jump.reset(),
                 ModuleId::AntiFall => self.anti_fall.reset(),
+                ModuleId::Blink => {
+                    let active = self.outbound_active();
+                    self.outbound.tick(&self.settings, active, false);
+                }
                 _ => {}
             }
         }
@@ -1333,6 +1340,9 @@ impl Runtime {
         if self.enabled(ModuleId::Tracers) {
             esp::tracers(&self.settings, camera, entities, &people, &mut out);
         }
+        if self.enabled(ModuleId::Blink) {
+            self.outbound.breadcrumbs(&self.settings, &mut out);
+        }
         if let Some((launch, block)) = trajectory {
             super::modules::render::trajectories::lines(
                 &self.settings,
@@ -1346,6 +1356,42 @@ impl Runtime {
             );
         }
         out
+    }
+    fn outbound_active(&self) -> super::modules::blatant::outbound::Active {
+        let world = self.session.in_world();
+        super::modules::blatant::outbound::Active {
+            blink: world && self.enabled(ModuleId::Blink),
+            fake_lag: world && self.enabled(ModuleId::FakeLag),
+            no_item_release: world && self.enabled(ModuleId::NoItemRelease),
+            potion_saver: world && self.enabled(ModuleId::PotionSaver),
+        }
+    }
+    /// Blink, FakeLag, NoItemRelease and PotionSaver at a serverbound send.
+    pub fn outbound_packet(
+        &mut self,
+        packet: super::modules::blatant::outbound::Packet,
+        ctx: &super::modules::blatant::outbound::Context,
+    ) -> super::modules::blatant::outbound::Verdict {
+        let active = self.outbound_active();
+        self.outbound.packet(&self.settings, active, packet, ctx)
+    }
+    /// Per tick: Blink's auto send; whether to release every held packet.
+    pub fn outbound_tick(&mut self) -> bool {
+        let active = self.outbound_active();
+        let world = self.session.in_world();
+        self.outbound.tick(&self.settings, active, world);
+        self.outbound.take_flush()
+    }
+    /// Whether a send just asked for every held packet to go.
+    pub fn outbound_flush(&mut self) -> bool {
+        self.outbound.take_flush()
+    }
+    /// Regen's extra status packets this tick.
+    pub fn regen_packets(&self, vitals: super::modules::blatant::outbound::Vitals) -> u32 {
+        if !self.enabled(ModuleId::Regen) || !self.session.in_world() {
+            return 0;
+        }
+        super::modules::blatant::outbound::regen(&self.settings, vitals)
     }
     /// Whether NameTags and ItemESP draw this frame.
     pub fn world_tag_sources(&self) -> (bool, bool) {
@@ -1998,7 +2044,12 @@ impl Runtime {
                 | ModuleId::LongJump
                 | ModuleId::AntiFall
                 | ModuleId::NameTags
-                | ModuleId::ItemEsp => continue,
+                | ModuleId::ItemEsp
+                | ModuleId::Blink
+                | ModuleId::FakeLag
+                | ModuleId::NoItemRelease
+                | ModuleId::PotionSaver
+                | ModuleId::Regen => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

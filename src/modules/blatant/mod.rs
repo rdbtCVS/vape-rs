@@ -6,6 +6,7 @@ pub mod fly;
 pub mod long_jump;
 pub mod no_fall;
 pub mod no_slowdown;
+pub mod outbound;
 pub mod speed;
 
 use super::super::core::settings::{Definition, Settings};

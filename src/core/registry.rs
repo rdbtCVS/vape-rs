@@ -91,6 +91,11 @@ registry! {
     AntiFall => "blatant.anti-fall", "AntiFall", "Other", None, [];
     NameTags => "render.name-tags", "NameTags", "Render", None, [];
     ItemEsp => "render.item-esp", "ItemESP", "Render", None, [];
+    Blink => "blatant.blink", "Blink", "Utility", None, [];
+    FakeLag => "world.fake-lag", "FakeLag", "Utility", None, [];
+    NoItemRelease => "combat.no-item-release", "NoItemRelease", "Other", None, [];
+    PotionSaver => "blatant.potion-saver", "PotionSaver", "Other", None, [];
+    Regen => "blatant.regen", "Regen", "Other", None, [];
 }
 
 impl ModuleId {

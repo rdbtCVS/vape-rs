@@ -683,3 +683,34 @@ Validation: `cargo check`, fmt and lib Clippy pass; stage/audit passes with
 35 hooks and 21 support modules; the pinned host check passes (its existing
 private-interface warnings are unchanged). Compile-only: no tests and no
 game scenario ran.
+
+## 2026-10-30: Outbound packet modules
+
+- New cancellable HEAD hook `outbound-packet` on `game::remote::Game::send`
+  (every serverbound play packet the client sends to a remote server), with
+  support module `vape_packets` in `remote.rs`. The decision core is
+  `src/modules/blatant/outbound.rs`; the host keeps held packets in send
+  order with due times and releases them directly to the session.
+- Blink (`blatant.blink`, Utility): outgoing only; every packet held until
+  Blink turns off, leaves the world or Auto send reaches Send threshold;
+  Breadcrumbs every fifth held movement packet while moving, drawn as world
+  lines. Pending: Bi-directional, Spawn fake, the GUI-screen stop.
+- FakeLag (`world.fake-lag`, Utility): Latency holds each packet for Delay
+  ms; Repel holds an attack on a living target whose hurt time is within
+  ceil((Delay + 0..100 ms) / 50) ticks and everything after it until the
+  deadline or the next attack. Pending: Repel's pre-tick hurt-time flush;
+  Dynamic is 1.7-only in the reference.
+- NoItemRelease (`combat.no-item-release`, Other): drops RELEASE_USE_ITEM in
+  any screen, or when the held item matches Allowed items (swords, food,
+  potions by default).
+- PotionSaver (`blatant.potion-saver`, Other): drops movement packets while
+  effects are active, on the ground, with no movement input.
+- Regen (`blatant.regen`, Other): below Health x2 with food above 16, on the
+  ground, not jumping, in water or riding, every fifth tick (tick count % 5
+  == 1) sends 40 airborne status packets. Modern servers do not heal per
+  packet, so this is a literal port with no expected effect there.
+
+Validation: lib build, fmt and lib Clippy pass; stage/audit passes with 36
+hooks and 22 support modules; the pinned host check passes (0 errors, the
+existing private-interface warnings unchanged). Compile-only: no tests and
+no game scenario ran.

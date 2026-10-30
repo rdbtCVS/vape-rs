@@ -12,8 +12,8 @@ excluded; all other retained scope remains open as listed below.
 
 ## Connected native implementation
 
-The runtime registers 45 modules, all with normal local activation, binds,
-profile persistence and GUI access. The sixteen newest (marked †) are
+The runtime registers 52 modules, all with normal local activation, binds,
+profile persistence and GUI access. The twenty-three newest (marked †) are
 compile-only: no game scenario has run for them yet.
 
 | Area | Modules |
@@ -23,9 +23,9 @@ compile-only: no game scenario has run for them yet.
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
 | World / movement | FastPlace, AutoFish, Sprint (baseline), Parkour (experimental), SafeWalk, Anti-AFK† |
 | Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open), WTap† |
-| Other (exact-name search only) | HitBoxes†, Timer†, Fly†, NoFall† (Normal/AntiCheat), Step† (step height only), LongJump†, AntiFall† |
+| Other (exact-name search only) | HitBoxes†, Timer†, Fly†, NoFall† (Normal/AntiCheat), Step† (step height only), LongJump†, AntiFall†, NoItemRelease†, PotionSaver†, Regen† |
 | Hidden (never listed) | NoSlowdown† (sprint re-enable open), Speed† (Bhop/AntiCheat B) |
-| Utility | Panic (configurable bind, optional re-enable) |
+| Utility | Panic (configurable bind, optional re-enable), Blink† (partial: outgoing only, breadcrumbs, auto send; no fake player), FakeLag† (partial: Latency, Repel without the hurt-time pre-tick flush) |
 
 The local foundation includes typed settings/editors, chord/held bindings,
 local profiles and friends/enemies, text/clipboard/IME editing, local macro

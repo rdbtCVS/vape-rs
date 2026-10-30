@@ -493,3 +493,21 @@ bindings = [
  { name = "out", ty = "&mut Vec<Vertex>", value = "&mut *out" },
  { name = "see_through", ty = "&mut Vec<Vertex>", value = "&mut *see_through" },
 ]
+
+# Blink, FakeLag, NoItemRelease, PotionSaver and Regen at the serverbound send.
+[[module]]
+id = "packets"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_packets"
+source = "packets.rs"
+
+[[injection]]
+id = "outbound-packet"
+target = "horizon_client::game::remote::Game<'_>::send"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/outbound_packet.rs"
+bindings = [
+ { name = "game", ty = "&crate::game::Game<'_>", value = "self" },
+ { name = "packet", ty = "&horizon_protocol::packets::play::Serverbound", value = "&packet" },
+]
