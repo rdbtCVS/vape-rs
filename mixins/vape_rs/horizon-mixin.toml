@@ -355,12 +355,13 @@ helper = "adapters/safe_walk_edge.rs"
 bindings = [{ name = "world", ty = "&crate::motion::MotionWorld<'_, '_, '_>", value = "&*self" }]
 
 # The inbound packet boundary: each clientbound play packet before the host
-# handles it. Observe-only: the handler's body has macros, which the tool
-# preserves only for non-cancellable hooks.
+# handles it. Cancellable: HEAD keeps the handler's macro body untouched
+# whether the hook continues or breaks; Break(Ok(())) drops the packet.
 [[injection]]
 id = "inbound-packet"
 target = "horizon_client::game::remote::Game<'_>::handle_packet"
 kind = "HEAD"
+cancellable = true
 helper = "adapters/inbound_packet.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },

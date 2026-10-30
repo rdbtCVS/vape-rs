@@ -139,12 +139,13 @@ where stated; they are unfinished implementation.
 
 **Round status.** Worker A's foundation (entity snapshots, target filter,
 host `Entity.turn`) is done, with AimAssist and TriggerBot as consumers.
-Worker B has an observe-only inbound boundary (Velocity works) and a
+Worker B has a cancellable inbound boundary (Velocity works; nothing drops
+yet) and a
 cancellable outbound one (`outbound-packet`: Blink, FakeLag, NoItemRelease,
 PotionSaver, Regen; remote servers only). Bi-directional Blink, JumpReset,
-KnockbackDelay and Backtrack still need a cancellable inbound point;
-`handle_packet` has macros, so look for a macro-free dispatch or a mixin-tool
-change. Worker C has SafeWalk on the movement writer; KeepSprint, WTap,
+KnockbackDelay and Backtrack still need held-packet replay on top of it
+(re-entry through `handle_packet` from the `vape_packets` support module,
+with a guard so replayed packets skip the hook). Worker C has SafeWalk on the movement writer; KeepSprint, WTap,
 NoSlowdown and AutoLadder still need writer priorities (WTap and
 Anti-AFK now request through the writer). Worker D (camera,
 projection, world text) hasn't started.
@@ -165,10 +166,11 @@ the interface-font text.
    AimAssist turns the view.
 2. **Movement / packets:** KeepSprint (blocked: Horizon's remote attack path
    has no client-side slowdown to change; an upcoming Horizon update adds it),
-   InvWalk (blocked: `Game::tick` gates movement keys on a local
-   `screen == Playing` that no hook kind reaches), NoSlowdown's sprint re-enable, AutoLadder,
+   InvWalk (unblocked: record GUI-time keys at the `Game::tick` HEAD and
+   re-run `controlled_simulation_tick` with them from a cancellable HEAD;
+   `self.keys` stays filled behind non-chat screens), NoSlowdown's sprint re-enable, AutoLadder,
    Strafe (needs AimAssist's current target exposed), Step's position packets
-   and timer slowdown, LongJump's vine/ice factors; a cancellable inbound packet boundary for
+   and timer slowdown, LongJump's vine/ice factors; inbound packet holding and replay for
    JumpReset, KnockbackDelay, Blink Bi-directional, Backtrack; then NoFall's jump-key detail, Scaffold modes, Clutch, MLG,
    Freecam and the remaining world/utility rows. Parkour has an integrated-server scenario; a LAN case is still open.
 3. **Render:** connect camera/projection, world text/quads and collision

@@ -735,3 +735,31 @@ no game scenario ran.
 Validation: fmt and lib Clippy pass; stage/audit passes (36 hooks, 22
 support modules, unchanged); the pinned host check passes with 0 errors.
 Compile-only: no tests and no game scenario ran.
+
+## 2026-10-30: Cancellable inbound packets; InvWalk route
+
+Rechecked blockers 2 and 3 against upstream. Neither horizon main
+(`fca2169de`) nor horizon-mixins main (`5140cdf`) changes them, and no
+open PR in either repo touches them.
+
+- The inbound boundary was misdiagnosed. The pinned tool (`07dab17`) keeps
+  macro bodies under cancellable HEAD too (its
+  `cancellable_head_preserves_macros_on_continue_and_skips_them_on_break`
+  test), as long as the helper returns `core::ops::ControlFlow<Result<()>>`
+  spelled as the target writes it. `inbound-packet` is now cancellable.
+  Every path still continues, so behaviour is unchanged. JumpReset,
+  KnockbackDelay, Backtrack and Bi-directional Blink now need only
+  holding and replay, not a host or tool change.
+- InvWalk no longer needs a Horizon PR. Body-rewriting hooks can't reach
+  `playing` inside `Game::tick`, because the function has closures and `?`
+  (still true on mixins main). But both the local and remote paths pass
+  their `Keys` to `MotionWorld::controlled_simulation_tick` (`Keys` is
+  `Copy`), and `mapped_key` keeps `self.keys` filled behind every screen
+  except chat and options. The planned route: the `Game::tick` HEAD
+  records InvWalk keys in the `motion-flags` support module, and a
+  cancellable HEAD on `controlled_simulation_tick` re-runs it once with
+  them, behind a re-entry guard.
+
+Validation: stage/audit passes (36 hooks, 22 support modules); the pinned
+host check passes with 0 errors. Compile-only: no tests and no game
+scenario ran.
