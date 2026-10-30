@@ -48,6 +48,7 @@ pub enum Owner {
     Parkour,
     AntiAfk,
     WTap,
+    JumpReset,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

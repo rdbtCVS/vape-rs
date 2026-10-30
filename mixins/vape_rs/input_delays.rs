@@ -123,6 +123,10 @@ fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: boo
     if tap {
         overrides.request(Request { axis: Axis::Jump, owner: Owner::Parkour, priority: 1, pressed: true });
     }
+    // JumpReset holds the jump key for the tick after our knockback landed.
+    if active && with_client(&client, |runtime| runtime.jump_reset_key(again)) {
+        overrides.request(Request { axis: Axis::Jump, owner: Owner::JumpReset, priority: 1, pressed: true });
+    }
     // SafeWalk (reference onPreMove): edge back-off for this tick's move,
     // except when walking straight forward with Direction Check on.
     let safe_walk = with_client(&client, |runtime| {

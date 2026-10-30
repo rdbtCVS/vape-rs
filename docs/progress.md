@@ -787,3 +787,32 @@ Validation: 109 lib tests pass (new
 all-target Clippy with `-D warnings` pass; stage/audit passes (36 hooks, 22
 support modules); payload tests and the pinned host check pass. No game
 scenario ran.
+
+## 2026-10-30: inbound packet holding and replay; JumpReset and KnockbackDelay
+
+User request: hold and replay packets on the cancellable `inbound-packet`
+boundary, replay through `handle_packet` with a guard, a bounded queue
+flushed on disable/disconnect/world change, connection-critical packets
+kept out, and JumpReset and KnockbackDelay on top.
+
+- `vape_packets` now owns an inbound queue (256 packets). Replay calls the
+  host's `handle_packet` with a thread-local guard so the hook steps aside;
+  Velocity and the other observers still see replayed packets. Overflow
+  replays the whole queue. A critical packet flushes the queue first and
+  passes. Disable, disconnect, world open/close, respawn and dimension change
+  flush through new calls in the session adapters; with the connection gone,
+  the queue is dropped instead.
+- KnockbackDelay (`modules/combat/knockback.rs`): holds the local player's
+  velocity packet and everything behind it for the air delay (fewer than 3
+  grounded ticks) or the ground delay, with chance, water check and the
+  reference's 475 ms re-hit gap. JumpReset: remembers a suitable velocity
+  packet, waits until the player's motion shows it, then taps jump through
+  the movement writer (`Owner::JumpReset`) after the accuracy roll.
+- Not ported or interpreted: JumpReset's `PotionRegistry.Z` check (unknown
+  effect), the reference's hit counter (read as grounded ticks), and its
+  target search (any player we face within 6 blocks).
+
+Validation: fmt, all-target Clippy with `-D warnings`, and 113 lib tests (4
+new knockback tests) pass; stage/audit (36 hooks, 22 support modules) and the
+pinned host check pass with 0 errors. Compile-only: no game scenario ran, so
+features.csv marks both `implemented-core`, not validated.

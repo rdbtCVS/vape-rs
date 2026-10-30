@@ -83,6 +83,7 @@ pub struct Runtime {
     aim_clock: Option<std::time::Instant>,
     trigger_bot: super::modules::combat::trigger_bot::TriggerBot,
     velocity: super::modules::combat::velocity::Velocity,
+    knockback: super::modules::combat::knockback::Knockback,
     left_clicker: super::modules::combat::clicker::Engine,
     right_clicker: super::modules::combat::clicker::Engine,
     reach: super::modules::combat::reach::Reach,
@@ -296,7 +297,10 @@ impl Default for Runtime {
         ] {
             settings.define(definition).unwrap();
         }
-        for definition in super::modules::combat::velocity::definitions() {
+        for definition in super::modules::combat::velocity::definitions()
+            .into_iter()
+            .chain(super::modules::combat::knockback::definitions())
+        {
             settings.define(definition).unwrap();
         }
         for definition in super::modules::combat::clicker::left_definitions()
@@ -423,6 +427,7 @@ impl Default for Runtime {
             aim_clock: None,
             trigger_bot: Default::default(),
             velocity: Default::default(),
+            knockback: Default::default(),
             left_clicker: super::modules::combat::clicker::Engine::new(0x5851_f42d_4c95_7f2d),
             right_clicker: super::modules::combat::clicker::Engine::new(0x2c1b_3c6d_4a1f_9e37),
             reach: Default::default(),
@@ -494,6 +499,8 @@ impl Runtime {
                     self.trigger_bot.reset();
                 }
                 ModuleId::Velocity => self.reset_velocity(),
+                ModuleId::JumpReset => self.knockback.reset_jump(),
+                ModuleId::KnockbackDelay => self.knockback.reset_delay(),
                 ModuleId::AutoClicker => self.clicker_release[0] |= self.left_clicker.reset(),
                 ModuleId::RightClicker => self.clicker_release[1] |= self.right_clicker.reset(),
                 ModuleId::Reach => self.reach.reset(),
@@ -978,11 +985,45 @@ impl Runtime {
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();
+        self.knockback.reset_jump();
+        self.knockback.reset_delay();
         self.clicker_release[0] |= self.left_clicker.reset();
         self.clicker_release[1] |= self.right_clicker.reset();
         self.reach.reset();
         self.no_fall.reset();
         self.no_slowdown.reset();
+    }
+    fn knockback_active(&self) -> super::modules::combat::knockback::Active {
+        let world = self.session.in_world();
+        super::modules::combat::knockback::Active {
+            jump_reset: world && self.enabled(ModuleId::JumpReset),
+            knockback_delay: world && self.enabled(ModuleId::KnockbackDelay),
+        }
+    }
+    /// Whether KnockbackDelay may hold inbound packets right now.
+    pub fn inbound_hold_active(&self) -> bool {
+        self.knockback_active().knockback_delay
+    }
+    /// JumpReset and KnockbackDelay on the local player's own velocity packet.
+    pub fn knockback_packet(
+        &mut self,
+        ctx: &super::modules::combat::knockback::Context,
+        motion: [f64; 3],
+    ) -> super::modules::combat::knockback::Verdict {
+        let active = self.knockback_active();
+        self.knockback
+            .own_velocity(&self.settings, active, ctx, motion)
+    }
+    /// Client tick: landed-motion check for JumpReset, grounded counter.
+    pub fn knockback_tick(&mut self, on_ground: bool, motion: [f64; 3], jump_down: bool) {
+        if !self.knockback_active().jump_reset {
+            self.knockback.reset_jump();
+        }
+        self.knockback.tick(on_ground, motion, jump_down);
+    }
+    /// Whether JumpReset holds the jump key this tick.
+    pub fn jump_reset_key(&mut self, again: bool) -> bool {
+        self.knockback_active().jump_reset && self.knockback.jump_key(&self.settings, again)
     }
     fn reset_velocity(&mut self) {
         self.velocity.reset();
@@ -2058,6 +2099,8 @@ impl Runtime {
                 | ModuleId::NoItemRelease
                 | ModuleId::PotionSaver
                 | ModuleId::Regen
+                | ModuleId::JumpReset
+                | ModuleId::KnockbackDelay
                 | ModuleId::AntiDebuff => continue,
             };
             use super::ui::hud::Content;

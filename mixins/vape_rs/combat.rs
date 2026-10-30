@@ -277,7 +277,7 @@ pub(super) fn trigger_bot_input(game: &Game<'_>, pressed: bool) -> bool {
 
 /// `RotationUtil.H/F` for Velocity: other non-friend players within 6 blocks
 /// looking at us, and us looking at one of them (integer yaw under 60).
-fn facing(game: &Game<'_>, friends: &[String]) -> crate::game::vape_rs::modules::combat::velocity::Facing {
+pub(crate) fn facing(game: &Game<'_>, friends: &[String]) -> crate::game::vape_rs::modules::combat::velocity::Facing {
     use crate::game::vape_rs::targeting::entities::{distance, int_yaw_difference};
     let mut out = crate::game::vape_rs::modules::combat::velocity::Facing::default();
     let Some(player) = game.player.as_ref() else { return out; };
