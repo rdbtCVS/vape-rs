@@ -29,11 +29,8 @@ Staging exports the committed Horizon pin from compatibility.json, ignores the o
 
 Run the binary only with your own compatible prepared 26.3 resources and fresh scratch homes, as required by Horizon's AGENTS.md. Never point HORIZON_HOME at real player data for tests. See [docs/hooks.md](hooks.md) for integration boundaries. Right Shift opens the custom local GUI. Its pages expose module settings/binding capture, local profiles, local friend/enemy records and a local macro editor. F8/F9 are default HUD bindings and F10 disables all active modules. Modules start disabled; saved preferences restore on restart. Text rendering uses the host atlas; reference typography/layout parity remains unverified.
 
-The compatible prepared resource directory located for this workspace is:
+Set `HORIZON_RESOURCES` to your prepared 26.3 resource directory (`<launcher-dir>/versions/<nightly>/.local/horizon-client/26.3`).
 
-```text
-<launcher-dir>/versions/nightly-2026-10-28-9b772b2/.local/horizon-client/26.3
-```
 
 Use it read-only; every executable game run must use fresh isolated homes and working directory through tools/native_session.py. `xtask build` writes `target/host-cargo/fast/vape-rs-build.json` beside the executable (bundle hash, Horizon/mixin pins, profile/features, cargo version, executable hash, source commit/dirty flag). `play.py` and every scenario refuse to launch an executable whose identity is missing or differs from the current sources (`--allow-stale` overrides with a warning), and copy the identity into the session as build.json. Post-merge scenarios: `tools/smoke_scenario.py` and `tools/lan_scenario.py` (two owned processes over localhost LAN); see docs/evidence/postmerge-validation.json. For a visible manual test in a new disposable survival world:
 
