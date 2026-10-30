@@ -898,6 +898,7 @@ mod tests {
         let mut strip = Strip {
             removed: 0,
             expected: vec![("tick".into(), statement)],
+            arguments: Vec::new(),
         };
         strip.visit_file_mut(&mut file);
         assert_eq!(strip.removed, 1);
@@ -935,6 +936,7 @@ mod tests {
         let mut strip = Strip {
             removed: 0,
             expected: vec![("key_code".into(), statement)],
+            arguments: Vec::new(),
         };
         strip.visit_file_mut(&mut file);
         assert_eq!(strip.removed, 1);
@@ -960,6 +962,7 @@ mod tests {
                 ("tick".into(), statement.clone()),
                 ("changed".into(), statement),
             ],
+            arguments: Vec::new(),
         };
         strip.visit_file_mut(&mut file);
         assert_eq!(strip.removed, 0);
