@@ -1,8 +1,9 @@
 # Current implementation handoff
 
-Updated 2026-10-29 after the combat/movement round: live entity snapshots,
-the reference target filter, AimAssist (Simple), TriggerBot, SafeWalk and
-Velocity, each with fresh-home integrated-server host scenarios. Single
+Updated 2026-10-30 after the classic V4 click-GUI remake. The previous round
+added live entity snapshots, the reference target filter, AimAssist (Simple),
+TriggerBot, SafeWalk and Velocity, each with fresh-home integrated-server
+host scenarios. Single
 player is supported and tested only on Horizon's integrated server thread.
 **The full plan is not complete.** AI behavior and the online product are
 excluded; all other retained scope remains open as listed below.
@@ -27,6 +28,19 @@ creation/binding/delays, and HUD drag/snap/scale editing. Each Game owns its
 runtime. Session generations and hotbar/use/container claims guard transient
 work. Native effects use normal host input/menu/chat paths. Biome and potion
 HUD names use the active Horizon language when a resource translation exists.
+
+The click GUI follows the reference's classic V4 layout
+([classic-gui-validation.json](evidence/classic-gui-validation.json)). A
+"VAPE V4" navigation frame has search, settings and save icons; category
+rows; a MISC section (Friends, Profiles with the current profile, Macros);
+and Favorites/HUD-editor footer icons. Each category, Favorites, Profiles,
+Macros, Friends and client Settings is its own 110-unit draggable,
+collapsible, scrolling frame. Frames stack under the shortest column and
+persist in `ui.frames`. Module rows toggle on click, and their dots expand
+inline settings and a favourite star. HUD and legit modules are listed in the
+HUD editor's frame. Pixel icons are authored rather than copied from the
+reference images. Not ported: the Text GUI overlay, notifications and the
+online PUBLIC profiles (replaced by a local IMPORT).
 
 Unconnected groundwork present in source (no module uses it yet):
 
@@ -69,12 +83,12 @@ Unconnected groundwork present in source (no module uses it yet):
   switching between two worlds; third-party servers.
 - **Re-pin to main** ([repin-main.json](evidence/repin-main.json)): every
   scenario was rerun. The GUI, HUD editor, HUD detail and text editor
-  scenarios fail; the first three fail the same way on the previous pin, so
-  their fixed click coordinates are stale and need repair.
+  scenarios failed on stale click coordinates. They were rewritten for the
+  classic GUI and pass ([classic-gui-validation.json](evidence/classic-gui-validation.json)).
 - StorageESP, AutoTool, profile, lifecycle and NoHurtCam pass on the new pin. Refill, ChestSteal, AutoFish, FastPlace, Fullbright,
   Clear Water, the delay removals and localization still have compile/unit
   evidence only.
-- Ledger: 13 integrated, 35 implemented-core, 13 excluded-approved, 2
+- Ledger: 16 integrated, 32 implemented-core, 13 excluded-approved, 2
   not-applicable-reviewed, 409 not-started, 0 validated
   ([decisions](decisions.md) explains `integrated` vs `validated`).
 - [hooks.md](hooks.md) lists every current target and module.

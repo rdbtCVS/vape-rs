@@ -14,7 +14,7 @@ def run(resources):
         session.launch()
         session.call('key', 'rshift', 'tap')
         session.capture('main')
-        session.call('click-at', '275', '46')
+        session.call('click-at', '107', '232')  # navigation footer HUD icon
         session.capture('editor')
         session.call('drag-at', '35', '40', '110', '85')
         session.capture('dragged')
@@ -25,13 +25,13 @@ def run(resources):
         session.capture('scaled')
         assert session.saved()['settings']['hud.coordinates.scale'] > 1.0
         session.call('click-at', str(x + 10), str(y + 10), 'right')
-        session.capture('widget-settings')
-        session.call('click-at', '275', '46')
-        session.capture('editor-again')
-        session.call('click-at', '294', '65')
+        session.capture('widget-settings')  # expands inline in the HUD frame
+        # The centred HUD frame lists modules by name: Coords fifth, FPS sixth.
+        session.call('click-at', '247', '116')  # Coords dots collapse its settings
+        session.call('click-at', '190', '136')
         session.capture('fps-enabled-preview')
         assert session.saved()['modules']['hud.fps']['enabled'] is True
-        session.call('click-at', '294', '65')
+        session.call('click-at', '190', '136')
         session.capture('fps-disabled-preview')
         assert session.saved()['modules']['hud.fps']['enabled'] is False
         session.call('drag-at', str(x + 15), str(y + 15), '16', '180')
@@ -39,7 +39,8 @@ def run(resources):
         assert session.saved()['settings']['hud.coordinates.x'] == 0
         y = session.saved()['settings']['hud.coordinates.y']
         session.call('key', 'shift', 'down')
-        session.call('drag-at', '15', str(y + 15), '17', '210')
+        # Grab Coords right of the Keystrokes preview, which overlaps its left end.
+        session.call('drag-at', '100', str(y + 10), '102', str(y + 37))
         session.call('key', 'shift', 'up')
         session.capture('snap-disabled')
         assert 1.5 <= session.saved()['settings']['hud.coordinates.x'] <= 3.0

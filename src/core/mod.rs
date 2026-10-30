@@ -685,10 +685,15 @@ impl Runtime {
                 }
                 Action::RemovePerson(relation, name) => self.remove_person(&relation, &name),
                 Action::ToggleTarget(relation, name) => self.toggle_person_target(&relation, &name),
-                Action::Window(x, y) => {
-                    self.document.0["ui"]["window"] = json!([x, y]);
+                Action::Layout(frames) => {
+                    self.document.0["ui"]["frames"] = frames;
                     self.dirty = true;
                     Ok(())
+                }
+                Action::Sync => {
+                    self.dirty = true;
+                    self.flush()
+                        .map(|()| self.notify("Configuration saved".to_string()))
                 }
                 Action::UpsertMacro(definition) => self.upsert_macro(definition),
                 Action::RemoveMacro(name) => self.remove_macro(&name),
@@ -864,7 +869,7 @@ impl Runtime {
                 }
             }
         } else {
-            self.gui.wheel(delta);
+            self.gui.wheel(delta, cursor);
         }
     }
     pub fn gui_mouse(&mut self, button: &str, pressed: bool, cursor: (f32, f32)) {
@@ -1293,7 +1298,7 @@ impl Runtime {
         {
             self.notify(format!("Macros were not loaded: {error}"));
         }
-        self.gui.restore_window(&document.0["ui"]);
+        self.gui.restore_layout(&document.0["ui"]);
         self.document = document;
         self.dirty = true;
     }

@@ -430,3 +430,35 @@ At the user's request, the project now builds as a `.hnmod` that Horizon's launc
 Validation: fmt, Clippy, 102 runtime + 3 audit tests and 102 payload tests pass. Stage/audit: 26 HEAD hooks and 14 support modules on `07dab17`; host check and fast build pass. The launcher-route release build passes smoke 27/27. On the fast build: smoke 27/27, LAN 16/16, lifecycle, profile, AimAssist 14/14, TriggerBot 12/12, SafeWalk 13/13, Velocity 10/10. Evidence: docs/evidence/hnmod-packaging.json.
 
 Not covered: an actual installed `horizon-launcher native-build` run (it writes to a real launcher home), Windows and macOS, and a tagged Horizon pin for a public release. The GUI, HUD editor and HUD detail scenarios were already stale before this change and were not rerun.
+
+## Classic V4 click GUI (2026-10-30)
+
+The user asked for the GUI to match the reference's classic Vape V4 click GUI, so the single window with a sidebar was replaced by the reference's frame layout:
+
+- **Navigation frame.**
+  - A "VAPE V4" header with search, settings (gear) and save (sync) icons. Search filters modules inside the navigation frame.
+  - Combat/Render/Utility/World/Inventory/Network rows with icons, then a MISC section (Friends, Profiles with the selected-profile badge, Macros).
+  - Footer: a Favorites star and a HUD-editor icon.
+- **Frames.**
+  - Every category, Favorites, Profiles, Macros, Friends and client Settings is a 110-unit frame with an icon, a title and a collapse chevron. Frames are draggable, raise on click and scroll when they don't fit.
+  - A newly opened frame takes the top of the shortest column and keeps that spot.
+  - Positions, open state and collapse state persist in `ui.frames` (the old `ui.window` is ignored). A loaded document without frames, such as an imported profile, keeps the current layout.
+- **Module rows.**
+  - A click toggles the module, which is accent-filled when on. Binds show right-aligned.
+  - The dots, or a right click, expand inline settings with a favourite star.
+  - Setting labels now truncate to the room left by their value.
+- **Profiles.** CREATE NEW and IMPORT, then a name entry with an arrow submit. Rows show the active profile in white. A dots menu offers save, rename, export and delete; delete still uses the confirmation modal. The reference's online PUBLIC button is replaced by local import.
+- **Macros and Friends** use the reference's "Type item name" entry with an arrow, and friend/enemy buttons, a "Use friends" switch and person rows.
+- HUD and legit modules are listed in the HUD editor's centred frame.
+- Registry categories now match the reference: AutoArmor/AutoTotem/Refill → Inventory, AutoFish → World, Sprint → Combat.
+- Icons are authored 7×7 pixel bitmaps, not the reference images.
+- The adapter draws scaled, aligned host-font text.
+
+The six GUI-driving scenarios (GUI, HUD editor, HUD detail, text editor, AutoTool, NoHurtCam) were rewritten for the new coordinates. The rewrite surfaced two problems:
+
+- The HUD editor's shift-drag grabbed the overlapping Keystrokes preview rather than Coords. The scenario now presses clear of it.
+- The FPS widget's toggle sits under the centred HUD frame, so the scenario toggles FPS from its frame row.
+
+Validation: fmt, Clippy, 104 runtime + 3 audit tests and 104 payload tests pass. Stage/audit: 26 HEAD hooks and 14 support modules; host check and fast build pass. On that build, in fresh isolated homes, all of these pass: GUI (11 checks), HUD editor plus binding capture, HUD detail, text editor (private Xvfb display), AutoTool, NoHurtCam, lifecycle, profile plus corrupt profile, and smoke 27/27. Evidence: docs/evidence/classic-gui-validation.json. Ledger: client.ui, client.profiles and client.friends → `integrated`.
+
+Not covered: Macros frame editing, header search, and frame drag/collapse/scroll in a real session (unit tests only); GUI scales other than 1 and windows other than 800×600. The Text GUI overlay and notifications are not ported.

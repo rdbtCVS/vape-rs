@@ -2,17 +2,38 @@ use super::super::core::settings::{Definition, Kind};
 use super::super::input::KeyAction;
 use super::super::input::macros::{Delay, Macro};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod input;
 mod render;
 
+// Reference ThemeColors: frame body, inset, pressed row, outline and text.
 const BG: u32 = 0xff1a191a;
-const HEADER: u32 = 0xff141414;
-const CARD: u32 = 0xff252426;
+const INSET: u32 = 0xff141414;
+const PRESSED: u32 = 0xff1f1e1f;
+const BUTTON: u32 = 0xff2e2d2f;
+const TRACK: u32 = 0xff363536;
+const OUTLINE: u32 = 0x80363536;
 const FG: u32 = 0xffd1d1d1;
-const MUTED: u32 = 0xff737173;
+const TEXT: u32 = 0xffa3a3a3;
+const MUTED: u32 = 0xff7a7a7a;
+const FAINT: u32 = 0xff595859;
 const ACCENT: u32 = 0xff06a17e;
+const FAVORITE: u32 = 0xffec812c;
+const DANGER: u32 = 0xfffa3238;
+
+/// Width of every click-GUI frame, as `ClientSettingsSearchFrame.MENU_WIDTH`.
+pub const FRAME_WIDTH: f32 = 110.0;
+pub const HEADER_HEIGHT: f32 = 20.0;
+pub const NAV_HEADER_HEIGHT: f32 = 22.0;
+pub const ROW_HEIGHT: f32 = 20.0;
+/// Host bitmap-font scales standing in for the reference smooth-font sizes.
+const TITLE_SCALE: f32 = 0.8;
+const ROW_SCALE: f32 = 0.75;
+const FIELD_SCALE: f32 = 0.7;
+const SMALL_SCALE: f32 = 0.55;
+/// Average glyph advance of the host font at the field scale.
+const CHAR_WIDTH: f32 = 6.0 * FIELD_SCALE;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect(pub f32, pub f32, pub f32, pub f32);
@@ -21,11 +42,31 @@ impl Rect {
         p.0 >= self.0 && p.1 >= self.1 && p.0 < self.0 + self.2 && p.1 < self.1 + self.3
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Align {
+    Left,
+    Center,
+    Right,
+}
 #[derive(Clone, Debug)]
 pub enum Paint {
     Fill(Rect, u32),
-    Text(f32, f32, String, u32),
-    Edit(Rect, String, usize, usize),
+    /// Host-font text; `x` is the left, centre or right edge per `align`.
+    Text {
+        x: f32,
+        y: f32,
+        text: String,
+        color: u32,
+        scale: f32,
+        align: Align,
+    },
+    Edit {
+        rect: Rect,
+        text: String,
+        caret: usize,
+        anchor: usize,
+        scale: f32,
+    },
 }
 #[derive(Clone, Debug)]
 pub struct Draw {
@@ -85,25 +126,33 @@ pub enum Action {
     ToggleTarget(String, String),
     UpsertMacro(Macro),
     RemoveMacro(String),
-    Window(f32, f32),
+    /// Persist frame positions, visibility and collapse state (`ui.frames`).
+    Layout(Value),
+    /// Save the current configuration now (the header's sync button).
+    Sync,
     Close,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Page {
-    Modules,
-    Friends,
-    Profiles,
-    Macros,
+/// The pending profile name entry under the Profiles frame's buttons.
+#[derive(Clone, Debug, PartialEq)]
+enum ProfileInput {
+    Create,
+    Import,
+    Rename(String),
 }
 #[derive(Clone, Debug)]
 enum Hit {
-    Header,
-    Close,
+    /// A frame's body: raises it and keeps clicks off frames behind it.
+    Panel,
+    Drag(String),
+    Collapse(String),
+    OpenPanel(String),
+    Search,
+    Sync,
     Hud,
-    Page(Page),
-    Category(String),
+    HudBack,
+    Popup,
     Toggle(String),
-    Settings(String),
+    Expand(String),
     Favorite(String),
     Focus(String, Rect),
     Edit(String, Value, Rect),
@@ -111,22 +160,25 @@ enum Hit {
     ChoiceValue(String, Value),
     Slider(String, f64, f64, f64, Rect),
     RangeSlider(String, f64, f64, f64, f64, f64, Rect),
-    Color(String, u32, Rect),
+    Color(String, Rect),
     ColorChannel(String, usize, Rect),
     Cycle(String, Vec<Value>),
     Capture(String),
-    SelectProfile(String),
-    Save,
-    Load,
-    Rename,
-    Delete,
+    Profile(String),
+    ProfileMenu(String),
+    CreateProfile,
+    ImportProfile,
+    SubmitProfile,
+    SaveProfile(String),
+    RenameProfile(String),
+    ExportProfile(String),
+    DeleteProfile(String),
     ConfirmDelete,
     Cancel,
-    Import,
-    Export,
     AddPerson(String),
     RemovePerson(String, String),
     Target(String, String),
+    NewMacro,
     SelectMacro(String),
     SaveMacro,
     RemoveMacro(String),
@@ -174,6 +226,13 @@ struct Editor {
     id: String,
     text: String,
     kind: Kind,
+}
+/// One draggable frame. A missing position uses the default column layout.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Panel {
+    pos: Option<(f32, f32)>,
+    open: bool,
+    collapsed: bool,
 }
 /// Character offsets keep navigation and replacement on UTF-8 boundaries.
 #[derive(Debug)]
@@ -273,8 +332,7 @@ pub struct Gui {
     pub hud_editor: bool,
     pub hud_regions: Vec<HudRegion>,
     dragging_hud: Option<(String, f32, f32)>,
-    pub page: Page,
-    pub category: String,
+    /// The module whose settings are expanded under its row.
     pub selected: Option<String>,
     pub status: String,
     pub multi_bind: bool,
@@ -290,24 +348,31 @@ pub struct Gui {
     pub macro_binds: Vec<String>,
     selected_profile: Option<String>,
     selected_macro: Option<String>,
+    macro_open: bool,
+    profile_input: Option<ProfileInput>,
+    profile_menu: Option<String>,
+    searching: bool,
     focus: Option<String>,
     cursor: TextCursor,
     editor: Option<Editor>,
     capture: Option<Capture>,
-    confirm_delete: bool,
+    confirm_delete: Option<String>,
     held: BTreeSet<String>,
     raw_text_seen: bool,
     hits: Vec<(Rect, Hit)>,
-    frame_origin: (f32, f32),
+    panels: BTreeMap<String, Panel>,
+    /// Raise order; the last frame is drawn on top.
+    order: Vec<String>,
+    scrolls: BTreeMap<String, f32>,
+    panel_rects: Vec<(String, Rect)>,
+    hover: (f32, f32),
     scale: f32,
-    window: Option<(f32, f32)>,
-    dragging: Option<(f32, f32)>,
+    dragging: Option<(String, f32, f32)>,
     setting_drag: Option<SettingDrag>,
     text_drag: Option<TextDrag>,
-    open_choice: Option<(String, Vec<String>, Rect)>,
-    open_color: Option<(String, u32, Rect)>,
+    open_choice: Option<String>,
+    open_color: Option<String>,
     viewport: (f32, f32),
-    pub scroll: f32,
 }
 impl Default for Gui {
     fn default() -> Self {
@@ -316,8 +381,6 @@ impl Default for Gui {
             hud_editor: false,
             hud_regions: Vec::new(),
             dragging_hud: None,
-            page: Page::Modules,
-            category: "Favorites".into(),
             selected: None,
             status: String::new(),
             multi_bind: false,
@@ -333,42 +396,80 @@ impl Default for Gui {
             macro_binds: Vec::new(),
             selected_profile: None,
             selected_macro: None,
+            macro_open: false,
+            profile_input: None,
+            profile_menu: None,
+            searching: false,
             focus: None,
             cursor: TextCursor::default(),
             editor: None,
             capture: None,
-            confirm_delete: false,
+            confirm_delete: None,
             held: BTreeSet::new(),
             raw_text_seen: false,
             hits: Vec::new(),
-            frame_origin: (0.0, 0.0),
+            panels: BTreeMap::new(),
+            order: Vec::new(),
+            scrolls: BTreeMap::new(),
+            panel_rects: Vec::new(),
+            hover: (-1.0, -1.0),
             scale: 1.0,
-            window: None,
             dragging: None,
             setting_drag: None,
             text_drag: None,
             open_choice: None,
             open_color: None,
             viewport: (400.0, 300.0),
-            scroll: 0.0,
         }
     }
 }
 impl Gui {
-    pub fn restore_window(&mut self, value: &Value) {
-        self.window = value
-            .get("window")
-            .and_then(Value::as_array)
-            .filter(|a| a.len() == 2)
-            .and_then(|a| Some((a[0].as_f64()? as f32, a[1].as_f64()? as f32)))
-            .filter(|p| p.0.is_finite() && p.1.is_finite());
+    /// Restores `ui.frames`; an older single-window `ui.window` is ignored,
+    /// and a document without frames (an imported profile) keeps the
+    /// current layout rather than closing the frame it was loaded from.
+    pub fn restore_layout(&mut self, value: &Value) {
+        let Some(frames) = value.get("frames").and_then(Value::as_object) else {
+            return;
+        };
+        self.panels.clear();
+        for (name, state) in frames {
+            let pos = state
+                .get("x")
+                .and_then(Value::as_f64)
+                .zip(state.get("y").and_then(Value::as_f64))
+                .map(|(x, y)| (x as f32, y as f32))
+                .filter(|p| p.0.is_finite() && p.1.is_finite());
+            self.panels.insert(
+                name.clone(),
+                Panel {
+                    pos,
+                    open: state.get("open").and_then(Value::as_bool).unwrap_or(false),
+                    collapsed: state
+                        .get("collapsed")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                },
+            );
+        }
     }
-    pub fn window(&self) -> Option<(f32, f32)> {
-        self.window
+    fn layout_value(&self) -> Value {
+        Value::Object(
+            self.panels
+                .iter()
+                .map(|(name, panel)| {
+                    let mut state = json!({"open": panel.open, "collapsed": panel.collapsed});
+                    if let Some((x, y)) = panel.pos {
+                        state["x"] = json!(x);
+                        state["y"] = json!(y);
+                    }
+                    (name.clone(), state)
+                })
+                .collect(),
+        )
     }
     pub fn close(&mut self) {
         self.open = false;
-        self.confirm_delete = false;
+        self.confirm_delete = None;
         self.hud_editor = false;
         self.dragging_hud = None;
         self.focus = None;
@@ -391,7 +492,7 @@ impl Gui {
         self.capture.is_some()
     }
     fn edit_text(&mut self, operation: impl FnOnce(&mut TextCursor, &mut String)) {
-        if self.confirm_delete {
+        if self.confirm_delete.is_some() {
             return;
         }
         let target = if let Some(editor) = self.editor.as_mut() {
@@ -428,7 +529,7 @@ impl Gui {
             ["ControlLeft", "ControlRight"]
         };
         self.open
-            && !self.confirm_delete
+            && self.confirm_delete.is_none()
             && (self.editor.is_some() || self.focus.is_some())
             && action != KeyAction::Release
             && modifier.iter().any(|k| self.held.contains(*k))
@@ -484,11 +585,11 @@ impl Gui {
         Ok(Action::Set(editor.id.clone(), value))
     }
     // The retained GUI's text painter owns proportional-font measurement.  Input
-    // stays painter-independent, so pointer placement uses the same compact
-    // six-pixel cell used by the source-sized controls; keyboard navigation
+    // stays painter-independent, so pointer placement uses an average cell at
+    // the field text scale; keyboard navigation
     // remains character-indexed and precise.
     fn cursor_at(&mut self, rect: Rect, local_x: f32) {
-        let offset = ((local_x - rect.0 - 4.0) / 6.0).round().max(0.0) as usize;
+        let offset = ((local_x - rect.0 - 4.0) / CHAR_WIDTH).round().max(0.0) as usize;
         self.edit_text(|cursor, text| {
             let at = offset.min(text.chars().count());
             cursor.caret = at;
@@ -590,17 +691,59 @@ struct Layout {
     clip: Rect,
 }
 impl Layout {
+    fn new(clip: Rect) -> Self {
+        Self {
+            draw: Vec::new(),
+            hits: Vec::new(),
+            clip,
+        }
+    }
     fn fill(&mut self, rect: Rect, color: u32) {
         self.draw.push(Draw {
             paint: Paint::Fill(rect, color),
             clip: self.clip,
         });
     }
-    fn text(&mut self, x: f32, y: f32, text: &str, color: u32) {
+    /// A fill with its four corner units cut, for the reference's 2 px radius.
+    fn rounded(&mut self, r: Rect, color: u32) {
+        let c = 1.0f32.min(r.2 / 2.0).min(r.3 / 2.0);
+        self.fill(Rect(r.0 + c, r.1, r.2 - 2.0 * c, r.3), color);
+        self.fill(Rect(r.0, r.1 + c, c, r.3 - 2.0 * c), color);
+        self.fill(Rect(r.0 + r.2 - c, r.1 + c, c, r.3 - 2.0 * c), color);
+    }
+    fn label(&mut self, x: f32, y: f32, text: &str, color: u32, scale: f32, align: Align) {
         self.draw.push(Draw {
-            paint: Paint::Text(x, y, text.into(), color),
+            paint: Paint::Text {
+                x,
+                y,
+                text: text.into(),
+                color,
+                scale,
+                align,
+            },
             clip: self.clip,
         });
+    }
+    /// A label vertically centred on a row; host glyphs are 7 units tall.
+    #[allow(clippy::too_many_arguments)]
+    fn row_label(
+        &mut self,
+        x: f32,
+        y: f32,
+        height: f32,
+        text: &str,
+        color: u32,
+        scale: f32,
+        align: Align,
+    ) {
+        self.label(
+            x,
+            y + (height - 7.0 * scale) / 2.0,
+            text,
+            color,
+            scale,
+            align,
+        );
     }
     fn hit(&mut self, rect: Rect, hit: Hit) {
         let x = rect.0.max(self.clip.0);
@@ -611,9 +754,41 @@ impl Layout {
             self.hits.push((Rect(x, y, w, h), hit));
         }
     }
+    /// Authored pixel icons stand in for the reference's bundled images.
+    fn icon(&mut self, x: f32, y: f32, cell: f32, rows: &[&str], color: u32) {
+        for (row, line) in rows.iter().enumerate() {
+            let mut start = None;
+            for (column, filled) in line.chars().map(|c| c == '#').chain([false]).enumerate() {
+                match (filled, start) {
+                    (true, None) => start = Some(column),
+                    (false, Some(first)) => {
+                        self.fill(
+                            Rect(
+                                x + first as f32 * cell,
+                                y + row as f32 * cell,
+                                (column - first) as f32 * cell,
+                                cell,
+                            ),
+                            color,
+                        );
+                        start = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
     fn button(&mut self, rect: Rect, label: &str, hit: Hit) {
-        self.fill(rect, CARD);
-        self.text(rect.0 + 7.0, rect.1 + 7.0, label, FG);
+        self.rounded(rect, BUTTON);
+        self.row_label(
+            rect.0 + rect.2 / 2.0,
+            rect.1,
+            rect.3,
+            label,
+            FG,
+            SMALL_SCALE,
+            Align::Center,
+        );
         self.hit(rect, hit);
     }
 }
@@ -621,35 +796,94 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn view() -> View {
+        View {
+            modules: vec![
+                ModuleView {
+                    id: "render.fullbright".into(),
+                    name: "Fullbright".into(),
+                    category: "Render".into(),
+                    enabled: false,
+                    favorite: false,
+                },
+                ModuleView {
+                    id: "combat.sprint".into(),
+                    name: "Sprint".into(),
+                    category: "Combat".into(),
+                    enabled: false,
+                    favorite: false,
+                },
+            ],
+            values: json!({}),
+            ..View::default()
+        }
+    }
+    fn click(gui: &mut Gui, view: &View, point: (f32, f32)) -> Vec<Action> {
+        gui.frame(view, (400.0, 300.0));
+        let actions = gui.mouse("MouseLeft", true, point, view);
+        gui.mouse("MouseLeft", false, point, view);
+        actions
+    }
     #[test]
-    fn scaled_hit_testing_and_search_use_the_rendered_geometry() {
+    fn navigation_opens_category_frames_whose_rows_toggle_modules() {
         let mut gui = Gui {
             open: true,
-            category: "Legit".into(),
             ..Gui::default()
         };
-        let view = View {
-            modules: vec![ModuleView {
-                id: "hud.fps".into(),
-                name: "FPS".into(),
-                category: "Legit".into(),
-                enabled: false,
-                favorite: false,
-            }],
-            ..View::default()
-        };
-        let frame = gui.frame(&view, (320.0, 240.0));
-        let point = (
-            frame.origin.0 + 125.0 * frame.scale,
-            frame.origin.1 + 85.0 * frame.scale,
+        let view = view();
+        // The second navigation row opens Render in the first default column.
+        let opened = click(&mut gui, &view, (30.0, 6.0 + NAV_HEADER_HEIGHT + 30.0));
+        assert!(
+            matches!(&opened[..], [Action::Layout(layout)] if layout["Render"]["open"] == json!(true))
         );
+        let row = (150.0, 6.0 + HEADER_HEIGHT + 10.0);
         assert_eq!(
-            gui.mouse("MouseLeft", true, point, &view),
-            vec![Action::Toggle("hud.fps".into())]
+            click(&mut gui, &view, row),
+            vec![Action::Toggle("render.fullbright".into())]
         );
-        gui.search = "nothing".into();
-        gui.frame(&view, (320.0, 240.0));
-        assert!(gui.mouse("MouseLeft", true, point, &view).is_empty());
+        gui.frame(&view, (400.0, 300.0));
+        assert!(
+            gui.mouse("MouseRight", true, row, &view).is_empty()
+                && gui.selected.as_deref() == Some("render.fullbright")
+        );
+        // Collapsing hides the rows.
+        click(&mut gui, &view, (122.0 + FRAME_WIDTH - 6.0, 16.0));
+        assert!(click(&mut gui, &view, row).is_empty());
+    }
+    #[test]
+    fn header_search_lists_matching_modules_in_the_navigation_frame() {
+        let mut gui = Gui {
+            open: true,
+            ..Gui::default()
+        };
+        let view = view();
+        click(&mut gui, &view, (6.0 + FRAME_WIDTH - 34.0, 16.0));
+        assert_eq!(gui.focus.as_deref(), Some("search"));
+        gui.commit_text("spr", false);
+        assert_eq!(
+            click(&mut gui, &view, (30.0, 6.0 + NAV_HEADER_HEIGHT + 10.0)),
+            vec![Action::Toggle("combat.sprint".into())]
+        );
+    }
+    #[test]
+    fn dragged_frames_persist_and_restore_their_layout() {
+        let mut gui = Gui {
+            open: true,
+            ..Gui::default()
+        };
+        let view = view();
+        gui.frame(&view, (400.0, 300.0));
+        assert!(gui.mouse("MouseLeft", true, (20.0, 10.0), &view).is_empty());
+        gui.pointer((60.0, 50.0));
+        let released = gui.mouse("MouseLeft", false, (60.0, 50.0), &view);
+        let [Action::Layout(layout)] = &released[..] else {
+            panic!("{released:?}");
+        };
+        assert_eq!(layout["gui"]["x"], json!(46.0));
+        assert_eq!(layout["gui"]["y"], json!(46.0));
+        let mut restored = Gui::default();
+        restored.restore_layout(&json!({ "frames": layout }));
+        assert_eq!(restored.pos("gui"), (46.0, 46.0));
     }
     #[test]
     fn unicode_caret_selection_deletion_and_clipboard() {
@@ -682,10 +916,9 @@ mod tests {
     fn delete_confirmation_blocks_background_input() {
         let mut gui = Gui {
             open: true,
-            page: Page::Profiles,
             profile_name: "safe".into(),
             focus: Some("profile".into()),
-            confirm_delete: true,
+            confirm_delete: Some("safe".into()),
             ..Gui::default()
         };
         gui.commit_text("x", false);
@@ -697,7 +930,7 @@ mod tests {
                 .all(|(_, h)| matches!(h, Hit::ConfirmDelete | Hit::Cancel))
         );
         gui.key("Escape", KeyAction::Press);
-        assert!(!gui.confirm_delete);
+        assert!(gui.confirm_delete.is_none());
         assert!(gui.open);
     }
     #[test]

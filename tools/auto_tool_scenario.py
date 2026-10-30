@@ -65,9 +65,9 @@ def run(resources):
         session.call('mouse', 'left', 'up')
         session.call('key', 'rshift', 'tap')
         session.capture('gui')
-        session.call('click-at', '40', '156')
+        session.call('click-at', '30', '98')  # World opens in the first column
         session.capture('world-category')
-        session.call('click-at', '150', '116')
+        session.call('click-at', '160', '56')  # AutoTool, second by name
         session.capture('enabled-in-gui')
         assert session.saved()['modules']['world.auto-tool']['enabled'] is True
         session.call('key', 'rshift', 'tap')

@@ -25,16 +25,19 @@ def run(resources):
         assert session.saved()['modules']['hud.compass']['enabled'] is False
         session.call('key', 'rshift', 'tap')
         session.capture('gui')
-        session.call('click-at', '40', '228')
+        # HUD modules are listed by name in the HUD editor's centred frame.
+        session.call('click-at', '107', '232')
         session.capture('legit-modules')
-        session.call('click-at', '150', '176')
+        session.call('click-at', '190', '96')  # Compass
         session.capture('compass-enabled-in-gui')
         assert session.saved()['modules']['hud.compass']['enabled'] is True
-        session.call('click-at', '348', '116')
+        session.call('click-at', '247', '116')  # Coords dots expand its settings
         session.capture('coordinate-settings')
-        session.call('click-at', '330', '245')
+        session.call('click-at', '200', '207')  # Display Type, fifth setting
+        session.call('click-at', '180', '223')  # horizontal, first option
         session.capture('horizontal-selected')
         assert session.saved()['settings']['hud.coordinates.display'] == 'horizontal'
+        session.call('click-at', '26', '287')  # BACK
         session.call('key', 'rshift', 'tap')
         session.capture('horizontal-biome')
         session.close()

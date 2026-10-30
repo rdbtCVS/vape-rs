@@ -29,9 +29,9 @@ def run(resources):
         session.launch()
         key('rshift')
         session.capture('main')
-        click(235, 46)
+        click(30, 192)  # Profiles opens in the first column at (122, 6)
         session.capture('profiles')
-        click(240, 90)
+        click(150, 36)  # CREATE NEW focuses the name entry
         type_text('abcde')
         key('home')
         key('right')
@@ -48,34 +48,37 @@ def run(resources):
         session.capture('edited')
         shortcut('a')
         shortcut('c')
-        click(235, 118)
+        click(221, 54)  # submit arrow
         session.capture('saved')
         folder = session.current.parent / 'profiles'
         assert (folder / 'abx.json').is_file()
-        click(335, 145)
+        click(221, 55)  # the abx row's menu
+        click(170, 109)  # Delete
         session.capture('confirmation')
         # Every background control and field is inert while modal is shown.
-        click(240, 90)
+        click(150, 36)
         type_text('bad')
-        click(235, 118)
-        click(165, 46)
+        click(221, 54)
+        click(30, 172)
         session.capture('modal-captured')
         assert (folder / 'abx.json').is_file()
         assert not (folder / 'abxbad.json').exists()
-        click(335, 155)
+        assert not (folder / 'bad.json').exists()
+        click(233, 161)  # CANCEL
         session.capture('cancelled')
-        click(165, 46)
+        click(30, 192)  # close Profiles so Friends takes the first column
+        click(30, 172)
         session.capture('friends')
-        click(35, 90)
+        click(175, 36)
         type_text('alpha')
-        click(35, 117)
+        click(175, 53)
         shortcut('v')
         session.capture('pasted')
         shortcut('a')
         shortcut('x')
         session.capture('cut')
         shortcut('v')
-        click(45, 146)
+        click(150, 70)  # FRIEND
         session.capture('person-added')
         assert session.saved()['friends'][0]['name'] == 'alpha'
         assert session.saved()['friends'][0]['alias'] == 'abx'
