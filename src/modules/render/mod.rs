@@ -4,3 +4,4 @@ pub mod world;
 
 pub mod esp;
 pub mod storage_esp;
+pub mod trajectories;

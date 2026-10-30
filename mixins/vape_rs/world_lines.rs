@@ -64,7 +64,22 @@ pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> Contr
         yaw,
         pitch,
     };
-    let extra = with_client(&client, |runtime| runtime.world_lines(&camera, &entities, &storage));
+    // Trajectories: the held item and how long it has been used.
+    let held = game.inventory.get(game.selected).and_then(Option::as_ref);
+    let use_ticks = game.using.filter(|(slot, _)| *slot == game.selected).map(|(_, t)| t);
+    let launch = held.and_then(|stack| {
+        with_client(&client, |runtime| runtime.trajectory_launch(&stack.item, use_ticks))
+    });
+    let mut block = |a: [f64; 3], b: [f64; 3]| {
+        let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if length < 1e-9 {
+            return None;
+        }
+        game.clip_ray(a, d.map(|v| v / length), length).map(|hit| hit.point)
+    };
+    let trajectory = launch.map(|l| (l, &mut block as &mut dyn FnMut([f64; 3], [f64; 3]) -> Option<[f64; 3]>));
+    let extra = with_client(&client, |runtime| runtime.world_lines(&camera, &entities, &storage, trajectory));
     // A negative width marks a line for the always-on-top pass, so these
     // show through walls (see the `vape_on_top` gizmos module).
     lines.extend(extra.into_iter().map(|l| Line {

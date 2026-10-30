@@ -319,6 +319,7 @@ impl Default for Runtime {
             .into_iter()
             .chain(super::modules::render::esp::definitions())
             .chain(super::modules::render::esp::people_definitions())
+            .chain(super::modules::render::trajectories::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -1282,8 +1283,27 @@ impl Runtime {
     pub fn world_line_sources(&self) -> (bool, bool) {
         (
             self.enabled(ModuleId::StorageEsp),
-            self.enabled(ModuleId::Esp) || self.enabled(ModuleId::Tracers),
+            self.enabled(ModuleId::Esp)
+                || self.enabled(ModuleId::Tracers)
+                || self.enabled(ModuleId::Trajectories),
         )
+    }
+    /// Trajectories' launch for the held item, when the module is on.
+    pub fn trajectory_launch(
+        &self,
+        item: &str,
+        use_ticks: Option<u32>,
+    ) -> Option<super::modules::render::trajectories::Launch> {
+        use super::modules::render::trajectories;
+        if !self.enabled(ModuleId::Trajectories) {
+            return None;
+        }
+        let ghost = self
+            .settings
+            .get(&format!("{}.ghost-bow-charge", trajectories::ID))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        trajectories::launch(item, use_ticks, ghost)
     }
     /// The through-wall lines of StorageESP, ESP and Tracers for one frame.
     pub fn world_lines(
@@ -1291,6 +1311,10 @@ impl Runtime {
         camera: &super::modules::render::esp::Camera,
         entities: &[super::targeting::entities::EntityView],
         storage: &[(super::modules::render::storage_esp::Storage, [i32; 3])],
+        trajectory: Option<(
+            super::modules::render::trajectories::Launch,
+            super::modules::render::trajectories::BlockClip<'_>,
+        )>,
     ) -> Vec<super::modules::render::world::Line> {
         use super::modules::render::{esp, storage_esp};
         let mut out = Vec::new();
@@ -1306,6 +1330,18 @@ impl Runtime {
         }
         if self.enabled(ModuleId::Tracers) {
             esp::tracers(&self.settings, camera, entities, &people, &mut out);
+        }
+        if let Some((launch, block)) = trajectory {
+            super::modules::render::trajectories::lines(
+                &self.settings,
+                launch,
+                camera.eye,
+                camera.yaw,
+                camera.pitch,
+                entities,
+                block,
+                &mut out,
+            );
         }
         out
     }
@@ -1877,6 +1913,7 @@ impl Runtime {
                 | ModuleId::StorageEsp
                 | ModuleId::Esp
                 | ModuleId::Tracers
+                | ModuleId::Trajectories
                 | ModuleId::Parkour
                 | ModuleId::AimAssist
                 | ModuleId::SafeWalk

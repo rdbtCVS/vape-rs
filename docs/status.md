@@ -19,7 +19,7 @@ compile-only: no game scenario has run for them yet.
 | Area | Modules |
 | --- | --- |
 | HUD (legit, HUD group) | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
-| Render | Fullbright, StorageESP (partial: through-wall outlines for chests, trapped chests, hoppers, furnaces, dispensers, droppers, shulkers; no ender chests/fill), ESP (partial: 3D mode only), Tracers (partial), friend/enemy recolour settings, and the former HUD-editor Game group: NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
+| Render | Fullbright, StorageESP (partial: through-wall outlines for chests, trapped chests, hoppers, furnaces, dispensers, droppers, shulkers; no ender chests/fill), ESP (partial: 3D mode only), Tracers (partial), Trajectories (partial), friend/enemy recolour settings, and the former HUD-editor Game group: NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
 | Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
 | World / movement | FastPlace, AutoFish, Sprint (baseline), Parkour (experimental), SafeWalk, Anti-AFK† |
 | Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open), WTap† |
@@ -170,8 +170,9 @@ the interface-font text.
 3. **Render:** connect camera/projection, world text/quads and collision
    queries; finish StorageESP (fill, ender chests, Outline open), ESP
    (2D/outline/skeleton, health bar, names, priority/enemy/bot filters) and
-   Tracers (enemy list, bots, third-person origin); then Nametags, ItemESP,
-   Search, SpawnerFinder, Chams, Xray, Trajectories, Projectiles, Arrows,
+   Tracers (enemy list, bots, third-person origin), Trajectories (shooter motion,
+   crossbow); then Nametags, ItemESP,
+   Search, SpawnerFinder, Chams, Xray, Projectiles, Arrows,
    Indicators, Bedplates, Explosions. **BlockOverlay** transparent fill still
    needs an opaque-body-safe geometry insertion capability in the mixin tool or
    an explicit host geometry hook ([block-overlay.md](specs/block-overlay.md)).

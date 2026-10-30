@@ -640,3 +640,20 @@ Validation: `cargo check`, fmt and lib Clippy pass; stage/audit passes with
 34 hooks and 20 support modules; pinned host check passes. No tests were
 added or run and no game scenario ran (implementation-first request), so
 all of this is compile-only.
+
+## 2026-10-30: Trajectories
+
+- Trajectories (`render.trajectories`) predicts the held bow (drawn power,
+  at least 0.1; "Ghost Bow Charge" draws a full shot while not drawn),
+  snowball, egg, ender pearl, splash/lingering potion, experience bottle
+  and trident (after 10 use ticks) with the modern launch speeds, gravity
+  and pitch offsets, through the existing `world::predict` integrator.
+- Each step stops at the host's block clip (`Game::clip_ray`) or the
+  nearest live entity box grown by 0.3. The arc takes the aiming colour
+  when it ends on an entity, whose box gets the target colour; otherwise
+  it uses the trajectory colour with a small box at the landing point.
+- Pending: the shooter's own velocity, crossbows, and the reference's
+  exact aiming/target colour semantics.
+
+Validation: `cargo check`, fmt and lib Clippy pass; stage/audit passes with
+34 hooks and 20 support modules; pinned host check passes. Compile-only, with no tests and no game scenario.
