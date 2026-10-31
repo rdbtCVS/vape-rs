@@ -30,12 +30,20 @@ pub fn definitions() -> Vec<Definition> {
     };
     vec![
         describe(
+            Definition::boolean("client.blur-background", "Blur background", true),
+            "Blur the background of the GUI",
+        ),
+        describe(
             Definition::boolean("client.gui-bind-indicator", "GUI bind indicator", true),
             "Displays a message indicating your GUI keybind upon injecting.\nI.E. \"Press RSHIFT to open GUI\"",
         ),
         describe(
             Definition::boolean("client.show-tooltips", "Show tooltips", true),
             "Toggles visibility of these",
+        ),
+        describe(
+            Definition::number("client.rainbow-speed", "Rainbow speed", 0.1, 1.0, 10.0, 0.1),
+            "Adjusts the speed of rainbow values",
         ),
         describe(
             Definition::choice(

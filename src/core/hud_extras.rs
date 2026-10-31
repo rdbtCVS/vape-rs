@@ -168,7 +168,7 @@ impl Runtime {
     pub fn scoreboard_numbers(&self) -> bool {
         self.hud_flag(super::super::ui::scoreboard::SHOW_NUMBERS)
     }
-    fn hud_flag(&self, id: &str) -> bool {
+    pub(super) fn hud_flag(&self, id: &str) -> bool {
         self.settings
             .effective(id)
             .and_then(|v| v.as_bool())

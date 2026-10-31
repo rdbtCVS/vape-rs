@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "note": "One entry per published mod version. Stable entries are frozen: tools/bundle.py refuses to build a stable version whose pins differ from its entry, so a new pin pair needs a new version. The development channel is rebuilt from main and follows the current pins. Each published artifact carries its own <name>.compatibility.json with the SHA-256 of that exact file.",
+  "releases": [
+    {
+      "version": "0.1.0-dev",
+      "channel": "development",
+      "horizon_revision": "8f91f896a5d47d034318569940e775d8bd854bd6",
+      "horizon_mixins_revision": "0e9229d88d7b6ab18add048de680d873f04cd9b5",
+      "minecraft": "26.3",
+      "protocol": 777,
+      "validated_platforms": [],
+      "exercised_platforms": ["linux-x86_64"],
+      "unvalidated_platforms": ["windows-x86_64", "macos-aarch64", "macos-x86_64"]
+    }
+  ]
+}

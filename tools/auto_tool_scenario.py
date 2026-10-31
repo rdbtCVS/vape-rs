@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import time
+import gui_layout
 from native_session import NativeSession
 
 
@@ -65,9 +66,9 @@ def run(resources):
         session.call('mouse', 'left', 'up')
         session.call('key', 'rshift', 'tap')
         session.capture('gui')
-        session.call('click-at', '30', '98')  # World opens in the first column
+        session.call('click-at', *map(str, gui_layout.category('World')))
         session.capture('world-category')
-        session.call('click-at', '160', '56')  # AutoTool, second by name
+        session.call('click-at', *map(str, gui_layout.row('World', 'world.auto-tool')))
         session.capture('enabled-in-gui')
         assert session.saved()['modules']['world.auto-tool']['enabled'] is True
         session.call('key', 'rshift', 'tap')

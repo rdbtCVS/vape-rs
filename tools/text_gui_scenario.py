@@ -33,7 +33,9 @@ def run(resources):
 
         apply({'hud.text-gui.suffix': 'Extended'}, 'extended')
         apply({'hud.text-gui.sort': 'Alphabetical'}, 'alphabetical')
-        apply({'hud.text-gui.color-mode': 'Match GUI color'}, 'match-gui-color')
+        apply({'hud.text-gui.suffix': 'None'}, 'no-suffix')
+        apply({'hud.text-gui.suffix': 'Extended', 'hud.text-gui.color-mode': 'Match GUI color'},
+              'match-gui-color')
         apply({'hud.text-gui.color-mode': 'Custom color', 'hud.text-gui.background': False,
                'hud.text-gui.smooth-font': False}, 'custom-color-plain')
         apply({'hud.text-gui.x': 4, 'hud.text-gui.y': 60, 'hud.text-gui.background': True,
@@ -54,7 +56,7 @@ def run(resources):
         session.capture('gui-open')
         session.close()
         (session.root / 'assertions.json').write_text(json.dumps({'passed': True, 'checks': [
-            'enabled coloured modules listed', 'Basic and Extended suffixes',
+            'enabled coloured modules listed', 'Basic, Extended and None suffixes',
             'length and alphabetical sorts', 'module, GUI and custom colour modes',
             'background and font toggles', 'left/right anchoring', 'watermark and custom text',
             'hidden module list', 'bind toggles remove rows', 'Text GUI module bind',

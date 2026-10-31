@@ -79,6 +79,17 @@ horizon-launcher native-build ~/vape_rs --trust-native-code
 
 The launcher builds the game on Horizon `8f91f89` (the bundle pins it; the first build downloads Rust and takes 20 to 30 minutes) and points its "Native mods" instance at the result. Native mods run with your full OS privileges; read the source before trusting it. Settings are kept in the instance's `native-mods/vape-rs` folder. Only the Linux x86-64 build route has been exercised; Windows and macOS are untested.
 
+## Updating the Horizon pin
+
+```sh
+cargo run -p xtask --locked --offline -- drift /path/to/horizon origin/main            # plan, apply, audit
+cargo run -p xtask --locked --offline -- drift /path/to/horizon origin/main --compile  # also cargo check
+```
+
+`drift` exports the candidate revision into target/drift without touching the pinned export or compatibility.json. It lists the hashed files that changed and compares the game version and protocol. It then plans, applies and audits a scratch copy of the bundle that names the candidate. With `--compile`, it fetches the candidate's locked dependencies and type-checks the client. The report goes to target/drift/report.json. The command fails if anything differs, so drift is never silent. The scheduled `Upstream drift` workflow runs the same check on Horizon main every day and uploads the report; it never publishes or moves a pin.
+
+To move the pin, review the source of every changed file around its hooks. Then update `horizon_revision` and the hashes in compatibility.json and the bundle manifest, restage, build, and rerun the scenarios for the hooks touched. Record the drift and fixes in decisions.md, and commit with the test results. A published release keeps its pins; a new release carries the new pair. To roll back, rebuild the previous release's `.hnmod`, which names its own pins. Settings in `native-mods/vape-rs` are kept across rebuilds.
+
 ## Tracking work
 
 - `docs/features.csv` and `docs/discovery.json` are generated locally by `tools/inventory.py` from a private reference checkout and are not published.

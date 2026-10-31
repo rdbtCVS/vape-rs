@@ -10,6 +10,7 @@ pub mod reach;
 pub mod rotation;
 pub mod shield_breaker;
 pub mod silent_aura;
+pub mod sprint;
 pub mod trigger_bot;
 pub mod velocity;
 pub mod weapon_swap;

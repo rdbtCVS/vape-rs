@@ -1286,3 +1286,337 @@ captured from a fresh fast build of `545ca54` in a fresh isolated-home
 session (`target/scenarios/readme-gui-vvbo88if`, 1920x1080 offscreen, GUI
 scale 2, creative). They show layout only; no module is enabled and no
 parity claim follows from them.
+
+## 2026-10-31: upstream drift check, capability audit, compatibility matrix
+
+Phase 8 release tooling, done on main while the round-2 workers run.
+
+- `xtask drift <horizon> [revision] [--compile]` is a reviewable upstream-update check. It exports the candidate into target/drift (the pinned export and compatibility.json are untouched) and lists the hashed files that changed. It compares game version and protocol, then plans, applies and audits a scratch copy of the bundle that names the candidate. `--compile` fetches the candidate's locked dependencies and type-checks the client. It writes target/drift/report.json and fails whenever anything differs. `stage`, `export` and `audit` now share this code.
+- `.github/workflows/drift.yml` runs the check with `--compile` on Horizon main every day and uploads the report. It has read-only permissions and never publishes or moves a pin.
+- `pack` audits the shipped Rust (the runtime payload and every adapter and support module) at the token level, so macro bodies are covered too. It rejects `unsafe`, sockets (`std::net`, TCP/UDP/Unix sockets), `process::Command`, `extern "ABI"` blocks, `#[link]`, `std::ffi`, `include!`/`include_bytes!`/`include_str!`, `asm!`, `no_mangle`, `export_name` and `link_section`. The current tree passes. A unit test covers each rejection and the allowed look-alikes (an enum named `Command`, `include` and `link` used as names, `std::process::id`).
+- compatibility-matrix.json lists every published mod version with its Horizon, mixin, game and protocol pins and its platforms. `bundle.py` refuses to build a stable version whose pins differ from its matrix entry, so a new pin pair needs a new version. It also writes `<artifact>.compatibility.json` (artifact SHA-256, pins, toolchains, platforms), which the release workflow uploads. The development entry lists no validated platforms. Linux x86-64 is the only platform exercised; Windows and macOS are listed as unvalidated.
+- docs/development.md documents the update, rollback and settings-preservation process.
+
+Drift result for Horizon main `5062f225` (362 commits after the pin; evidence docs/evidence/drift-5062f225.json):
+- Minecraft 26.3 and protocol 777 are unchanged, and serde_json 1.0.151 is still provided.
+- Six hashed files changed: `game.rs`, `game/control.rs`, `game/lan_particles.rs`, `game/remote.rs`, `game/sculk.rs` and `motion.rs`.
+- All 43 hooks and 29 support modules plan, apply and audit cleanly, and `cargo check` of the client passes with 0 errors.
+- A re-pin still needs a source review of the changed files and the scenarios. Upstream also turned its anticheat on by default, with a combat check that acts, so the blatant-module scenarios need checking against it.
+- None of the client features our `blocked` rows wait for appear in the new commits: chat send, camera rotation, bone poses, mesher and entity-render hooks.
+
+Gates on this tree: fmt; Clippy `-D warnings` (all targets); 194 lib + 4 xtask tests; payload-test; `xtask check` on the pin (stage/audit removed exactly 43 hooks and 29 support modules; 68 warnings, 0 errors); `bundle.py` (74 source files).
+
+The drift report now also lists `changed_targets`: hooks whose function or call-site fingerprint differs from the pinned plan. For `5062f225` that is seven HEAD hooks: client-tick, gui-events, inbound-packet, session-connect and session-disconnect, plus no-slowdown and inv-walk-keys on `controlled_simulation_tick_with_sprint_window`. I reviewed each upstream diff.
+- The client-tick, gui-events and session/packet hooks only gained body changes after their heads: the native-mod net channel, the chat tree, riding resets and candle-cake snuffing.
+- The controlled tick is now a wrapper around a shared `local_tick`, which the server's new movement replay also uses. Our HEAD hooks stay on the client-only wrapper, so their semantics are unchanged.
+- The re-pin is therefore a mechanical hash update plus scenario reruns.
+- Upstream added an anticheat that drops attacks from a client tick with more attacks than swings, or hits on a second entity. It is on by default only on dedicated servers (`game/dedicated.rs` is the only caller of `Hub::set_anticheat`). A LAN world's hub holds none of it (`lan/anticheat.rs`), so our two-process LAN scenarios keep vanilla server behavior. A future dedicated-server scenario has to set `[anticheat]` in its scratch `server.toml`.
+
+## 2026-10-31: online-removal audit (Phase 7)
+
+The pack-time capability audit (tools/xtask/src/main.rs `capabilities`) now also rejects:
+- the host's HTTP client crate `ureq`;
+- `server_packs::download`;
+- the `horizon_telemetry` and `horizon_friends` crates;
+- string literals that contain `://`. Doc comments may still cite a URL.
+
+The pinned client depends on `ureq` and uses it for server-pack downloads, so the old rule against sockets in the payload alone left a gap.
+
+Removal audit on this tree:
+- `git ls-files` lists no Java, Kotlin, C or C++ source, no JAR or class files, no Gradle build and no native libraries or executables. Tracked directories: src, mixins, tools, docs, .github and root metadata.
+- `src/` and `mixins/` contain no URL, account, login, licence or HWID code. A hit like `server_packs` only reads `prompt` to keep modules idle while the host's pack prompt is open.
+- The ledger carries all nine online-product rows (accounts, licensing, cloud and public profiles, reviews, parties, shared activity, shared inventories, remote sync) and the four AI rows as `excluded-approved`.
+- Local profiles and the friend/enemy records stay local files.
+
+Gates: fmt; Clippy `-D warnings` (xtask); 4 xtask tests, including the new denied cases (`ureq::get`, an `https://` constant, a telemetry push) and the allowed ones (a doc comment with a URL, `game.server_packs.prompt`); `xtask pack` on the real payload passes the stricter audit.
+
+## 2026-10-31: per-module frame cost (tools/perf_scenario.py)
+
+New `tools/perf_scenario.py` sets up the delays-perf scene: 24 cows, 8 chests, an item and a held snowball. It takes a 10 s host bench with nothing on, each of the twelve render/HUD modules alone, all of them, and nothing again. Checks: each module alone adds under 1 ms of average CPU per frame and all of them under 3 ms; every bench runs at the same frame cap; nothing costs anything once off.
+
+The earlier perf record blamed the 118 → 30 fps drop on "compositor pacing". That was wrong. The host keeps vanilla's AFK limiter (`FramerateLimitTracker`: 30 fps a minute after the last player input), and ctl key presses don't reset it.
+- Run 1 (`perf-q07fj7d4`, limiter on, 61/66): the frame rate fell during the hud.armor and hud.potions benches, then stayed at 30 fps for every later bench, including all modules off.
+- At that cap, all twelve modules cost 1.92 ms avg / 3.47 ms p99 CPU against a baseline of 0.98–1.52 ms. The large per-module averages and p99s (hud.potions 6.6 / 30 ms, ESP 5.0 / 25 ms) came from the benches where the cap kicked in, not from the modules.
+
+Both perf scenarios now seed the scratch `options.txt` with `inactivityFpsLimit:"minimized"`, as the host's own benchmark mode does.
+- Run 2 (`perf-7q1ii6a8`, 63/67): 94–117 fps in every bench.
+- The machine was at load 25 on 12 cores while the seven workers compiled. The two baseline benches differed by 1.2 ms, and all modules together (4.66 ms) cost less than ItemESP alone (5.47 ms), so the per-module failures (hud.coordinates, NameTags, ItemESP, Trajectories) are not attributable.
+- The game also took over 15 s to quit under that load (harness timeout after the results were written).
+
+Open: rerun `perf_scenario.py` on an idle machine after the round-2 merges. Performance stays unvalidated until then.
+
+## 2026-10-31: settings-parity audit (tools/settings_parity.py)
+
+`tests/settings_dump.rs` writes every setting definition (id, label, kind, default) to `$VAPE_RS_SETTINGS_DUMP`; it does nothing without that variable. `tools/settings_parity.py` parses the `*Value.create(...)` / `new *Value(...)` declarations from the ledger's `settings_and_defaults` text. It matches rows to our modules by display name through `src/core/registry.rs`, then compares labels, defaults and number ranges. 645 definitions were checked. Field-reference defaults (`this.analogMode`) and labels built at runtime are not compared.
+
+The audit found reference settings missing from seven modules that were marked `validated`. Those rows are now `integrated` (validated 64 → 57), each with a decision note listing what is missing:
+- KillAura: Show target, Attack Color.
+- SilentAura: Show target, Attack color, Render type, Break blocks, Break blocks whitelist, Block breaking items.
+- RightClicker: Hold to Click.
+- Text GUI: Click disable, Rescale, and the Scale range (0.1–2.0 step 0.1; ours 0.5–4.0 step 0.05).
+- ChestSteal: Check in menu, which defaults to false; ours defaults to true. Also best-only queueing of non-gear items with the player-inventory scan order, the grid-distance shuffle, and the slot travel delay.
+- Blink: Spawn fake.
+- Scoreboard: Replace scoreboard text.
+
+Integrated rows with gaps:
+- ESP: Enemy Only, Enemies List Only.
+- AutoHeal: Inventory Only.
+- AutoTotem: Silent open.
+- SpawnerFinder: "Spawners". Ours is labelled "Spanner names", probably the same list under another name; to check.
+
+Reach's Misplace and Disadvantage stay with the blocked Reach row. SilentAura's AI settings stay excluded.
+
+Routed to the running round-2 workers:
+- combat-a: KillAura and SilentAura.
+- render: ESP.
+- inventory: ChestSteal, AutoHeal, AutoTotem.
+- hud-client: Text GUI and Scoreboard.
+- movement-b: Blink's fake player (already in its brief).
+
+Unassigned, for round 3: RightClicker Hold to Click, and the SpawnerFinder label.
+
+Tests: `cargo fmt --check` and `cargo clippy --all-targets -D warnings` are clean; the dump test passes (1/1).
+
+## 2026-10-31: settings-parity audit reads the reference sources
+
+`tools/settings_parity.py` now parses declarations straight from each row's reference sources, read as text and never run; the ledger's `settings_and_defaults` text is the fallback. It counts a value as shown only when the reference passes its field to `addValue(...)` or `U(...)`. Values that are created but never added are hidden and run at their default; these are reported as "hidden in reference" rather than as gaps. It also:
+- resolves ModeOption field defaults (`this.threeDimensionalMode`) to their labels ("3D");
+- reads the default from the right argument when `ModeValue.create` has a description;
+- skips `((Object)this)` owners;
+- compares RandomValue ranges as well as NumberValue ranges;
+- maps ClientSettings ("GUI") to our `client.*` settings.
+
+Corrections to the previous entry:
+- RightClicker "Hold to Click", ESP "Enemy Only" / "Enemies List Only" and AutoHeal "Inventory Only" are hidden in the reference, so they are not gaps. Our RightClicker always holds, which matches the hidden default (src/modules/combat/clicker.rs). module.rightclicker is back to `validated` with its original evidence.
+- ESP's mode default matches ("3D"); the earlier "default differs" was a parse artefact.
+
+New gaps found:
+- ClientSettings: "Blur background" (default true) and "Rainbow speed" (0.1–10, default 1). Every reference ColorValue has a rainbow toggle; our color kind is a single ARGB value. module.clientsettings is lowered to `integrated`.
+- SilentAura: the non-AI "Kiss" rotation mode ("Kiss speed" 5–90 default 30, "Kiss jitter" 0–1 default 0.15) and "Break blocks delay" (0–2000 ms, default 0–10). Also "Target color", next to the earlier Show target / Attack color.
+- KillAura: "Target Color".
+- AutoTotem: "Silent move delay", next to "Silent open".
+- AutoArmor: Delay. The reference allows 1–200 ms with default 100–120; ours allows 100–200 with default 120.
+- SpawnerFinder: the label is "Spawners". "Spawner names-whitelist" is only the storage id.
+
+Routed:
+- combat-a: Kiss mode, Break blocks delay and the target colors.
+- inventory: AutoTotem.
+- render: the SpawnerFinder label.
+- hud-client: Blur background and Rainbow speed.
+- Round 3 (target/worker-briefs/round3-plan.md): AutoArmor Delay.
+
+Every other number and random range the audit can parse matches the reference.
+
+Current report: 26 missing settings on integrated rows, all routed (3 are SilentAura's excluded AI settings). Plus 2 missing on the blocked Reach row, 2 range differences (AutoArmor Delay, Text GUI Scale), 1 default difference (AutoArmor Delay) and 9 values hidden in the reference. The validated count is 57 and integrated is 39.
+
+Tests: `settings_dump` passes (1/1, 645 definitions).
+
+## 2026-10-31: main's baseline scenario failures fixed
+
+Seven host scenarios failed on main at 4ff7488, before any round-2 merge. Four were scenario bugs, one was a real Refill deviation, and two were environment problems:
+- **delays_perf (NoJumpDelay):** the take-off windows were wall-clock, so a slow sample under load shrank them. The scenario now counts host ticks (`state.ticks`). A bonk under the ceiling lands in about six ticks, so the module turns the vanilla ten-tick spacing into a six-tick one: on needs 1.5× the take-offs and a median gap of 7 ticks or less, and off and after need a gap of at least 9. **NoClickDelay:** the miss-then-hit check released the button between the miss and the hit, which let the next tick clear the vanilla cooldown, so it held with the module off too. It now keeps the button held through the look.
+- **inventory (Refill):** after the player closed the inventory before the next delayed click, Refill reopened it. The reference's `onTick` observes the screen every pre-tick and only delays the clicks, so a run whose inventory was shown and then closed finishes and disables. `Refill::observe` (src/modules/utility/refill.rs) now runs every tick from the inventory runtime, and the unit test `closing_before_the_next_step_still_finishes` covers it.
+- **gui, auto_tool, no_hurt_camera:** fixed click positions went stale when modules were added or moved (NoHurtCam is in Render since 1336a94). The new `tools/gui_layout.py` computes category and module rows from the registry and `CATEGORIES`, and skips modules hidden by default once `src/core/visibility.rs` exists. The gui scenario's multi-bind click moved to y=95, below the newer "GUI bind indicator".
+- **auto_tool_guards:** the nether landing used random terrain, so the block under the crosshair varied. The scenario now force-loads and clears the area and lays an obsidian floor first.
+- **text_editor:** it now runs under `xvfb-run` with a private display, like the other clipboard checks.
+
+Tests: fmt, Clippy and the workspace tests are clean (395 passed, 0 failed), and payload-test, stage, host check and host build pass. Host scenarios, each in a fresh isolated home: delays_perf 39/39, inventory, gui, auto_tool, auto_tool_guards, no_hurt_camera and text_editor pass (target/scenario-runs/20261031-181944, -182256 and -182518).
+
+## 2026-10-31: HUD and client foundation (worker round 2)
+
+Branch `t3/363c8469`, built from `9fd0493` against the Horizon pin `8f91f89`.
+
+Added:
+- Per-module visibility (`Mod.visible`, new `src/core/visibility.rs`):
+  - Speed, Fly, Timer, InvCleaner, ThrowDebuff, AntiDebuff, InvWalk and AutoHotbar are hidden by default. Panic stays visible because of its F10 bind (decisions.md).
+  - A frame header's edit button lists every module of the category behind a checkbox strip. `modules.<id>.visible` is saved only when it differs from the default.
+  - A hidden module refuses its bind with a "Hidden Module" warning toast. Hidden enabled modules are switched off after a profile load.
+  - Bind-only modules (the `UtilityMod` subclasses) refuse GUI clicks, and the row shows "MUST BE BOUND" or "USE VIA BIND".
+- ClientSettings "Blur background" (default on): new cancellable HEAD hook `gui-blur` on `Game::menu_blur` (`mixins/vape_rs/adapters/gui_blur.rs`). It reuses the host menu blur, the same path as Inventory Blur, while the click GUI or the HUD editor is open.
+- ClientSettings "Rainbow speed" (0.1..10, default 1, step 0.1) and the per-colour rainbow (new `src/core/rainbow.rs`):
+  - Every colour setting has a hidden `<id>.rainbow` toggle, shown as a fifth Rainbow row in the colour popup.
+  - While the toggle is on, the hue advances by Rainbow speed every 50 ms, using Java's HSB conversion. The cycled colour is written back without dirtying the profile.
+- TextGuiSettings: Scale is now 0.1..2.0 in tenths, Rescale (default on) is stored, and the "None" suffix mode has a capture.
+- A cleared GUI bind falls back to Right Shift (`ClientSettingsGuiBindBendable.setBoundInputs`).
+- Scenario updates for the new defaults: movement, world_movement, legit_render and throw seed `visible: true` for the default-hidden modules they drive. gui_scenario.py has the new Fullbright row (AntiDebuff hidden) and the shifted multi-bind row (Blur background added).
+
+Audits (no code):
+- client.timing: `src/core/rng.rs` (xorshift), the Normal and Extra modes in `src/modules/combat/click_timing.rs`, and ExtraPlus in the clicker. The host measured 11 CPS at a 10–12 setting. A per-mode host distribution check is still open.
+- client.localization: the reference ships English, Chinese, French, Portuguese and Spanish `.properties` tables, `FontOption.s()` translation, `NotoFontOption` and an `exportFramesConfig` template. None is ported. It stays not-started.
+- client.performance: the reference has debug classes only, so it needs a scope decision and stays not-started.
+- client.target-info: see the Target Info gaps below. It stays integrated.
+
+Tests:
+- fmt --check and Clippy -D warnings are clean. Workspace tests pass 204 + 3, and payload-test passes 204. New tests cover visibility (4), rainbow (3), the popup Rainbow switch, and the GUI bind fallback.
+- Stage/audit: 44 hooks and 29 support modules, with the original AST restored. The fast host build passed with 68 warnings and 0 errors.
+- Host scenarios, each in a fresh isolated home:
+  - gui_blur_rainbow 6/6. The rainbow Text GUI colour cycles and is not saved by itself, and the popup switch stores and clears `<id>.rainbow`. With Blur on, the GUI capture fits a radius-4 blurred play capture 4× better than the sharp one. With Blur off, it fits the sharp one 11× better. Both comparisons first apply a linear fit, which absorbs the GUI's dim.
+  - module_visibility 7/7
+  - text_gui 11/11
+  - client_settings 11/11
+  - gui 11/11
+  - hud_modes 5/5
+  - target_info 8/8
+  - movement 52/52
+  - world_movement 28/28
+  - legit_render 40/40
+  - throw 4/4
+- An earlier gui_blur_rainbow check compared absolute edge energy across two launches. That was unsound, because each launch shows a different scene and the GUI dims the world, so the check now compares within a session.
+- main's `tools/settings_parity.py` (from `4ff7488`, reading the reference as text) was run on this tree:
+  - ClientSettings has no missing, default or range difference.
+  - TextGuiSettings misses only Click disable.
+  - Scoreboard misses only "Replace scoreboard text".
+- Evidence: docs/evidence/hud-client-r2-{blur-rainbow,visibility,text-gui,client-settings,gui,modes,target-info,settings-parity}/.
+
+Ledger update: target/ledger-updates/hud-client.json (41 rows).
+
+Open:
+- Text GUI: Click disable (needs the HUD under the open GUI), rounded corners, the logo watermark (no redistributable asset), the per-module states, and right-edge anchoring while the list shrinks. "Match GUI color" uses the fixed accent.
+- The colour popup edits ARGB channels instead of the reference's HSB picker.
+- Not done yet:
+  - the HUD and toasts under the click GUI;
+  - hover tooltips;
+  - the legit-mode button;
+  - friend notifications;
+  - Windows date conventions for Clock;
+  - Scoreboard "Replace scoreboard text".
+- Target Info: head preview, pot count, enchant-aware damage comparator.
+- Freelook modes stay blocked (no camera-rotation hook).
+- module.blockhitmode belongs to combat-a and was not touched.
+
+## 2026-10-31: hud-client (round 2) merged
+
+I merged t3/363c8469 (f26e51d) into main on top of the baseline fixes. Conflicts:
+- `tools/gui_scenario.py`: Fullbright's row stays computed by `gui_layout.py`, which now leaves out default-hidden modules, and the multi-bind click is at y=113, below Blur background.
+- docs: both sides kept.
+
+I applied target/ledger-updates/hud-client.json (41 rows: 24 validated, 4 integrated, 6 blocked on the Freelook camera-rotation hook, 5 not-applicable-reviewed, 2 not-started). The evidence is in docs/evidence/hud-client-r2-*.
+
+Tests on the merged tree: fmt, Clippy and the workspace tests are clean (415 passed, 0 failed), and payload-test, stage, host check and host build pass. Host scenarios, each in a fresh isolated home, all pass (target/scenario-runs/20261031-184300):
+
+| Scenario | Result |
+|---|---|
+| gui_blur_rainbow | pass |
+| module_visibility | pass |
+| text_gui | pass |
+| client_settings | pass |
+| gui | 11/11 |
+| hud_modes | 5/5 |
+| target_info | 8/8 |
+| throw | pass |
+| legit_render | 40/40 |
+| auto_tool | pass |
+| no_hurt_camera | pass |
+| movement | 52/52 |
+| world_movement | 28/28 |
+
+## 2026-10-31: clicker and movement debt (worker round 3)
+
+Worker clicker-movement-debt, branch t3/63456628 from main 4ff7488. This round closes the scenario debt on LeftClicker modes, TriggerBot, Sprint, Velocity and SafeWalk, with LAN runs on two owned local processes. It also ports Sprint's reference latch.
+
+Changed files:
+- src/modules/combat/sprint.rs (new): the reference `Sprint.onPreEntityUpdate` latch, with 4 unit tests. The press is made only while the key is up, the player is not sprinting and not collided horizontally. It stays down until disable, a screen, or the user's own key release. Cancel Invis is gated on `allowFlying` (may fly). Cancel Invis and the movement-input claim only skip new presses.
+- src/core/mod.rs: the `sprint` state, its reset on disable, and `Runtime::sprint_press` (append-only). src/modules/combat/mod.rs: `pub mod sprint;`.
+- mixins/vape_rs/input_delays.rs: `resolve_movement` builds the Sprint tick from host state (sprinting, horizontal collision, invisibility, may fly). Before, it pressed every active tick.
+- mixins/vape_rs/combat.rs: the LAN host's snapshot of each guest takes `blocking` from the server's model of the guest, so Shield check works against guests. It used to be always false.
+- src/modules/combat/click_timing.rs: Normal stores its 1000/CPS delay as the last delay (reference).
+- New scenarios:
+  - tools/clicker_modes_scenario.py
+  - tools/trigger_bot_options_scenario.py
+  - tools/trigger_bot_lan_scenario.py
+  - tools/velocity_lan_scenario.py
+  - tools/sprint_safe_walk_lan_scenario.py
+
+Scenarios (fresh isolated homes through native_session.py, HORIZON_SERVER_THREAD=1). Every run used one build: bundle 792ed691e319, built after the last source edit from 4ff7488 plus these changes, Horizon 8f91f89, mixins 0e9229d, fast profile.
+
+- **clicker_modes: 18/18.** Integrated server, 10 CPS on a NoAI, Invulnerable cow for 30 s each, server TPS 20.
+  - Normal: 9.79 CPS, gaps {1:2, 2:284, 3:15} ticks.
+  - Extra: 9.45 CPS, 31 long gaps against Normal's 15.
+  - Extra+: 10.73 CPS, with 112 under-interval gaps.
+- **trigger_bot_options: 19/19.**
+  - Defaults hit at full strength with no air attack.
+  - Miss chance 100 gives one air attack per click. Early chance 100 hits at scale 0.92.
+  - Limit to items (swords): no hit with dirt.
+  - Select first hit: 0 hits while waiting, 4 after being hurt, 0 after a second looking away.
+- **trigger_bot_lan: 34/34.** Host world opened to LAN plus a guest client; both players have shields.
+  - Host TriggerBot: 12 hits on the open guest. While the server sees the guest's shield in use: 0 hits and 0 swings, and a physical click is fully blocked. 12 hits once the shield is lowered.
+  - Guest TriggerBot, Shield check off: 12 hits on the raised shield, each blocked.
+  - Guest TriggerBot, Shield check on: 0 hits and 0 swings behind the shield, 12 once lowered.
+  - Select first hit: no hit until the host's click, then 8 hits back, none after looking away.
+- **velocity_lan: 26/26.** Guest Velocity against the remote server's SetEntityMotion and the Explode knockback.
+  - Off: pushes of 0.99 and 2.38 blocks. On: both cancelled.
+  - Only when targeting: follows the reference, including the `applyBridgeVelocity` explosion quirk.
+  - Kite 200%: 1.99 and 4.77 blocks. Always Kite: doubled while facing.
+- **sprint_safe_walk_lan: 42/42.**
+  - Sprint on host and guest: 5.51 b/s against a 4.32 b/s walk. A pause menu releases the key, and it is pressed again after resuming. Disable releases it. Cancel Invis blocks sprinting in invisible survival but allows it in invisible creative.
+  - Guest SafeWalk: held at both edges without sneaking, Direction Check lets a forward walk off, and after a rejoin with it off a forward walk is held.
+
+Feature ids (ledger update target/ledger-updates/clicker-movement-debt.json; evidence docs/evidence/clicker-movement-debt-r3-*):
+- module.leftclicker.mode.normal and .extra: implemented-core → validated.
+- module.triggerbot, module.sprint, module.velocity, module.safewalk: integrated → validated.
+- module.backtrackpacketstate, module.backtrackpacketreplaystate, module.backtrackpacketqueueentry: not-started → validated. These helpers follow module.backtrack (docs/evidence/validation-hold.json); see decisions.md.
+- module.autoclickerentitypositionstate: stays not-started. Only Reach's Misplace uses it, and Misplace is unported (Reach is blocked and in combat-b's scope).
+
+Gates:
+- `cargo fmt --all --check`: clean.
+- Clippy `-D warnings` (workspace, all targets): clean.
+- `cargo test --workspace`: 198 lib, 1 settings_dump, 4 xtask and 0 doc tests, all passing.
+- `xtask payload-test`: 198/198.
+- `xtask stage`: the audit restored the original AST after removing exactly 43 hooks and 29 support modules.
+- `xtask check` on the pin, under the shared lock: the same 43 hooks and 29 support modules, 68 warnings, 0 errors.
+- `xtask build` (fast): 68 warnings, 0 errors, bundle 792ed691e319. That is the bundle every scenario above ran on.
+- `settings_parity.py`: no entries for these rows.
+- No new hooks.
+
+Failures on the way, all fixed in the scenarios:
+- Velocity needs `mob_attack` damage, because `generic` gives no knockback. The players must stand off-axis because of the reference's yaw-to quirk.
+- The SUN_LEN socket path limit needs short session prefixes.
+- `looking_at` lists mobs only.
+- The host's hurt-log entry carries its profile name, not "host".
+
+Limits and next steps:
+- TriggerBot's ShieldBreaker, HitSwap and AutoMace bypasses need those combat-b modules.
+- Sprint's movement-input lock needs Scaffold Blatant/Telly.
+- AutoClickerEntityPositionState follows Reach Misplace.
+
+## 2026-10-31: clicker-movement-debt (round 3) merged
+
+Merged t3/63456628 (head c28cff8) into main on top of hud-client's round 2 (608c800). The progress.md and decisions.md conflicts were append-only; both sides are kept.
+
+Gates on the merged tree (`target/agent-tools/gates.sh --host`):
+- `cargo fmt --check`: clean.
+- Clippy `-D warnings`: clean.
+- 423 tests passed, 0 failed.
+- `xtask payload-test`: passed.
+- `xtask stage`: passed.
+- `xtask build` on the pin: passed.
+
+Scenarios on the merged build, each in a fresh isolated home:
+- velocity_lan: 26/26.
+- combat: 39/39.
+- gui: passed.
+- clicker_modes: 18/18 (run 20261031-190725).
+- trigger_bot_options: 19/19 (run 20261031-190725).
+- trigger_bot_lan: 34/34 (run 20261031-190725).
+- sprint_safe_walk_lan: 42/42 (run 20261031-190725).
+
+The first merged run (20261031-185834) was made at a load average of about 15, with other workers' builds running. It failed four scenarios:
+- **clicker_modes:** the control socket timed out at launch. It passed in the quiet rerun.
+- **trigger_bot_options:** the launch timed out. It passed in the quiet rerun.
+- **sprint_safe_walk_lan:** the host died before its first walk.
+  - Cause: the scenario teleported the survival host to y=89 before the catch floor at y=88 was built. A slow world load let the host fall onto terrain without Resistance.
+  - Fix: it now builds the floor, then teleports.
+- **trigger_bot_lan:** 33/34. "A physical click is blocked by the guest's shield" saw no hurt.
+  - Cause: the click was made before `hurts()` cleared the server's hurt log, so a quick server logged the blocked hit and the reset wiped it.
+  - Fix: the click now runs inside the window, as the later Select-first-hit check already did.
+
+Both fixes change only scenario timing; the checks themselves are unchanged.
+
+Ledger: target/ledger-updates/clicker-movement-debt.json is applied. Every check in the five evidence results passed (18, 42, 34, 19 and 26). The ledger now has:
+- validated: 90
+- implemented-core: 64
+- integrated: 37
+- not-started: 246
+- excluded-approved: 13
+- blocked: 12
+- not-applicable-reviewed: 10
