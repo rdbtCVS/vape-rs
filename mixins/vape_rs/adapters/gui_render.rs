@@ -26,8 +26,10 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
             .map(|snapshot| with_client(&client, |runtime| runtime.panels(snapshot)))
             .unwrap_or_default();
         with_client(&client, |runtime| runtime.set_text_gui_boxes(Vec::new()));
-        for panel in panels.iter().filter(|p| crate::game::vape_hud::GUI_OVERLAYS.contains(&p.module)) {
-            crate::game::vape_hud::panel(game, batch, panel);
+        for panel in &panels {
+            if crate::game::vape_hud::GUI_OVERLAYS.contains(&panel.module) {
+                crate::game::vape_hud::panel(game, batch, panel);
+            }
         }
     }
     if frame.hud_editor {

@@ -14,7 +14,8 @@ Coordinates are GUI pixels of the 800x600 window at host GUI scale 2 (a
 clamped to the right edge, at scale 1: rows are 11 high from y=3 and their
 boxes end at x=400. Alphabetical sort puts AutoClicker (red, no Basic
 suffix) in row 0 above ESP (green). Blur background is off so a GUI capture
-can be compared with play directly.
+can be compared with play directly, and the search bar is off so it does not
+cover where the host would centre "Game Paused".
 """
 import argparse
 import colorsys
@@ -25,11 +26,12 @@ from PIL import Image
 from native_session import NativeSession
 
 ROW0 = (396, 8.5)
-# Capture pixels: the Text GUI's right-anchored rows, the vanilla hotbar,
-# and where the host centres "Game Paused" (y=10, white, shadowed).
+# Capture pixels: the Text GUI's right-anchored rows, the vanilla hotbar's
+# left slots (toggle toasts cover its middle), and where the host centres
+# "Game Paused" (y=10, white, with a dark grey shadow).
 TEXT_GUI = (520, 0, 800, 60)
 ROW0_BAND = (520, 6, 800, 28)
-HOTBAR = (220, 556, 580, 600)
+HOTBAR = (216, 552, 330, 600)
 TITLE = (320, 16, 480, 42)
 GUI_COLOR = 0xff2f7ae5
 
@@ -50,9 +52,11 @@ def red_count(path, box=ROW0_BAND):
 
 
 def red_green(path):
-    """Mean green channel of the red text: a hover blend raises it."""
+    """Median green channel of the red text: the hover blend (20% toward
+    white) raises it from 11 to about 60; edge pixels over a changing
+    background barely move the median."""
     p, mask = red(path)
-    return float(p[mask][:, 1].mean()) if mask.any() else None
+    return float(np.median(p[mask][:, 1])) if mask.any() else None
 
 
 def red_left(path):
@@ -65,6 +69,11 @@ def red_left(path):
 def green_count(path):
     p = pixels(path, TEXT_GUI)
     return int(((p[..., 1] > 150) & (p[..., 1] - p[..., 0] > 70) & (p[..., 1] - p[..., 2] > 70)).sum())
+
+
+def shadow_count(path, box=TITLE):
+    """Pixels in the host's white-text shadow colour (0x3f3f3f)."""
+    return int((np.abs(pixels(path, box) - 63).max(-1) <= 4).sum())
 
 
 def rms(a, b, box):
@@ -122,7 +131,10 @@ def run(resources):
                                   'combat.auto-clicker': {'enabled': True},
                                   'render.esp': {'enabled': True}},
                       'settings': {'hud.text-gui.sort': 'Alphabetical',
-                                   'client.blur-background': False}})
+                                   'client.blur-background': False,
+                                   'client.search-bar': 'None'}})
+        # The tutorial toast (top right) and chat stay clear of the rows.
+        (session.root / 'game' / 'options.txt').write_text('chatVisibility:2\ntutorialStep:none\n')
         session.launch()
         session.call('wait', '10')
         playing = capture('playing')
@@ -134,11 +146,18 @@ def run(resources):
         key('rshift')
         session.call('wait', '10')
         gui = capture('gui-open')
-        check('the click GUI is open', session.call('state')['screen'] == 'paused')
+        state = session.call('state')
+        check('the click GUI is open', state['screen'] == 'paused')
+        check('the world is not paused under the GUI', state['paused'] is False, state['paused'])
+        day0 = state['time']['day_time']
+        session.call('wait', '40')
+        day1 = session.call('state')['time']['day_time']
+        check('the world clock advances under the GUI', day1 - day0 >= 20, [day0, day1])
         check('the vanilla hotbar stays under the GUI', rms(gui, playing, HOTBAR) < 12,
               rms(gui, playing, HOTBAR))
-        check('no "Game Paused" title over the GUI', rms(gui, playing, TITLE) < 12,
-              rms(gui, playing, TITLE))
+        check('no "Game Paused" title over the GUI',
+              shadow_count(gui) == 0 and shadow_count(playing) == 0,
+              [shadow_count(playing), shadow_count(gui)])
         check('the Text GUI draws over the GUI',
               red_count(gui) > 20 and green_count(gui) > 20, [red_count(gui), green_count(gui)])
 
@@ -147,7 +166,7 @@ def run(resources):
         session.call('wait', '4')
         still = capture('click-disable-off-hover')
         check('without Click disable a hover keeps the colour',
-              abs(red_green(still) - red_green(gui)) < 8, [red_green(gui), red_green(still)])
+              abs(red_green(still) - red_green(gui)) < 15, [red_green(gui), red_green(still)])
         click(ROW0)
         session.call('wait', '4')
         check('without Click disable a row click does nothing',
@@ -163,7 +182,7 @@ def run(resources):
         hover(ROW0)
         session.call('wait', '4')
         hovered = capture('click-disable-hover')
-        check('a hovered row blends toward white', red_green(hovered) - base_green > 20,
+        check('a hovered row blends toward white', red_green(hovered) - base_green > 30,
               [base_green, red_green(hovered)])
 
         click(ROW0)

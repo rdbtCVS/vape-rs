@@ -103,3 +103,24 @@ Live entity snapshots come from `vape_combat::snapshot`: alive `Game::mobs` (rem
 Movement keys have one writer: `vape_input_delays::movement`, called from `client-tick` before local and remote movement, and from `client-frame` on screen/pause/unfocused frames. It reads the host's canonical key set and toggle mappings, resolves the per-tick requests from Sprint and Parkour (`vape_parkour::edge_ahead` answers the host collision query) through `core::movement_input::Writer`, and writes only the axes that differ from the user's state, or that it owned and must hand back. Host events reach the writer through the two key-capture adapters above. Host scenarios: docs/evidence/postmerge-validation.json.
 
 KillAura and SilentAura run from `client-tick` through `vape_aura::tick`, after TriggerBot: snapshots from `vape_combat::snapshot`, attacks by entity id through `vape_combat_remote::attack` (on a server: `Attack`, `remote_player_attack`, attack-strength reset, swing and `Punch`, in the host's order and respecting `miss_time`; locally `attack_mob` and the swing), misses through `vape_combat_remote::miss`. The shared rotation claim and managed rotation live in the runtime (`core/combat_runtime.rs`, `modules/combat/rotation.rs`).
+
+Client foundation worker (2026-10-31), round 3: one new hook (45 injections and 29 support modules in the manifest after merging main 97dbaa7).
+
+| ID | Exact target | Behavior |
+| --- | --- | --- |
+| `gui-no-pause` | `horizon_client::game::Game<'_>::pauses_game` | HEAD, cancellable. Returns `Break(false)` while the click GUI or the HUD editor owns the host's `Paused` screen (`Runtime::ui_screen_owned`) and the vanilla pause menu is not open. Otherwise it continues to the host's rule. |
+
+Changes to existing hooks and support modules:
+
+- `gui-render` (`adapters/gui_render.rs`), outside the HUD editor:
+  - it no longer clears the frame or draws a dim;
+  - it calls `vape_hud::drop_paused_title`, then clears the Text GUI row boxes for this frame;
+  - it draws the `vape_hud::GUI_OVERLAYS` panels (`hud.text-gui`, `hud.target-info`) over the GUI, and the notifications last.
+  - The HUD editor path keeps its clear, its 0x33000000 dim and its preview panels.
+- `client-hud` (`adapters/hud.rs`) takes a snapshot while playing and also while the GUI shows the HUD (`Runtime::gui_shows_hud`). In that state it skips the `GUI_OVERLAYS` panels and the notifications, which `gui-render` draws on top.
+- `vape_hud` (`hud_painter.rs`):
+  - new `GUI_OVERLAYS`;
+  - new `drop_paused_title`: removes the host's "Game Paused" title only when its vertices match a probe rendering byte for byte;
+  - `text_gui` returns its row boxes for Click disable.
+
+Mixin helper pitfall found during this round: in the staged `debug_keys.rs`, the helper's `.filter(|p| crate::game::vape_hud::GUI_OVERLAYS.contains(&p.module))` closure body had been wrapped in a block. The staged statement then no longer matched the statement the audit builds from the helper source, and the build failed with "unexpected transformed AST changes". The helper now uses a plain `for`/`if`.

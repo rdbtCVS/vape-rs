@@ -1750,3 +1750,42 @@ Tests:
 - payload-test: 215 passed.
 
 Host build and native scenarios are pending a rebuild after merging main (608c800). This entry will record those results.
+
+### Wrap-up (round 3, 2026-10-31)
+
+Landed after the entry above (commit 7e4cb2c, plus this wrap-up commit):
+
+- **Gui Color is the accent** (`ThemeColors.z()`, default RGB(5,134,105)): toggles, tab underlines, module cards, macro icons and Text GUI "Match GUI color". `ThemeColors.O` stays fixed.
+- **The click GUI over play.**
+  - The new `gui-no-pause` hook keeps single-player ticking.
+  - The vanilla HUD stays under the GUI, with no dim.
+  - The host's "Game Paused" title is removed (`vape_hud::drop_paused_title`).
+  - The Text GUI, Target Info and notifications draw over the GUI.
+  - The HUD editor keeps its dim.
+- **Text GUI "Click disable".** A hover blends the row (20% toward white). A click toggles the row's module. A module switched off this way stays listed with a grey "| Disabled" suffix until the GUI closes.
+- **Audit fix.** The first build of this tree failed the audit ("unexpected transformed AST changes: debug_keys.rs"): the staged `gui_render` helper had its `.filter` closure body wrapped in a block. The helper now uses `for`/`if` (docs/hooks.md).
+
+Gates on this branch, before merging main cdc0228:
+- `cargo fmt --all --check`: exit 0.
+- clippy `-D warnings`: exit 0.
+- `cargo test --workspace`: 239 + 1 + 4 + 0 passed.
+- payload-test: 239 passed.
+- Host build (`xtask build` under the shared lock): exit 0. The audit restored the original AST after removing exactly 45 hooks and 29 support modules. Bundle `d07bec67dcd5…`.
+
+Host scenarios, each in a fresh isolated home on that build:
+- `tools/text_gui_click_scenario.py`: PASS 18/18. Evidence: `docs/evidence/client-foundation-r3-text-gui-click/`. With the GUI open:
+  - `state.paused` is false and the world clock advances (day time 45 → 84 over 40 ticks);
+  - the hotbar is unchanged (RMS 0.46), there are no "Game Paused" shadow pixels, and the Text GUI draws over the GUI;
+  - with Click disable off, a hover and a click change nothing;
+  - with it on, a hover raises the red row's green channel 14 → 58.5, a click disables AutoClicker and adds the suffix, a second click re-enables it, a third disables it, and closing the GUI drops the held row;
+  - Match GUI color: hue 0.598, Gui Color 0.598.
+- Regression reruns after removing the GUI dim:
+  - `tools/gui_blur_rainbow_scenario.py`: PASS 6/6. Blur on fits the blurred play capture 2.88 vs sharp 14.48; blur off, sharp 0.78 vs blurred 16.10. Evidence: `docs/evidence/client-foundation-r3-blur-rainbow/`.
+  - `tools/text_gui_scenario.py`: PASS 11/11. Evidence: `docs/evidence/client-foundation-r3-text-gui/`.
+
+Not run on a current build:
+- `tools/bindings_scenario.py`, `tools/macro_scenario.py` and `tools/profile_switch_scenario.py`: their last runs stopped with StaleBuild.
+- `tools/friends_lan_scenario.py`: written, never run. Its docstring says so.
+- `tools/gui_scenario.py`, `tools/text_editor_scenario.py` and `tools/hud_editor_scenario.py`: not rerun after the GUI changes.
+
+The coordinator runs the host check and build after merging this branch.
