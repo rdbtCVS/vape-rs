@@ -106,9 +106,8 @@ impl AutoTool {
         if (options.not_during_combat && snapshot.combat_blocked)
             || (options.not_during_use && snapshot.using_item)
         {
-            // Guarded ticks cannot mature an old pending swap behind another action.
-            self.pending = None;
-            self.back_at = None;
+            // The reference returns before touching its state: a pending swap
+            // or swap back keeps its timer and runs once the guard lifts.
             return None;
         }
         let eligible = snapshot.target.is_some()
@@ -139,7 +138,6 @@ impl AutoTool {
         if self.back_at.is_none() && best.is_none() && self.original.is_some() && options.swap_back
         {
             self.back_at = Some(snapshot.tick.saturating_add(options.swap_back_ticks));
-            self.pending = None;
         }
         let (selected, kind) = if let Some(deadline) = self.back_at {
             if snapshot.tick < deadline {
@@ -147,23 +145,24 @@ impl AutoTool {
             }
             (self.original?, Kind::Restore)
         } else {
-            let Some(best) = best else {
-                self.pending = None;
-                return None;
-            };
-            if best == snapshot.selected {
-                self.pending = None;
-                return None;
+            // A swap is scheduled when a better slot appears and then runs
+            // when "Swap to delay" has passed (at once for "Instant swap" on
+            // an entity), against whatever slot is best by then; the
+            // schedule survives ticks without a best slot.
+            if self.pending.is_none() && best.is_some_and(|best| best != snapshot.selected) {
+                self.pending = Some(snapshot.tick.saturating_add(options.swap_to_ticks));
             }
-            let deadline = *self
-                .pending
-                .get_or_insert_with(|| snapshot.tick.saturating_add(options.swap_to_ticks));
+            let deadline = self.pending?;
             let instant = options.swap_weapon
                 && options.instant_weapon
                 && matches!(snapshot.target, Some(Target::Entity(_)));
             if !instant && snapshot.tick < deadline {
                 return None;
             }
+            let Some(best) = best.filter(|best| *best != snapshot.selected) else {
+                self.pending = None;
+                return None;
+            };
             (best, Kind::Select)
         };
         Some(Decision {
@@ -174,14 +173,16 @@ impl AutoTool {
         })
     }
     pub fn applied(&mut self, decision: &Decision, options: Options) {
-        self.pending = None;
         if decision.kind == Kind::Restore {
             self.original = None;
             self.owned_selection = None;
             self.back_at = None;
-        } else if options.swap_back {
-            self.original.get_or_insert(decision.expected);
-            self.owned_selection = Some(decision.selected);
+        } else {
+            self.pending = None;
+            if options.swap_back {
+                self.original.get_or_insert(decision.expected);
+                self.owned_selection = Some(decision.selected);
+            }
         }
     }
 }
@@ -261,6 +262,47 @@ mod tests {
         s.target = None;
         assert!(module.step(&s, options).is_none());
         assert!(!module.retains_claim());
+    }
+    #[test]
+    fn pending_swaps_keep_their_timer_through_guards_and_gaps() {
+        let mut module = AutoTool::default();
+        let mut s = snapshot();
+        let options = Options {
+            swap_to_ticks: 4,
+            not_during_use: true,
+            ..Options::default()
+        };
+        assert!(module.step(&s, options).is_none());
+        // Eating does not cancel the schedule; it only holds the swap.
+        s.tick += 4;
+        s.using_item = true;
+        assert!(module.step(&s, options).is_none());
+        s.using_item = false;
+        s.tick += 1;
+        assert_eq!(module.step(&s, options).unwrap().selected.index(), 2);
+        // A schedule survives a pause in mining and swaps at once when
+        // mining resumes after its delay.
+        let mut module = AutoTool::default();
+        let mut s = snapshot();
+        assert!(module.step(&s, options).is_none());
+        s.attack_down = false;
+        s.tick += 2;
+        assert!(module.step(&s, options).is_none());
+        s.attack_down = true;
+        s.tick += 2;
+        assert_eq!(module.step(&s, options).unwrap().selected.index(), 2);
+        // Maturing without a best slot drops it; the next one waits again.
+        let mut module = AutoTool::default();
+        let mut s = snapshot();
+        assert!(module.step(&s, options).is_none());
+        s.attack_down = false;
+        s.tick += 5;
+        assert!(module.step(&s, options).is_none());
+        assert!(module.pending.is_none());
+        s.attack_down = true;
+        assert!(module.step(&s, options).is_none());
+        s.tick += 4;
+        assert_eq!(module.step(&s, options).unwrap().selected.index(), 2);
     }
     #[test]
     fn weapon_instant_and_guards_reject_invalid_candidates() {

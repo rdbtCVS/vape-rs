@@ -128,7 +128,8 @@ def run(resources):
         ('delayed', {'world.auto-tool.instant-swap': False}, 4),
         ('enchanted', {}, 3),
     ]:
-        with NativeSession(resources, 'auto-tool-weapon-' + mode + '-') as session:
+        # A short home name: the control socket path must fit SUN_LEN.
+        with NativeSession(resources, 'at-weapon-' + mode + '-') as session:
             seed(session, {'world.auto-tool.swap-to-delay': 500, **settings})
             prepare(session, ['stick', 'wooden_sword', 'diamond_sword', 'iron_axe'])
             if mode == 'enchanted':

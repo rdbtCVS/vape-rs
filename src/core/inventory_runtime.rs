@@ -157,13 +157,13 @@ pub(super) fn definitions() -> Vec<Definition> {
             false,
         ),
         Definition::boolean(
-            "inventory.auto-armor.inventory-only",
-            "Inventory only",
+            "inventory.auto-armor.open-inventory",
+            "Open inventory",
             true,
         ),
         Definition::boolean(
-            "inventory.auto-armor.open-inventory",
-            "Open inventory",
+            "inventory.auto-armor.inventory-only",
+            "Inventory only",
             true,
         ),
         Definition::boolean(
@@ -177,11 +177,11 @@ pub(super) fn definitions() -> Vec<Definition> {
             "inventory.auto-armor.delay",
             "Delay",
             Kind::Range {
-                min: 100.0,
+                min: 1.0,
                 max: 200.0,
                 step: 1.0,
             },
-            json!([120.0, 120.0]),
+            json!([100.0, 120.0]),
         ),
         Definition::choice(
             "inventory.refill.type",
@@ -322,11 +322,8 @@ impl Runtime {
                     .step(snapshot, self.armor_options(), combat_blocked)
                     .into_iter()
                     .find_map(armor_effect);
-                (
-                    effect,
-                    self.inventory_delay("inventory.auto-armor.delay", (120, 120)),
-                    self.auto_armor.active(),
-                )
+                // The planner owns its open and click timers.
+                (effect, (0, 0), self.auto_armor.active())
             }
             ModuleId::AutoTotem => {
                 let inventory_only =
@@ -510,6 +507,7 @@ impl Runtime {
             check_durability: self.inventory_bool("inventory.auto-armor.check-durability", true),
             drop_equipped: self.inventory_bool("inventory.auto-armor.drop-equipped", false),
             combat_check: self.inventory_bool("inventory.auto-armor.combat-check", false),
+            delay: self.inventory_delay("inventory.auto-armor.delay", (100, 120)),
         }
     }
     fn refill_options(&self) -> refill::Options {
@@ -562,12 +560,14 @@ mod tests {
     use super::*;
 
     fn helmet(score: f32) -> Item {
-        Item {
+        let mut helmet = Item {
             armor: Some(ArmorSlot::Head),
             score,
             max_count: 1,
             ..item("minecraft:iron_helmet", 1)
-        }
+        };
+        helmet.meta.armor_points = score;
+        helmet
     }
     /// Survival inventory with every main/hotbar slot full, a worse helmet
     /// equipped and a better one in the inventory: removing the equipped
@@ -622,9 +622,18 @@ mod tests {
             runtime.inventory_step(&full_inventory(&runtime, t, false)),
             vec![InventoryEffect::OpenInventory]
         );
-        let t = t + Duration::from_millis(200);
-        let opened = full_inventory(&runtime, t, true);
-        let effects = runtime.inventory_step(&opened);
+        // The opened screen resets AutoArmor's open timer (100 + Delay).
+        let opened_at = t + Duration::from_millis(50);
+        let mut t = opened_at;
+        let effects = loop {
+            assert!(t < opened_at + Duration::from_millis(400), "no click");
+            let effects = runtime.inventory_step(&full_inventory(&runtime, t, true));
+            if !effects.is_empty() {
+                break effects;
+            }
+            assert!(runtime.inventory_busy(), "the opened inventory stays owned");
+            t += Duration::from_millis(50);
+        };
         assert!(matches!(
             effects.as_slice(),
             [InventoryEffect::Request(Request {

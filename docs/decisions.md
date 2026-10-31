@@ -101,7 +101,7 @@
   - A manual slot change, an opened screen, a lost claim or disabling the module abandons the sequence without restoring the slot.
   - None of the three rotates, so they do not need the shared rotation owner. The player aims, as with the reference's non-rotating modes.
 - **Soup and "Throw bowls".** The reference presses use once. A server with instant soup turns the stew into a bowl, and the bowl is then dropped. On vanilla, stew must be held to eat, so one press does not eat it. The drop runs only when the held item really is a bowl, which means vanilla keeps the stew rather than throwing food away.
-- **ThrowDebuff matching.** Potions match by decoded effect id (instant_damage, weakness, poison, slowness) or by a custom name that contains the debuff's name. The reference matches by display name. Matching on effect ids is the same intent in a locale-independent form.
+- **ThrowDebuff matching** (revised in worker round 3). Potions (drinkable, splash and lingering) match when their lowercase display name contains an enabled debuff's name (Harming, Weakness, Poison, Slowness), as the reference's `collectDebuffs` does. The name is the host's hover name for the stack, so a custom name counts and an unnamed potion is matched in the client's language, as in the reference.
 - **AutoHeal is in the "Hidden" category,** as in the reference (`Category.HIDDEN`). It is reachable by bind and config, and the GUI search does not list it.
   - Its Silent mode and Potions option need silent held-item and rotation packets. Horizon has no such API, so Silent notifies once and does nothing. This is blocked, not emulated. *(Superseded 2026-10-31, inventory worker round 2: the host has `game.send`, `remote_use_item` and `remote_menu_ops`, so Silent and Potions are ported; see that section.)*
   - Bowl Mode and Replace use the shared click session, which clicks only inside the player inventory screen. Bowl handling therefore runs only while the inventory is open; Replace opens the inventory itself, as the reference does.
@@ -289,3 +289,24 @@ These bullets replace the round-1 render bullets they name.
   - Or after the second `Hud::draw_range` (hud.rs:1857), where `MenuBlur::apply` (menu_blur.rs:166) already copies and blends the frame. Captures would show it there.
   - A `pub` support module on `crates/horizon-client-render/src/gfx.rs` (`pub mod gfx` in lib.rs) can hold the history texture and the blend pipeline. The surface has COPY_SRC only when caps allow (gfx.rs:1343-1345), so the pass needs its own copy target.
   - The row belongs to worker/hud and is recorded as not-started with this plan.
+
+## 2026-10-31: inventory utility debt (worker round 3)
+
+- **AutoTool weapon score** is the reference's `getWeaponDamageScore`. It sums every main-hand attribute modifier amount, attack speed included, so a diamond sword scores 6 − 2.4. It then adds the enchantment damage bonus, a hundredth per Fire Aspect level and a hundredth for a sword. Only swords and tools are scored. A slot must beat 1.0, the empty hand's score, so a wooden sword (0.61) never wins.
+- **AutoTool guards hold the swap; they do not cancel it.** "Not during combat" and "Not during use" return before any state is touched, as the reference does. A pending swap or swap back keeps its timer and runs once the guard lifts.
+  - The combat guard is the shared CombatCheck port (`inventory_guard.rs`).
+  - Enemies are other players outside the friends list, matched by name or UUID. When hosting over LAN, the guests count too.
+- **AutoArmor timers.**
+  - The open timer waits 100 + Delay and the inventory-key press waits 200 + Delay. Both timers reset when the screen changes, while in combat and before closing an inventory the module opened.
+  - Queued clicks run one per Delay sample. The reference draws a fresh sample each tick it checks; we draw one sample per wait, which keeps the same bounds.
+  - "Drop equipped" picks the piece up and clicks outside the menu (slot −999).
+  - The reference stays latched on "closing" while no screen is shown. We drop the latch once the inventory is gone, so a closed inventory cannot block the next pass.
+- **AutoArmor with no screen is blocked.** With "Open inventory" and "Inventory only" both off, the reference clicks window 0 with no screen open. The pinned host's `menu_ops` sends ContainerClick only while `Screen::Inventory` is shown. The missing capability is a screenless player-inventory click. That combination does nothing; it is not emulated.
+- **Refill's enable check** is the reference's `onEnable`. Without an empty or junk hotbar slot, or a healing item for the chosen Type in the main inventory, the module turns itself off without opening the inventory.
+- **ThrowDebuff timers start elapsed.** Its Delay and Scroll timers count as elapsed on the first use, as the reference's zero-initialised timers do. The first debuff is therefore thrown on the tick the module is enabled.
+- **No use-key release and re-press.** When the player is holding use, the reference releases the key for 51 ms before using soup and presses it again after the sequence (`restoreUseKey`). Our press is a direct use activation (`vape_macros::use_once`) and never changes the physical key's state. Selecting the soup's slot already ends the previous main-hand use on the host (`tick_used_item`), so nothing needs releasing or restoring.
+- **Instant soup is blocked.** Soup servers make stew instant with a `minecraft:consumable` component of `consume_seconds:0`. The pinned host has two gaps:
+  - The server's stack keeps the component (`data get` shows it), but the client's slot sync skips the typed consumable component (`horizon-protocol` item/skip.rs, component 24). The client's copy therefore has no consumable of its own.
+  - The item-use path (`start_eating` and `tick_used_item` in game.rs) reads consume time from the item type's defaults (`ItemInfo`), not from the stack.
+  - So one use press starts an ordinary 32-tick eat, and the sequence moves on before it finishes. The missing capability is a per-stack consumable component, synced to the client and honoured by the item-use path.
+  - Until then, Throwpot's soup consumption and the "Throw bowls" drop cannot be exercised in-world. They are left as the reference has them, without a workaround: the drop runs only while a bowl is really held.

@@ -42,6 +42,8 @@ pub struct Refill {
     /// The player inventory has been shown during this run.
     shown: bool,
     done: bool,
+    /// The enable checks (`Refill.onEnable`) passed for this run.
+    started: bool,
     seed: u64,
     queued: Vec<(u16, Click)>,
 }
@@ -58,6 +60,7 @@ impl Refill {
         self.opened = false;
         self.shown = false;
         self.done = false;
+        self.started = false;
         self.queued.clear();
     }
     /// Every update while Refill runs, as the reference's per-tick `onTick`
@@ -75,6 +78,19 @@ impl Refill {
         self.done
     }
     pub fn step(&mut self, snapshot: &Snapshot, options: &Options) -> Vec<Effect> {
+        // `onEnable`: without a target hotbar slot or a healing item in the
+        // main inventory the module turns itself off without opening it.
+        if !self.started {
+            if targets(snapshot, options).is_empty()
+                || !snapshot
+                    .slots(|r| r == SlotRole::Main)
+                    .any(|s| s.item.as_ref().is_some_and(|i| heal(i, options.kind)))
+            {
+                self.cancel();
+                return vec![Effect::Disable];
+            }
+            self.started = true;
+        }
         if self.gate.interrupted(snapshot) {
             self.cancel();
             return vec![Effect::Disable];
@@ -157,23 +173,7 @@ impl Refill {
         if options.scatter {
             self.shuffle(&mut sources);
         }
-        let mut retained = BTreeSet::new();
-        let targets: Vec<&Slot> = (0..9)
-            .filter_map(|n| snapshot.hotbar(n))
-            .filter(|s| match &s.item {
-                None => true,
-                Some(item) if options.hotbar_clear => {
-                    if heal(item, options.kind) {
-                        false
-                    } else if options.allowed.contains(&item.fingerprint.id) {
-                        !retained.insert(item.fingerprint.id.clone())
-                    } else {
-                        true
-                    }
-                }
-                Some(_) => false,
-            })
-            .collect();
+        let targets = targets(snapshot, options);
         let (Some(source), Some(target)) = (sources.first(), targets.first()) else {
             self.done = true;
             return Vec::new();
@@ -235,12 +235,36 @@ impl Refill {
         }
     }
 }
+/// `findJunkHotbarSlots`: empty hotbar slots and, with "Hotbar clear",
+/// junk: anything but healing items and the first stack of each allowed
+/// ("Non Junk Items") item.
+fn targets<'a>(snapshot: &'a Snapshot, options: &Options) -> Vec<&'a Slot> {
+    let mut retained = BTreeSet::new();
+    (0..9)
+        .filter_map(|n| snapshot.hotbar(n))
+        .filter(|s| match &s.item {
+            None => true,
+            Some(item) if options.hotbar_clear => {
+                if heal(item, options.kind) {
+                    false
+                } else if options.allowed.contains(&item.fingerprint.id) {
+                    !retained.insert(item.fingerprint.id.clone())
+                } else {
+                    true
+                }
+            }
+            Some(_) => false,
+        })
+        .collect()
+}
+/// `ItemStackScoreUtil.o(stack, soup)`: healing potions in every mode; soup
+/// only with "Both" or "Soup".
 fn heal(item: &Item, kind: Kind) -> bool {
-    matches!(
-        (item.healing, kind),
-        (Some(Healing::Potion), Kind::Both | Kind::Pots)
-            | (Some(Healing::Soup), Kind::Both | Kind::Soup)
-    )
+    match item.healing {
+        Some(Healing::Potion) => true,
+        Some(Healing::Soup) => matches!(kind, Kind::Both | Kind::Soup),
+        None => false,
+    }
 }
 
 #[cfg(test)]
@@ -320,15 +344,43 @@ mod tests {
         snap.carried = Some(item("held", None));
         assert!(refill.step(&snap, &Options::default()).is_empty());
         snap.carried = None;
-        let options = Options {
+        // Healing potions count in every mode, soup only without "Pots".
+        let soup = Options {
             kind: Kind::Soup,
             ..Options::default()
         };
-        assert!(refill.step(&snap, &options).is_empty());
         assert!(matches!(
-            refill.step(&snap, &options).as_slice(),
-            [Effect::CloseInventory, Effect::Disable]
+            Refill::default().step(&snap, &soup).as_slice(),
+            [Effect::Request(r)] if r.slot == 9
         ));
+        snap.slots.last_mut().unwrap().item = Some(item("stew", Some(Healing::Soup)));
+        let pots = Options {
+            kind: Kind::Pots,
+            ..Options::default()
+        };
+        assert_eq!(Refill::default().step(&snap, &pots), vec![Effect::Disable]);
+        assert!(matches!(
+            Refill::default().step(&snap, &soup).as_slice(),
+            [Effect::Request(r)] if r.slot == 9
+        ));
+    }
+    #[test]
+    fn enable_checks_disable_without_opening() {
+        let mut snap = snapshot();
+        snap.screen_open = false;
+        snap.is_player_inventory = false;
+        // Every hotbar slot is full and "Hotbar clear" is off.
+        let mut refill = Refill::default();
+        assert_eq!(
+            refill.step(&snap, &Options::default()),
+            vec![Effect::Disable]
+        );
+        assert!(!refill.active());
+        snap.slots[3].item = None;
+        assert_eq!(
+            refill.step(&snap, &Options::default()),
+            vec![Effect::OpenInventory]
+        );
     }
     #[test]
     fn failed_click_abandons_the_swap_and_finishes() {
@@ -389,6 +441,8 @@ mod tests {
     fn a_close_inside_the_first_delay_finishes_without_reopening() {
         let mut refill = Refill::default();
         let mut snap = snapshot();
+        // A free hotbar slot, so the enable checks pass.
+        snap.slots[3].item = None;
         snap.screen_open = false;
         snap.is_player_inventory = false;
         assert_eq!(
@@ -414,6 +468,8 @@ mod tests {
         let mut refill = Refill::default();
         let options = Options::default();
         let mut snap = snapshot();
+        // A free hotbar slot, so the enable checks pass.
+        snap.slots[3].item = None;
         snap.screen_open = false;
         snap.is_player_inventory = false;
         assert_eq!(refill.step(&snap, &options), vec![Effect::OpenInventory]);

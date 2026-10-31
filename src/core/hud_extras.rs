@@ -230,6 +230,12 @@ impl Runtime {
             ModuleId::HitSelect => self.hit_select_options().suffix(),
             ModuleId::BlockHit => self.block_hit_suffix(),
             ModuleId::HitFlick => self.hit_flick_suffix(),
+            ModuleId::AutoArmor
+                if self.inventory_bool("inventory.auto-armor.combat-check", false)
+                    && self.combat_blocked =>
+            {
+                "\u{a7}c[In Combat]".into()
+            }
             _ => String::new(),
         }
     }
