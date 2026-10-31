@@ -159,9 +159,38 @@ impl Settings {
         }
         let default = definition.validate(&definition.default)?;
         definition.default = default.clone();
+        // Every reference `ColorValue` carries a "<name> rainbow" boolean.
+        // It shares the colour's visibility, so a hidden colour never cycles.
+        let rainbow = matches!(definition.kind, Kind::Color).then(|| Definition {
+            visible_if: definition.visible_if.clone(),
+            ..Definition::boolean(
+                &format!("{}.rainbow", definition.id),
+                &format!("{} rainbow", definition.label),
+                false,
+            )
+        });
         self.values.insert(definition.id.clone(), default);
         self.definitions.insert(definition.id.clone(), definition);
-        Ok(())
+        match rainbow {
+            Some(rainbow) => self.define(rainbow),
+            None => Ok(()),
+        }
+    }
+    /// The colour a `<id>.rainbow` sibling belongs to.
+    pub fn rainbow_of<'a>(&self, id: &'a str) -> Option<&'a str> {
+        let color = id.strip_suffix(".rainbow")?;
+        matches!(self.definitions.get(color)?.kind, Kind::Color).then_some(color)
+    }
+    /// Colours whose rainbow sibling is on.
+    pub fn rainbow_colors(&self) -> impl Iterator<Item = &str> {
+        self.definitions
+            .values()
+            .filter(|d| matches!(d.kind, Kind::Color))
+            .map(|d| d.id.as_str())
+            .filter(|id| {
+                self.effective(&format!("{id}.rainbow"))
+                    .is_some_and(|v| v == true)
+            })
     }
     pub fn definitions(&self) -> impl Iterator<Item = &Definition> {
         self.definitions.values()

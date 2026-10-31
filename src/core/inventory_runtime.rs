@@ -273,6 +273,9 @@ impl Runtime {
         // A pending request remains owned by this module. Its next planner
         // observation is also delayed: no same-frame follow-up can mistake a
         // local prediction for server acceptance.
+        if module == ModuleId::Refill {
+            self.refill.observe(snapshot);
+        }
         if !self.inventory_schedule.ready(now) {
             return Vec::new();
         }
