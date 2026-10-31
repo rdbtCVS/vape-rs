@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import time
 
+import gui_layout
 from legit_render_scenario import Frames, diff
 from movement_scenario import FLOOR
 from native_session import NativeSession
@@ -100,13 +101,9 @@ def run(resources):
         session.capture('disabled-hurt')
         session.call('key', 'rshift', 'tap')
         session.capture('gui')
-        # NoHurtCam is in the Render frame, whose rows move as modules are
-        # added; the floating search lists it alone for "cam" (no H key).
-        session.call('click-at', '200', '17')
-        for char in 'cam':
-            session.call('key', char, 'tap')
+        session.call('click-at', *map(str, gui_layout.category('Render')))
         session.capture('modules')
-        session.call('click-at', '200', '37')  # the only result
+        session.call('click-at', *map(str, gui_layout.row('Render', 'render.no-hurt-camera')))
         session.capture('enabled-in-gui')
         assert session.saved()['modules']['render.no-hurt-camera']['enabled'] is True
         session.call('key', 'rshift', 'tap')

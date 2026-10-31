@@ -39,6 +39,8 @@ pub fn definitions() -> Vec<Definition> {
         Definition::boolean(&key("smooth-font"), "Smooth font", true),
         Definition::boolean(&key("watermark"), "Watermark", false),
         Definition::boolean(&key("hide-modules"), "Hide modules", false),
+        // Stored like the reference's, which never reads it.
+        Definition::boolean(&key("rescale"), "Rescale", true),
         Definition::new(
             &key("hidden"),
             "Hidden Modules",
