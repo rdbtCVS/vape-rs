@@ -555,12 +555,12 @@ pub(super) fn movement_tick(game: &mut Game<'_>) {
         speed_amplifier,
     };
     let yaw = game.yaw;
-    let blocked_vertically = {
+    let (blocked_vertically, (on_vine, on_ice)) = {
         let entities = game.player_entity_collisions();
         let player = game.player.as_mut().unwrap();
         let bounds = player.bounds().move_by(horizon_core::geometry::Vec3::new(0.0, player.velocity.y, 0.0));
         let mut motion = horizon_client::motion::MotionWorld { entities: &entities, player, scene: &mut game.world, assets: &game.pack.assets, collision_binding: game.collision, resources: game.motion };
-        !motion.no_player_collision(bounds).unwrap_or(true)
+        (!motion.no_player_collision(bounds).unwrap_or(true), motion.vape_rs_surface())
     };
     let player = game.player.as_ref().unwrap();
     let tick = no_slowdown::Tick {
@@ -582,6 +582,8 @@ pub(super) fn movement_tick(game: &mut Game<'_>) {
         speed_amplifier,
         jump_amplifier,
         position: [player.position.x, player.position.z],
+        on_vine,
+        on_ice,
     };
     // AntiFall's column scan: any non-air block below the feet.
     let (x, z) = (player.position.x.floor() as i32, player.position.z.floor() as i32);
@@ -629,4 +631,6 @@ pub(super) fn movement_tick(game: &mut Game<'_>) {
     };
     player.vape_rs_set_fly_move(replacement);
     player.vape_rs_set_no_slowdown(no_slow);
+    let keep_sprint = no_slow && with_client(&client, |runtime| runtime.enabled(ModuleId::Sprint));
+    player.vape_rs_set_no_slowdown_sprint(keep_sprint);
 }

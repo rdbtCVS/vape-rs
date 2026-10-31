@@ -17,6 +17,12 @@ pub fn pre_motion(game: &mut Game<'_>) {
     let dead = player.health.health() <= 0.0;
     let skip = dead || game.creative || player.flying;
     let (fall, motion_y, collision) = (player.fall_distance as f32, player.velocity.y, player.collision.horizontal);
+    // Step: a recognised step at this send.
+    let sample = crate::game::vape_rs::modules::movement::step::Sample {
+        position: [player.position.x, player.position.y, player.position.z],
+        on_ground: player.ground.on_ground,
+        sneaking: game.keys.contains(&winit::keyboard::KeyCode::ShiftLeft),
+    };
     let (fly, effects) = with_client(&client, |runtime| {
         (runtime.enabled(ModuleId::Fly) && runtime.session().in_world(), runtime.no_fall_motion(skip, fall, motion_y))
     });
@@ -25,6 +31,16 @@ pub fn pre_motion(game: &mut Game<'_>) {
             game.send(S::MovePlayerStatus(play::MovePlayerStatus { flags: u8::from(on_ground) | u8::from(collision) << 1 }));
         }
     }
+    if effects.claim_ground {
+        // NoFall Normal: a held jump is released for the claimed landing.
+        let jump = game.keys.contains(&winit::keyboard::KeyCode::Space);
+        with_client(&client, |runtime| runtime.no_fall_claimed(jump));
+    }
+    // The reference's two intermediate step positions are not sent: a 26.3
+    // server allows one position per client tick and disconnects the player
+    // ("Invalid move player packet received"). The step still resets Speed
+    // and runs the timer.
+    with_client(&client, |runtime| runtime.step_motion(sample));
     let ground = if fly { Some(false) } else { effects.claim_ground.then_some(true) };
     GROUND.with(|g| g.set(ground));
 }

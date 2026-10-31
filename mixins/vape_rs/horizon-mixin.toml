@@ -548,3 +548,33 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "mob", ty = "usize", value = "mob" },
 ]
+
+# Movement/world marks (InvWalk keys, NoSlowdown sprint) and LongJump's
+# vine/ice surface query, beside MotionWorld's private block lookups.
+[[module]]
+id = "world-motion"
+file = "crates/horizon-client/src/motion.rs"
+name = "vape_world_motion"
+source = "world_motion.rs"
+
+# Scaffold Legit, InvWalk, WindCharge and NoFall's jump release; under
+# game/remote.rs for the remote use path and the open menu id.
+[[module]]
+id = "world-actions"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_world_actions"
+source = "world_actions.rs"
+
+# InvWalk: the keys physically held behind a screen join the controlled
+# tick's (screen-released) keys; the helper re-dispatches once.
+[[injection]]
+id = "inv-walk-keys"
+target = "horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick_with_sprint_window"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/inv_walk_keys.rs"
+bindings = [
+ { name = "world", ty = "&mut crate::motion::MotionWorld<'_, '_, '_>", value = "&mut *self" },
+ { name = "keys", ty = "crate::sprint::Keys", value = "keys" },
+ { name = "sprint_window", ty = "i32", value = "sprint_window" },
+]

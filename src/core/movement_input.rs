@@ -49,6 +49,9 @@ pub enum Owner {
     AntiAfk,
     WTap,
     JumpReset,
+    Scaffold,
+    WindCharge,
+    NoFall,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

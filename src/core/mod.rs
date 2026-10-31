@@ -6,6 +6,7 @@ pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
 pub mod movement_input;
+pub mod movement_runtime;
 pub mod profiles;
 mod registry;
 pub mod settings;
@@ -105,6 +106,7 @@ pub struct Runtime {
     speed: super::modules::blatant::speed::State,
     long_jump: super::modules::blatant::long_jump::State,
     anti_fall: super::modules::blatant::anti_fall::State,
+    world_movement: movement_runtime::State,
     /// A clicker was reset while holding its mapping down: [attack, use].
     clicker_release: [bool; 2],
     motion_override: Option<([f64; 3], [f64; 3])>,
@@ -321,6 +323,7 @@ impl Default for Runtime {
             .chain(super::modules::legit::definitions())
             .chain(super::modules::combat::wtap::definitions())
             .chain(super::modules::world::anti_afk::definitions())
+            .chain(super::modules::movement::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -464,6 +467,7 @@ impl Default for Runtime {
             speed: Default::default(),
             long_jump: Default::default(),
             anti_fall: Default::default(),
+            world_movement: Default::default(),
             clicker_release: [false; 2],
             motion_override: None,
             explosion_reentry: false,
@@ -526,6 +530,7 @@ impl Runtime {
         if module == ModuleId::AutoFish && !enabled {
             self.cancel_auto_fish();
         }
+        self.movement_toggled(module, enabled);
         if !enabled {
             self.combat_disabled(module);
         }
@@ -1256,7 +1261,9 @@ impl Runtime {
     }
     /// Timer's speed for the game clock (1.0 when off or out of a world).
     pub fn timer_speed(&self) -> f32 {
-        if self.enabled(ModuleId::Timer) && self.session.in_world() {
+        if let Some(speed) = self.step_timer() {
+            speed
+        } else if self.enabled(ModuleId::Timer) && self.session.in_world() {
             super::modules::blatant::timer_speed(&self.settings)
         } else {
             1.0
@@ -2218,7 +2225,10 @@ impl Runtime {
                 | ModuleId::AntiDebuff
                 | ModuleId::KillAura
                 | ModuleId::SilentAura
-                | ModuleId::KeepSprint => continue,
+                | ModuleId::KeepSprint
+                | ModuleId::Scaffold
+                | ModuleId::InvWalk
+                | ModuleId::WindCharge => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

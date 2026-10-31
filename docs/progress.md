@@ -1121,3 +1121,37 @@ HitSelect has been researched but not implemented. Notes for the next pass:
 Not started: HitSelect, BlockHit, HitFlick, AntiBot, HitSwap, AutoMace,
 ShieldBreaker, CrystalAura, BowAimbot, AimAssist Adaptive, Reach Misplace,
 and SilentAura's Render type.
+
+## 2026-10-31: movement/world worker (Scaffold Legit, InvWalk, WindCharge, NoSlowdown sprint, Step)
+
+- Scaffold Legit: the reference's edge sneak (`world_actions.rs` requests a Sneak
+  override at the edge; the timing and whitelist follow `canActivate`).
+  GodBridge and TellyBridge are not ported (they need the shared rotation
+  owner). `modules/movement/rotation.rs` is a small isolated controller.
+- InvWalk: the physically held movement keys (and Rotate's arrow keys) apply
+  behind screens through the new `inv-walk-keys` HEAD on the controlled
+  simulation tick. Limitations: the input packet's key byte and text-field
+  check (see decisions.md).
+- WindCharge: selects the charge, throws it at the feet with silent aim (UseItem
+  rotation swap), jumps, restores the slot and disables itself.
+- NoSlowdown: with Sprint on, `item_use_slows_sprint` is cleared too.
+- Step: a recognised step resets Speed's stage and runs the 0.45 timer for
+  100 ms. The reference's two intermediate positions are not sent: a 26.3
+  server takes one position per client tick and disconnected the player
+  ("Invalid move player packet received") in the first scenario run.
+- LongJump vine/ice factors and NoFall's jump-key release: implemented,
+  no scenario.
+- xtask's audit peels stacked HEAD hooks in any order.
+- `tools/world_movement_scenario.py` (fresh isolated creative home): 28/28
+  checks: Scaffold Legit (baseline fall, edge sneak, stays on, runs with any
+  item when the whitelist is off), InvWalk walk and Rotate, NoSlowdown full
+  bow-walk speed (1.14 vs 5.60 blocks), Step over a one-block ledge without a
+  kick (baseline blocked), WindCharge slot, launch to y 111.5, unchanged
+  camera pitch, self-disable and restore. The sprint flag stays on while
+  drawing even without NoSlowdown on this host, so the sprint re-enable is
+  recorded, not proven.
+
+Validation (after merging main): fmt, Clippy -D warnings, 153 lib tests,
+payload test, stage/audit (37 hooks, 24 support modules), host check and
+build pass; scenario 28/28 (docs/evidence/movement-world.json). Main's
+tools/movement_scenario.py was not rerun on this branch.
