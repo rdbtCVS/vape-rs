@@ -4,6 +4,12 @@ A from-scratch recreation of the **Vape** Minecraft client as a native Rust mod 
 
 > **Status: work in progress.** Many modules exist, but only some have been validated in a real game, and visual/behavioral parity with the original is not claimed. See [docs/status.md](docs/status.md) and [docs/progress.md](docs/progress.md).
 
+![Click GUI with every category frame open](docs/images/gui-all-modules.png)
+
+*The click GUI (Right Shift) with all six category frames open. HUD widgets are listed in the HUD editor (flag icon):*
+
+![HUD editor listing every HUD module](docs/images/gui-hud-editor.png)
+
 ## What works today
 
 - **HUD:** eleven widgets (incl. Text GUI module list, Scoreboard, Target Info) with an in-game layout editor.

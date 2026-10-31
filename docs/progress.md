@@ -1276,3 +1276,13 @@ merge and `3973987` were each host-checked on main). Ledger after the round:
 64 validated, 32 integrated, 66 implemented-core, 6 blocked, 287 not-started.
 Pending: render scenarios have never run; HUD scenarios ran on pre-merge
 `ca264f4` and need a rerun on the merged tree.
+
+## README screenshots (2026-10-31)
+
+The README now shows docs/images/gui-all-modules.png (click GUI, all six
+category frames open; World dragged off the floating search bar) and
+docs/images/gui-hud-editor.png (HUD editor, all 11 HUD modules). Both were
+captured from a fresh fast build of `545ca54` in a fresh isolated-home
+session (`target/scenarios/readme-gui-vvbo88if`, 1920x1080 offscreen, GUI
+scale 2, creative). They show layout only; no module is enabled and no
+parity claim follows from them.
