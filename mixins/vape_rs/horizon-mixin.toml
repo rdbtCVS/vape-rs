@@ -843,3 +843,46 @@ kind = "HEAD"
 cancellable = true
 helper = "adapters/freecam_body.rs"
 bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+
+
+# Target Info: `potsUsedStrip` counts heal potions used and thrown.
+[[injection]]
+id = "target-info-pot-use"
+target = "horizon_client::game::potions::Game<'_>::use_potion_item"
+kind = "HEAD"
+helper = "adapters/target_info_pot_use.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
+]
+
+[[injection]]
+id = "target-info-pot-remote-use"
+target = "horizon_client::game::remote::Game<'_>::remote_use_item"
+kind = "HEAD"
+helper = "adapters/target_info_pot_remote_use.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "hand", ty = "horizon_client::first_person::Hand", value = "hand" },
+]
+
+[[injection]]
+id = "target-info-pot-launch"
+target = "horizon_client::game::potions::Game<'_>::launch_thrown"
+kind = "HEAD"
+helper = "adapters/target_info_pot_launch.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "&stack" },
+]
+
+[[injection]]
+id = "target-info-pot-remote-data"
+target = "horizon_client::game::remote_projectiles::Game<'_>::remote_projectile_data"
+kind = "HEAD"
+helper = "adapters/target_info_pot_remote_data.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "id", ty = "i32", value = "id" },
+  { name = "values", ty = "&[(u8, i32, horizon_protocol::entity_data::Value)]", value = "values" },
+]

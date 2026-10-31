@@ -108,6 +108,19 @@ impl Runtime {
             self.target_info.clear();
         }
     }
+    /// `onPlayerUseItem`: the local player used a heal potion (the host
+    /// checks the stack). The GUI preview targets the local player.
+    pub fn target_info_heal_used(&mut self) {
+        if self.enabled(ModuleId::TargetInfo) {
+            self.target_info.local_heal_used(self.gui.open);
+        }
+    }
+    /// `onEntityJoinWorld`: a thrown heal potion entered the world.
+    pub fn target_info_heal_joined(&mut self) {
+        if self.enabled(ModuleId::TargetInfo) {
+            self.target_info.heal_joined(self.gui.open);
+        }
+    }
     pub(super) fn tick_target_info(&mut self, snapshot: &Snapshot) {
         let now = std::time::Instant::now();
         let elapsed = self
@@ -169,6 +182,14 @@ impl Runtime {
     /// Scoreboard: whether the moved sidebar shows its score numbers.
     pub fn scoreboard_numbers(&self) -> bool {
         self.hud_flag(super::super::ui::scoreboard::SHOW_NUMBERS)
+    }
+    /// "Replace scoreboard text" entries, in the order they were added.
+    pub fn scoreboard_replacements(&self) -> Vec<(String, String)> {
+        use super::super::ui::scoreboard;
+        self.settings
+            .get(scoreboard::REPLACE_TEXT)
+            .map(scoreboard::replacements)
+            .unwrap_or_default()
     }
     pub(super) fn hud_flag(&self, id: &str) -> bool {
         self.settings

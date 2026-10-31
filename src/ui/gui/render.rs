@@ -1047,6 +1047,9 @@ impl Gui {
                 || matches!(d.kind, Kind::StringList { .. } if !d.id.ends_with(".binds"));
             let h = match d.kind {
                 Kind::Number { .. } | Kind::Range { .. } => 24.0,
+                // `StringMapValueComponent`: 62 plus 19 for each of the
+                // first four entries.
+                Kind::StringMap { .. } => 62.0 + map_entries(value).len().min(4) as f32 * 19.0,
                 _ if text_field => 30.0,
                 _ => 18.0,
             };
@@ -1163,6 +1166,10 @@ impl Gui {
                     l.hit(row, Hit::Color(d.id.clone(), Rect(x + 4.0, y, w - 8.0, h)));
                     14.0
                 }
+                Kind::StringMap { placeholders, .. } => {
+                    self.string_map(l, &d.id, value, *placeholders, Rect(x, y, w, h));
+                    0.0
+                }
                 Kind::StringList { .. } if d.id.ends_with(".binds") => {
                     let keys: Vec<&str> = value
                         .as_array()
@@ -1251,6 +1258,109 @@ impl Gui {
             y += h;
         }
         y - top
+    }
+    /// `StringMapValueComponent`: the Find/Replace fields joined by a dash,
+    /// ADD, and a scrolling list of `StringMapEntryComponent`s.
+    fn string_map(
+        &self,
+        l: &mut Layout,
+        id: &str,
+        value: &Value,
+        placeholders: [&str; 2],
+        Rect(x, y, w, h): Rect,
+    ) {
+        l.fill(Rect(x + w / 2.0, y + 28.0, 5.0, 1.0), OUTLINE);
+        for (i, (suffix, placeholder)) in ["#find", "#replace"].iter().zip(placeholders).enumerate()
+        {
+            let rect = Rect(x + 5.0, y + 15.5 + i as f32 * 15.0, 100.0, 13.0);
+            let field = format!("{id}{suffix}");
+            let draft = self.map_drafts.get(&field).map_or("", String::as_str);
+            l.rounded(rect, OUTLINE);
+            self.field(
+                l,
+                Rect(rect.0 + 1.0, rect.1 + 1.0, rect.2 - 2.0, rect.3 - 2.0),
+                &field,
+                placeholder,
+                draft,
+            );
+        }
+        let add = Rect(x + w - 33.0, y + 46.0, 28.0, 12.0);
+        let hovered = add.contains(self.hover) && l.clip.contains(self.hover);
+        l.rounded(add, if hovered { OUTLINE } else { INSET });
+        l.row_label(
+            add.0 + add.2 / 2.0,
+            add.1,
+            add.3,
+            "ADD",
+            TEXT,
+            FIELD_SCALE,
+            Align::Center,
+        );
+        l.hit(add, Hit::MapAdd(id.into(), value.clone()));
+        let entries = map_entries(value);
+        let window = Rect(x + 3.0, y + 60.0, w - 5.0, (h - 60.0).min(68.0));
+        let overflow = (entries.len() as f32 * 17.5 - window.3).max(0.0);
+        let scroll = self
+            .scrolls
+            .get(&format!("{id}#entries"))
+            .copied()
+            .unwrap_or(0.0)
+            .min(overflow);
+        let clip = l.clip;
+        l.hit(window, Hit::MapEntries(id.into(), overflow));
+        l.clip = intersect(clip, window);
+        for (i, (key, replacement)) in entries.iter().enumerate() {
+            let entry = Rect(
+                window.0,
+                window.1 + i as f32 * 17.5 - scroll,
+                window.2,
+                17.5,
+            );
+            let hovered = entry.contains(self.hover) && l.clip.contains(self.hover);
+            l.fill(
+                Rect(entry.0 + 2.0, entry.1 + 1.0, entry.2 - 10.0, 15.5),
+                PRESSED,
+            );
+            if hovered {
+                l.fill(Rect(entry.0 + 2.0, entry.1 + 1.5, entry.2 - 11.0, 14.5), BG);
+            }
+            let (color, darker) = if hovered {
+                (FG, 0xff929292)
+            } else {
+                (TEXT, 0xff727272)
+            };
+            let width = entry.2 - 34.0;
+            l.label(
+                entry.0 + 8.0,
+                entry.1 + 3.0,
+                &fit(key, width, SMALL_SCALE),
+                color,
+                SMALL_SCALE,
+                Align::Left,
+            );
+            l.label(
+                entry.0 + 8.0,
+                entry.1 + 9.0,
+                &fit(replacement, width, SMALL_SCALE),
+                darker,
+                SMALL_SCALE,
+                Align::Left,
+            );
+            let remove = Rect(entry.0 + entry.2 - 22.0, entry.1, 14.0, entry.3);
+            let over = remove.contains(self.hover) && l.clip.contains(self.hover);
+            l.icon(
+                remove.0 + 5.0,
+                remove.1 + 6.75,
+                0.8,
+                &CROSS,
+                if over { FG } else { MUTED },
+            );
+            l.hit(
+                remove,
+                Hit::MapRemove(id.into(), value.clone(), key.clone()),
+            );
+        }
+        l.clip = clip;
     }
     /// Choice and colour popups draw last, over every frame.
     fn popups(&self, view: &View, l: &mut Layout) {

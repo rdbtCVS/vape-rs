@@ -122,6 +122,12 @@ impl Gui {
                     self.new_macro();
                     return Vec::new();
                 }
+                // `StringMapKeyInputComponent`: Enter moves to the value.
+                Some(f) if f.ends_with("#find") => {
+                    self.focus = Some(f.replace("#find", "#replace"));
+                    self.cursor = TextCursor::default();
+                    return Vec::new();
+                }
                 _ => {}
             }
         }
@@ -647,7 +653,27 @@ impl Gui {
             }
             Hit::CaptureMacro => self.capture = Some(Capture::new("macro.binds".into())),
             Hit::ToggleMacroDouble => self.macro_double_click = !self.macro_double_click,
-            Hit::Panel | Hit::Popup | Hit::Drag(_) | Hit::EditHidden | Hit::Visibility(_) => {}
+            // `putEntry(key, value)` with no empty check; both fields clear.
+            Hit::MapAdd(id, value) => {
+                let find = self.map_drafts.remove(&format!("{id}#find"));
+                let with = self.map_drafts.remove(&format!("{id}#replace"));
+                let entries = map_put(
+                    &map_entries(&value),
+                    find.unwrap_or_default(),
+                    with.unwrap_or_default(),
+                );
+                return vec![Action::Set(id, map_value(&entries))];
+            }
+            Hit::MapRemove(id, value, key) => {
+                let entries = map_remove(&map_entries(&value), &key);
+                return vec![Action::Set(id, map_value(&entries))];
+            }
+            Hit::Panel
+            | Hit::Popup
+            | Hit::Drag(_)
+            | Hit::EditHidden
+            | Hit::Visibility(_)
+            | Hit::MapEntries(..) => {}
         }
         Vec::new()
     }
@@ -722,6 +748,17 @@ impl Gui {
     /// Scrolls the topmost frame under the pointer.
     pub fn wheel(&mut self, delta: f32, p: (f32, f32)) {
         let local = (p.0 / self.scale, p.1 / self.scale);
+        // A `StringMap` entry list that can scroll takes the wheel first.
+        if let Some((id, overflow)) = self.hits.iter().rev().find_map(|(r, h)| match h {
+            Hit::MapEntries(id, overflow) if *overflow > 0.0 && r.contains(local) => {
+                Some((id.clone(), *overflow))
+            }
+            _ => None,
+        }) {
+            let scroll = self.scrolls.entry(format!("{id}#entries")).or_default();
+            *scroll = (*scroll - delta * 24.0).clamp(0.0, overflow);
+            return;
+        }
         if let Some((name, _)) = self
             .panel_rects
             .iter()
