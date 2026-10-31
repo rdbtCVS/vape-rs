@@ -175,8 +175,26 @@ fn meta(
     .iter()
     .map(|b| items.mining_speed(Some(stack), b))
     .fold(1.0_f32, f32::max);
+    // The tooltip's name line in the client language: custom name first,
+    // then the item's own name; the item name is the same line without a
+    // custom name.
+    let translate = |key: &str| game.pack.names.display_get(key);
+    let display_name = horizon_client::item_tooltip::name_line(stack, &translate);
+    let item_name = if stack.custom_name().is_some() {
+        let mut plain = stack.clone();
+        plain.data_mut().custom_name = None;
+        horizon_client::item_tooltip::name_line(&plain, &translate)
+    } else {
+        display_name.clone()
+    };
     ItemMeta {
         custom_name: stack.custom_name(),
+        display_name,
+        item_name,
+        lore: horizon_client::item_tooltip::lore_texts(stack)
+            .iter()
+            .map(|line| line.plain())
+            .collect(),
         effects,
         thrown_potion: matches!(
             id,

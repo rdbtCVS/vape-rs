@@ -358,16 +358,11 @@ impl Runtime {
         }
         Vec::new()
     }
-    /// AutoTotem's "Show totem count" label and colour. Nothing draws it
-    /// yet: the reference shows it in the active-module stack frame, which
-    /// has no port (documented in docs/decisions.md).
-    pub fn totem_count_display(&self, snapshot: &Snapshot) -> Option<(String, [u8; 3])> {
-        (self.enabled(ModuleId::AutoTotem)
-            && self.inventory_bool("inventory.auto-totem.show-totem-count", false))
-        .then(|| {
-            let count = auto_totem::totem_count(snapshot);
-            (count.to_string(), auto_totem::count_color(count))
-        })
+    /// Whether AutoTotem's "Show totem count" readout is in the
+    /// active-module stack (drawn by the overlay, `center_stack`).
+    pub fn totem_count_shown(&self) -> bool {
+        self.enabled(ModuleId::AutoTotem)
+            && self.inventory_bool("inventory.auto-totem.show-totem-count", false)
     }
     pub fn cancel_inventory(&mut self) {
         self.actions

@@ -61,6 +61,14 @@ pub struct PotionEffect {
 pub struct ItemMeta {
     /// `custom_name` as plain text, when the stack was renamed.
     pub custom_name: Option<String>,
+    /// The hover name (`getDisplayName`): the custom name, else the item's
+    /// name, as the host's tooltip name line gives it.
+    pub display_name: String,
+    /// The item's own name (`getItemStackDisplayName`), ignoring a custom
+    /// name: item name component, potion name, or translation.
+    pub item_name: String,
+    /// `minecraft:lore` lines as plain text.
+    pub lore: Vec<String>,
     /// Potion contents (base potion plus custom effects) of potion items.
     pub effects: Vec<PotionEffect>,
     /// `minecraft:splash_potion` or `minecraft:lingering_potion`.
