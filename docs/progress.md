@@ -1994,3 +1994,55 @@ Worker combat-b, branch t3/3acb15a0. Main 97dbaa7 is merged.
 - AutoAnchor and its helper rows are not started. The host supports them: respawn_anchor.rs.
 - AutoMace's Aim, Silent aim and Elytra are blocked, as above.
 - HitSwap's Swords option and Limit to items, and ShieldBreaker's Double click and Limit to items, are unit-tested only.
+
+## 2026-10-31: HUD/client debt (worker round 4, hud-client-debt)
+
+Branch `t3/4dc0aab3`. Commits:
+- 645e870: Target Info extras; Clock zone resolution.
+- 3c48b16: Replace scoreboard text.
+- 90b072b: Clock drops the Windows `reg` subprocess.
+- ee9151f: docs and the scenario.
+
+Merges: c1bfc7f (main 8203df1) and b3ab94b (main 578cbe0). The second merge's conflicts were parallel appends to compatibility.json, horizon-mixin.toml, hooks.md and decisions.md. Both sides were kept, main's first.
+
+Landed:
+- **Scoreboard "Replace scoreboard text"** (`module.scoreboardhudmodule`).
+  - A new `Kind::StringMap` setting. It holds ordered `[find, replace]` pairs, at most 64 entries of 256 characters. A repeated key keeps its place.
+  - `replaceScoreText` is ported bug for bug in `src/ui/scoreboard.rs`.
+  - The reference's two-field editor is in `src/ui/gui/{mod,input,render}.rs`. Enter in "Find text" moves to "Replace with". ADD has no empty check. The entry list scrolls, and each entry has a remove cross.
+  - The reference's >= 1.16.5 branch draws rows and title unreplaced and centres the title by the replaced width. `hud_painter.rs` does the same by shifting the host's sidebar title draw.
+- **Target Info extras** (`client.target-info`). These close the three items the row left open.
+  - The head preview uses the tab-list face, 12×12.
+  - The pots strip counts from four new hooks, `target-info-pot-{use,remote-use,launch,remote-data}`.
+  - The damage comparator is enchantment-aware, bug for bug.
+- **Clock date order** (`module.clockhudmodule`). "MM / dd" follows the JVM's default-zone resolution: on Linux, `TZ`, then `/etc/timezone`, then the `/etc/localtime` link or file, plus the short America ids. On Windows the zone is unknown, so the date stays "dd / MM". The JVM reads the registry's `TimeZoneKeyName`, but the payload has no registry API, and the capability audit denies the `reg` subprocess the first draft spawned.
+
+Unit tests added:
+- settings: `string_maps_keep_insertion_order_and_replace_in_place`.
+- scoreboard: `replacement_follows_the_reference_quirks`, plus the definitions test.
+- GUI: `string_maps_add_with_enter_between_fields_and_remove_entries`.
+- Target Info: `heal_pots_count_for_the_target_and_against_our_own`, `damage_comparison_follows_rotation_util` and `the_face_sits_at_the_header_start_for_players`.
+- Clock: `dates_follow_the_zone_order` and `linux_zone_follows_the_jdk_precedence`.
+
+Gates on b3ab94b, after merging main 578cbe0:
+- `cargo fmt --all --check`: ok.
+- clippy `-D warnings`: ok.
+- `cargo test --workspace --locked --offline`: 312 + 1 + 4 + 0 passed, 0 failed (221 + 1 + 4 + 0 before the second merge).
+- payload-test: 312 passed.
+- stage + audit: 58 hooks and 33 support modules, original AST restored. This branch adds 4 hooks (`target-info-pot-*`) and no support modules (48/29 before the second merge).
+- host check: exit 0 on the code at ee9151f, before the second merge.
+- host build: skipped at the coordinator's request. The coordinator runs `gates.sh --host` (host check and build) and the scenarios on main after the merge.
+
+Scenarios not run (no host build on this branch), so nothing new is validated:
+- `tools/scoreboard_replace_scenario.py`: 3 relaunches (none, "board"→"B", "alpha"→"Zulu"). Only the title line may move, and rows must stay identical.
+- `tools/target_info_extras_scenario.py`: the damage strip follows Sharpness V; another player's heal pot counts +1 and our own counts -1; the GUI preview shows the face. Its `PANEL` crop is an estimate from the GUI-scale-2 layout, so check it on the first run.
+- Reruns for the changed code: `tools/scoreboard_scenario.py`, `tools/target_info_scenario.py` and `tools/hud_modes_scenario.py` (Clock).
+
+Open in this scope:
+- `client.localization`: not started.
+- `client.timing`: no per-mode host distribution check.
+- Windows Clock zone: blocked on a host time-zone or registry query.
+- The StringMap editor's clicks and keys are unit-tested only.
+- Dropped at the wrap-up and not started: the HUD font switch, HUD editor transparency, and the armor bar glow and rounding.
+
+Ledger: `target/ledger-updates/hud-client-debt.json` in the main checkout.
