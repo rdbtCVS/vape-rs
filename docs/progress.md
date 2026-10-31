@@ -1305,3 +1305,9 @@ Drift result for Horizon main `5062f225` (362 commits after the pin; evidence do
 - None of the client features our `blocked` rows wait for appear in the new commits: chat send, camera rotation, bone poses, mesher and entity-render hooks.
 
 Gates on this tree: fmt; Clippy `-D warnings` (all targets); 194 lib + 4 xtask tests; payload-test; `xtask check` on the pin (stage/audit removed exactly 43 hooks and 29 support modules; 68 warnings, 0 errors); `bundle.py` (74 source files).
+
+The drift report now also lists `changed_targets`: hooks whose function or call-site fingerprint differs from the pinned plan. For `5062f225` that is seven HEAD hooks: client-tick, gui-events, inbound-packet, session-connect and session-disconnect, plus no-slowdown and inv-walk-keys on `controlled_simulation_tick_with_sprint_window`. I reviewed each upstream diff.
+- The client-tick, gui-events and session/packet hooks only gained body changes after their heads: the native-mod net channel, the chat tree, riding resets and candle-cake snuffing.
+- The controlled tick is now a wrapper around a shared `local_tick`, which the server's new movement replay also uses. Our HEAD hooks stay on the client-only wrapper, so their semantics are unchanged.
+- The re-pin is therefore a mechanical hash update plus scenario reruns.
+- Upstream's LAN anticheat now acts on combat by default. It drops attacks from a guest whose client tick has more attacks than swings, or hits a second entity. LAN scenarios for multi-target or swing-less combat modules have to account for it: configure the test host's `[anticheat]`, or treat being flagged as the expected server result.

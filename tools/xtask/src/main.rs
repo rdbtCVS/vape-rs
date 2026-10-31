@@ -646,6 +646,32 @@ fn drift(root: &Path, horizon: &Path, candidate: &str, compile: bool) -> Result<
             json!({ "step": "audit", "ok": ok, "error": audited.err().map(|e| e.to_string()) }),
         );
     }
+    // Hooked functions whose body or call site moved since the pinned plan:
+    // these need a source review even when everything still applies.
+    let mut changed_targets = BTreeMap::new();
+    if ok {
+        let plan = |path: PathBuf| -> Result<Vec<Value>> {
+            let plan: Value = serde_json::from_slice(&fs::read(path)?)?;
+            Ok(plan["injections"].as_array().cloned().unwrap_or_default())
+        };
+        let pinned = plan(root.join("target/horizon/plan.json"))
+            .map_err(|e| format!("drift needs a staged pin first (xtask stage): {e}"))?;
+        for injection in plan(directory.join("plan.json"))? {
+            let id = &injection["injection_id"];
+            let before = pinned.iter().find(|p| &p["injection_id"] == id);
+            let fields = ["file", "function_fingerprint", "site_fingerprint"];
+            let moved = fields
+                .iter()
+                .filter(|key| before.is_none_or(|b| b[**key] != injection[**key]))
+                .collect::<Vec<_>>();
+            if !moved.is_empty() {
+                changed_targets.insert(
+                    id.as_str().unwrap_or("?").to_owned(),
+                    json!({ "target": injection["target"], "changed": moved }),
+                );
+            }
+        }
+    }
     if ok && compile {
         let staged = directory.join("modded");
         let log = directory.join("check.log");
@@ -687,6 +713,7 @@ fn drift(root: &Path, horizon: &Path, candidate: &str, compile: bool) -> Result<
         "minecraft": minecraft,
         "protocol": protocol,
         "changed_sources": changed,
+        "changed_targets": changed_targets,
         "steps": steps,
         "compiled": compile && ok,
         "pin_unchanged_compatible": compatible,
