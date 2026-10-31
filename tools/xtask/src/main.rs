@@ -206,6 +206,10 @@ fn capabilities(tokens: &proc_macro2::TokenStream, origin: &str) -> Result<()> {
         "no_mangle",
         "export_name",
         "link_section",
+        // The host's HTTP client, opt-in telemetry and play-with-friends relay.
+        "ureq",
+        "horizon_telemetry",
+        "horizon_friends",
     ];
     const MACROS: &[&str] = &[
         "include",
@@ -236,6 +240,14 @@ fn capabilities(tokens: &proc_macro2::TokenStream, origin: &str) -> Result<()> {
                     || path(i, "core", "net")
                     || path(i, "process", "Command")
                     || path(i, "std", "ffi")
+                    || path(i, "server_packs", "download")
+            }
+            // A URL names an online endpoint; doc comments may cite one.
+            TokenTree::Literal(literal) => {
+                literal.to_string().contains("://")
+                    && !(i >= 2
+                        && matches!(&trees[i - 1], TokenTree::Punct(p) if p.as_char() == '=')
+                        && ident(i - 2).as_deref() == Some("doc"))
             }
             TokenTree::Group(group) if group.delimiter() == Delimiter::Bracket => {
                 // `#[link(...)]` loads a native library.
@@ -1184,7 +1196,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn capabilities_reject_sockets_processes_ffi_and_embedded_files() {
+    fn capabilities_reject_sockets_processes_ffi_online_services_and_embedded_files() {
         for denied in [
             quote!(
                 fn f() {
@@ -1218,12 +1230,29 @@ mod tests {
             quote!(
                 const X: &str = include_str!("secret");
             ),
+            quote!(
+                fn f() {
+                    ureq::get("x").call();
+                }
+            ),
+            quote!(
+                const API: &str = "https://example.invalid/profiles";
+            ),
+            quote!(
+                fn f(x: u8) {
+                    crate::horizon_telemetry::outbox::push(x);
+                }
+            ),
         ] {
             assert!(capabilities(&denied, "test").is_err(), "{denied}");
         }
         let allowed = quote!(
             enum Command {
                 Text,
+            }
+            /// Ported from https://example.invalid/docs.
+            fn g(game: &Game) -> bool {
+                game.server_packs.prompt.is_none()
             }
             fn f() -> u32 {
                 let link = 1;

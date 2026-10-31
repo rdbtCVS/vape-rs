@@ -1311,3 +1311,21 @@ The drift report now also lists `changed_targets`: hooks whose function or call-
 - The controlled tick is now a wrapper around a shared `local_tick`, which the server's new movement replay also uses. Our HEAD hooks stay on the client-only wrapper, so their semantics are unchanged.
 - The re-pin is therefore a mechanical hash update plus scenario reruns.
 - Upstream added an anticheat that drops attacks from a client tick with more attacks than swings, or hits on a second entity. It is on by default only on dedicated servers (`game/dedicated.rs` is the only caller of `Hub::set_anticheat`). A LAN world's hub holds none of it (`lan/anticheat.rs`), so our two-process LAN scenarios keep vanilla server behavior. A future dedicated-server scenario has to set `[anticheat]` in its scratch `server.toml`.
+
+## 2026-10-31: online-removal audit (Phase 7)
+
+The pack-time capability audit (tools/xtask/src/main.rs `capabilities`) now also rejects:
+- the host's HTTP client crate `ureq`;
+- `server_packs::download`;
+- the `horizon_telemetry` and `horizon_friends` crates;
+- string literals that contain `://`. Doc comments may still cite a URL.
+
+The pinned client depends on `ureq` and uses it for server-pack downloads, so the old rule against sockets in the payload alone left a gap.
+
+Removal audit on this tree:
+- `git ls-files` lists no Java, Kotlin, C or C++ source, no JAR or class files, no Gradle build and no native libraries or executables. Tracked directories: src, mixins, tools, docs, .github and root metadata.
+- `src/` and `mixins/` contain no URL, account, login, licence or HWID code. A hit like `server_packs` only reads `prompt` to keep modules idle while the host's pack prompt is open.
+- The ledger carries all nine online-product rows (accounts, licensing, cloud and public profiles, reviews, parties, shared activity, shared inventories, remote sync) and the four AI rows as `excluded-approved`.
+- Local profiles and the friend/enemy records stay local files.
+
+Gates: fmt; Clippy `-D warnings` (xtask); 4 xtask tests, including the new denied cases (`ureq::get`, an `https://` constant, a telemetry push) and the allowed ones (a doc comment with a URL, `game.server_packs.prompt`); `xtask pack` on the real payload passes the stricter audit.
