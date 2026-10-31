@@ -1774,7 +1774,7 @@ Feature ids (ledger update target/ledger-updates/inventory-utility-debt.json):
 - module.throwpot.mode.soup and .both: implemented-core → blocked. Both's choice logic is validated in-world. The missing host capability is a per-stack consumable component, synced to the client and honoured by the item-use path.
 - module.autoarmor: integrated → blocked, only for Open inventory off with Inventory only off. The missing host capability is a screenless window-0 ContainerClick. Every other setting is validated above.
 
-Gates on d8a4783 (main 10bd7ad merged); the final rerun after merging main 97dbaa7 follows below:
+Gates on d8a4783 (main 10bd7ad merged); the rerun after merging main 97dbaa7 is at the end of this section:
 - `cargo fmt --all --check`: clean.
 - Clippy `-D warnings` (workspace, all targets): clean.
 - `cargo test --workspace`: 223 lib, 1 settings_dump, 4 xtask and 0 doc tests, all passing.
@@ -1789,3 +1789,11 @@ Open items in this scope:
 - Throwpot soup consumption and the "Throw bowls" drop are blocked on the host consumable capability above.
 - AutoArmor's screenless clicking is blocked on the window-0 ContainerClick above.
 - Two UI items remain. The reference's "ms" unit on number settings (AutoTool's Swap to delay and Swap back delay, Throwpot and ThrowDebuff Scroll delay, and the Refill Delay range) is missing because the settings Definition has no unit field. The reference setting descriptions are not shown as tooltips. Both are settings-model and GUI work, not host work.
+
+Rerun after merging main 97dbaa7 (merge 829a58a). Since d8a4783 the merge changed only docs/progress.md and tools/no_hurt_camera_scenario.py:
+- `cargo fmt --all --check`: clean. Clippy `-D warnings` (workspace, all targets): clean.
+- `cargo test --workspace`: 228 passed (223 lib, 1 settings_dump, 4 xtask), 0 failed.
+- `xtask payload-test`: 223/223.
+- `xtask stage`: the audit restored the original AST after removing exactly 44 hooks and 29 support modules.
+- `xtask identity` on the merged head matches the fast build the scenarios ran on: bundle 4f0131d5c301, Horizon and mixins revisions, patches, profile and features are all equal. The scenario evidence above therefore applies to this head.
+- The post-merge host check and build were skipped at the coordinator's request, to shorten the lock queue. The coordinator runs `gates.sh --host` and these scenarios on main after the merge.
