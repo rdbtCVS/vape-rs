@@ -10,9 +10,12 @@ use super::super::{
 use super::{ModuleId, Runtime};
 
 impl Runtime {
+    /// The use input is leased, or `SharedModuleControlClaims.rightClickUse`
+    /// is claimed (FastPlace's check).
     pub fn use_claimed(&self) -> bool {
         self.actions
             .claimed(Resource::UseItem, self.session.epoch())
+            || self.right_click_use_claimed()
     }
     pub fn inventory_busy(&self) -> bool {
         self.actions

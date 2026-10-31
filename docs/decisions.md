@@ -330,3 +330,20 @@ These bullets replace the round-1 render bullets they name.
   - Not ported: the RotationManager adaptive-controller skip (`thirdPersonAimView`) and the render-rotation readers (`PlayerSimulationUtil`, `GuiRenderPrimitives`, `RenderUtil`).
 - **Freelook's Perspective value is never shown.** The reference builds `perspectiveMode` but never passes it to `addValue`, so it keeps its default, 3rd Person. The 1st-person mode is not-applicable-reviewed.
 - **Freelook's bind never toggles the module.** As in the reference, the module's `onBindActivated` engages the freelook, so the generic hidden-module refusal does not apply to it. The generic per-module `activation` setting is ignored for Freelook; its own Activate Freelook choice decides Hold or Toggle.
+
+## 2026-10-31: placement and rescue (movement-a worker)
+
+- **One rotation manager.** The movement rotation (src/modules/movement/rotation.rs) is merged into the combat rotation claim. `src/core/rotation_runtime.rs` ports RotationManager: one active controller over the shared claim. Silent owners step the managed rotation with their own settings. Visible owners run the FixedRotationController port (`Fixed`) or Scaffold's point controller (`ScaffoldPoint`), and turn the view at the client tick head. Claim priorities decide ownership (SilentAura 5 … Clutch 60). SilentAura notices a preempting owner and restarts after it. The `Rotations`/`Shared` API is unchanged for movement-b.
+- **50 controller updates per tick.** The reference runs `round(50 × getSensitivityTimeScale())`, which is 50 at sensitivity 0.5, Horizon's default. The port always runs 50, so at other sensitivities it turns at a different rate than the reference. This is an open item, not a decision to diverge.
+- **`normalReachRayTrace` is the 26.3 pick.** The reference's `rayTraceUsingManagedRotation(3.0, …)` on 1.20.6+ bounds only entities by 3.0; blocks use the block reach. The port traces blocks at `Game::reach()` (4.5, 5 in creative). An entity on the ray before the block leaves no block hit. LAN guests count through the host's own guest pick.
+- **The Sprint lock comes from the bridge modes.** GodBridge and TellyBridge lock `SharedModuleControlClaims.movementInput` and block right-click use while bridging, as the reference does. Sprint (`src/modules/combat/sprint.rs`) reads the lock and presses nothing while it is held. Leaving a bridge mode clears both locks, which stands in for Telly's `onDisable`.
+- **Reference quirks kept:**
+  - `isPastCorner` measures from the floored corner, so the -X and -Z directions (8 and 5) never pass.
+  - A null `targetPos` falls back to the player's position.
+  - The rotation claim is kept through a mode swap.
+  - The edge-sneak helper keeps its priority below the bridge's keys.
+  - Mouse history uses this tick's accumulated counts (`Mouse.getDX/DY`).
+  - The reference's legacy key-repeat switch is a no-op on 26.3.
+- **Telly with an empty path.** The reference throws out of the tick handler at the first path read once every path block is gone. The port skips the rest of that tick instead.
+- **FreeLook gate.** FreeLook is not ported on this branch, so the bridge modes' mouse-history check always counts. When FreeLook lands, that check must respect it.
+- **Scenario setting.** tools/scaffold_bridge_scenario.py runs TellyBridge with "Require right click" off. A held use key would place blocks by itself and hide the mode's own clicks.

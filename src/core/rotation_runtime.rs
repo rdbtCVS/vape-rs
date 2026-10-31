@@ -10,6 +10,8 @@
 use super::super::modules::combat::rotation::{
     Claim, Claimant, Fixed, Managed, Step, UPDATES_PER_TICK,
 };
+use super::super::modules::movement::movement_task::Body;
+use super::super::modules::movement::scaffold_bridge::ScaffoldPoint;
 use super::Runtime;
 use super::combat_runtime::Combat;
 
@@ -19,6 +21,9 @@ enum Controller {
     Silent(Step),
     /// `FixedRotationController` and subclasses: the view.
     Visible(Fixed),
+    /// `ScaffoldPointRotationController`: the view toward a world point; it
+    /// needs the player each update and never completes.
+    Point(ScaffoldPoint),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,6 +125,27 @@ impl<'a> Shared<'a> {
             _ => None,
         }
     }
+    /// `setController(point)`, like `visible`.
+    pub fn point(&mut self, who: Claimant, point: ScaffoldPoint) {
+        if self.managed.active {
+            self.managed.clear();
+        }
+        self.rotations.done = None;
+        self.rotations.drive = Some(Drive {
+            owner: who,
+            controller: Controller::Point(point),
+        });
+    }
+    /// The owner's point controller, to retarget it.
+    pub fn point_mut(&mut self, who: Claimant) -> Option<&mut ScaffoldPoint> {
+        match &mut self.rotations.drive {
+            Some(Drive {
+                owner,
+                controller: Controller::Point(point),
+            }) if *owner == who => Some(point),
+            _ => None,
+        }
+    }
     /// Whether `who` has a controller in the manager.
     pub fn active(&self, who: Claimant) -> bool {
         self.rotations
@@ -157,7 +183,7 @@ impl<'a> Shared<'a> {
         {
             match drive.controller {
                 Controller::Silent(_) => self.managed.release(),
-                Controller::Visible(_) => self.rotations.drive = None,
+                Controller::Visible(_) | Controller::Point(_) => self.rotations.drive = None,
             }
         }
     }
@@ -175,6 +201,17 @@ impl<'a> Shared<'a> {
         sensitivity: f64,
         no_screen: bool,
     ) -> Option<[f32; 2]> {
+        self.tick_with(view, sensitivity, no_screen, None)
+    }
+    /// `tick` with the local player, which a point controller needs (it
+    /// holds still without one).
+    pub fn tick_with(
+        &mut self,
+        view: (f32, f32),
+        sensitivity: f64,
+        no_screen: bool,
+        body: Option<&Body>,
+    ) -> Option<[f32; 2]> {
         let eye = self.rotations.eye;
         let drive = self.rotations.drive.as_mut()?;
         let owner = drive.owner;
@@ -189,6 +226,10 @@ impl<'a> Shared<'a> {
                     fixed.set_eye(eye);
                 }
                 no_screen.then(|| fixed.tick([view.0, view.1], sensitivity, UPDATES_PER_TICK))
+            }
+            Controller::Point(point) => {
+                let body = body?;
+                no_screen.then(|| point.tick([view.0, view.1], sensitivity, UPDATES_PER_TICK, body))
             }
             Controller::Silent(step) => {
                 let step = *step;
@@ -227,6 +268,17 @@ impl Runtime {
         no_screen: bool,
     ) -> Option<[f32; 2]> {
         self.rotation().tick(view, sensitivity, no_screen)
+    }
+    /// `rotation_tick` with the local player for a point controller.
+    pub fn rotation_tick_at(
+        &mut self,
+        view: (f32, f32),
+        sensitivity: f64,
+        no_screen: bool,
+        body: &Body,
+    ) -> Option<[f32; 2]> {
+        self.rotation()
+            .tick_with(view, sensitivity, no_screen, Some(body))
     }
     /// Session cleanup: the manager forgets every controller.
     pub(super) fn rotation_session_reset(&mut self) {

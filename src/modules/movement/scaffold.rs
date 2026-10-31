@@ -2,9 +2,9 @@
 // (`LegitScaffoldMode`): sneaks at the edge of the block below while not
 // walking forward (fastbridge/ninja/eagle), and holds the sneak for a
 // random "Sneak delay" after leaving the edge. GodBridge and TellyBridge
-// (`BlatantScaffoldMode`, `TellyBridgeScaffoldMode`) drive the movement-task
-// manager and the shared rotation owner and are not ported: selecting them
-// is refused with a notification rather than doing nothing silently.
+// (`BlatantScaffoldMode`, `TellyBridgeScaffoldMode`) are in `god_bridge` and
+// `telly_bridge`; they drive the movement-task manager, the shared rotation
+// and the right click (`scaffold_bridge`).
 use super::super::super::core::settings::{Definition, Kind, Settings};
 use super::super::super::inventory::item_limit::{self, HeldItem};
 use super::super::rng::Rng;
@@ -99,6 +99,30 @@ pub fn definitions() -> Vec<Definition> {
         .when(&key("mode"), json!("Legit")),
         Definition::boolean(&key("require-sneak"), "Require sneak", false)
             .when(&key("mode"), json!("Legit")),
+        described(
+            Definition::number(&key("activation-blocks"), "Activation blocks", 1.0, 2.0, 4.0, 0.01),
+            "Manual blocks placed before bridging",
+        )
+        .when(&key("mode"), json!("GodBridge")),
+        described(
+            Definition::boolean(&key("require-right-click"), "Require right click", true),
+            "On: Holding right click, and backwards move key, continues scaffold. Releasing either deactivates\nOff: Holding backwards move key continues scaffold, releasing deactivates\n",
+        )
+        .when(&key("mode"), json!("TellyBridge")),
+        described(
+            Definition::number(
+                &key("telly-activation-blocks"),
+                "Activation Blocks",
+                1.0,
+                2.0,
+                4.0,
+                0.01,
+            ),
+            "Manual blocks placed before bridging",
+        )
+        .when(&key("mode"), json!("TellyBridge")),
+        Definition::number(&key("y-increase"), "Y increase", 0.0, 1.0, 3.0, 1.0)
+            .when(&key("mode"), json!("TellyBridge")),
         Definition::boolean(&key("block-count"), "Block count", false),
         Definition::boolean(&key("pitch-check"), "Pitch check", false),
         Definition::number(&key("pitch"), "Pitch", 0.0, 45.0, 90.0, 1.0)
@@ -120,6 +144,11 @@ pub fn definitions() -> Vec<Definition> {
         )
         .when(&key("whitelist"), json!(true)),
     ]
+}
+
+fn described(mut d: Definition, text: &str) -> Definition {
+    d.description = text.into();
+    d
 }
 
 fn strings(settings: &Settings, id: &str) -> Vec<String> {
@@ -149,11 +178,18 @@ pub struct Options {
     pub pitch: f64,
     pub blacklist: Option<Vec<String>>,
     pub whitelist: Option<Vec<String>>,
+    /// GodBridge "Activation blocks".
+    pub god_activation: f64,
+    /// TellyBridge "Require right click", "Activation Blocks", "Y increase".
+    pub require_right_click: bool,
+    pub telly_activation: f64,
+    pub y_increase: f64,
 }
 
 impl Options {
     pub fn read(settings: &Settings) -> Self {
         let flag = |k: &str, d: bool| settings.get(&key(k)).and_then(Value::as_bool).unwrap_or(d);
+        let number = |k: &str, d: f64| settings.get(&key(k)).and_then(Value::as_f64).unwrap_or(d);
         let sneak_delay = settings
             .get(&key("sneak-delay"))
             .and_then(Value::as_array)
@@ -169,13 +205,14 @@ impl Options {
             require_sneak: flag("require-sneak", false),
             block_count: flag("block-count", false),
             pitch_check: flag("pitch-check", false),
-            pitch: settings
-                .get(&key("pitch"))
-                .and_then(Value::as_f64)
-                .unwrap_or(45.0),
+            pitch: number("pitch", 45.0),
             blacklist: flag("blacklist", true).then(|| strings(settings, &key("blacklist-blocks"))),
             whitelist: flag("whitelist", false)
                 .then(|| strings(settings, &key("whitelist-blocks"))),
+            god_activation: number("activation-blocks", 2.0),
+            require_right_click: flag("require-right-click", true),
+            telly_activation: number("telly-activation-blocks", 2.0),
+            y_increase: number("y-increase", 1.0),
         }
     }
 }
@@ -230,6 +267,8 @@ pub struct Tick {
     /// Forward input from the physical keys: 1, 0 or -1.
     pub forward: f32,
     pub on_ground: bool,
+    /// `isOnLadder`.
+    pub on_ladder: bool,
     /// No collision under the deflated box moved by this tick's motion.
     pub edge: bool,
     pub held: HeldItem,
@@ -273,11 +312,11 @@ impl Legit {
         self.edge_at = None;
         self.stood_at = None;
     }
-    /// `shouldScaffold` (its one obfuscated player flag is not identified
-    /// and not checked).
+    /// `shouldScaffold`.
     pub fn should_scaffold(o: &Options, t: &Tick) -> bool {
         t.no_screen
             && (!o.require_sneak || t.sneak_held)
+            && !t.on_ladder
             && !(o.pitch_check && f64::from(t.pitch) < o.pitch)
             && can_activate(o, &t.held)
     }
@@ -371,6 +410,19 @@ mod tests {
         assert_eq!(legit.tick(&o, &t), Some(Sneak::Press));
         t.no_screen = false;
         assert_eq!(legit.tick(&o, &t), None);
+        t.no_screen = true;
+        t.on_ladder = true;
+        assert_eq!(legit.tick(&o, &t), None, "not on a ladder");
+    }
+
+    #[test]
+    fn bridge_mode_settings_read_their_defaults() {
+        let o = options();
+        assert_eq!(
+            (o.god_activation, o.telly_activation, o.y_increase),
+            (2.0, 2.0, 1.0)
+        );
+        assert!(o.require_right_click);
     }
 
     #[test]

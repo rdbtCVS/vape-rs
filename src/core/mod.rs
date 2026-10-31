@@ -1179,6 +1179,7 @@ impl Runtime {
         self.modern_combat_session_reset();
         self.anti_fireball_session_reset();
         self.rotation_session_reset();
+        self.scaffold_session_reset();
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();
@@ -1342,6 +1343,10 @@ impl Runtime {
             &mut self.right_clicker
         } else {
             &mut self.left_clicker
+        };
+        let input = &super::modules::combat::clicker::Input {
+            use_claimed: right && self.world_movement.claims.right_click,
+            ..input.clone()
         };
         let mut out = if active {
             engine.frame(&Options::read(&self.settings, prefix), input)

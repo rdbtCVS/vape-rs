@@ -86,6 +86,14 @@ pub(crate) fn movement_again(game: &mut crate::game::Game<'_>) {
     resolve_movement(game, true, true);
 }
 
+/// The host's canonical movement keys and toggle mappings.
+pub(crate) fn host_view(game: &crate::game::Game<'_>) -> HostView {
+    HostView {
+        keys: KEYS.map(|(_, key)| game.keys.contains(&key)),
+        toggles: [game.toggles.is_down(0), game.toggles.is_down(1)],
+    }
+}
+
 fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: bool) {
     let client = game.__horizon_mixins_vape_rs_client().clone();
     // A socket key's release takes the key out of both key sets directly,
@@ -97,17 +105,13 @@ fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: boo
             }
         }
     });
-    let view = HostView {
-        keys: KEYS.map(|(_, key)| game.keys.contains(&key)),
-        toggles: [game.toggles.is_down(0), game.toggles.is_down(1)],
-    };
+    let view = host_view(game);
     let active = requests && playing(game);
     let invisible = game.potions.effects.list.iter().any(|effect| effect.id == "invisibility");
     let (sprint, parkour, forward, jump) = with_client(&client, |runtime| {
         let tapped = if again { false } else { runtime.replace_parkour_tap(false) };
-        // Sprint's latched press (reference onPreEntityUpdate). No module
-        // claims movement input: the claim's only takers, Scaffold's Blatant
-        // and Telly modes, are not ported.
+        // Sprint's latched press (reference onPreEntityUpdate). Scaffold's
+        // GodBridge and TellyBridge modes hold the movement-input claim.
         let tick = crate::game::vape_rs::modules::combat::sprint::Tick {
             playing: active,
             user_down: runtime.movement().user(Axis::Sprint, &view),
@@ -115,7 +119,7 @@ fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: boo
             collided_horizontally: game.player.as_ref().is_some_and(|p| p.collision.horizontal),
             invisible,
             may_fly: game.player.as_ref().is_some_and(|p| p.may_fly),
-            movement_locked: false,
+            movement_locked: runtime.movement_input_locked(),
         };
         (
             runtime.sprint_press(&tick, again),

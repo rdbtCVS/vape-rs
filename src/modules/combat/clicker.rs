@@ -375,6 +375,9 @@ pub struct Input {
     /// HitSelect's right-click cancel is active and the crosshair entity is
     /// still invulnerable with the player on the ground (`isHitSelectActive`).
     pub hit_select: bool,
+    /// `SharedModuleControlClaims.rightClickUse` is claimed (RightClicker's
+    /// `shouldBlockClick`); the runtime sets it.
+    pub use_claimed: bool,
 }
 
 /// What the adapter does this frame.
@@ -616,7 +619,7 @@ impl Engine {
         if now.saturating_sub(started) < 50 + o.start_delay {
             return;
         }
-        if o.sneak_only && !input.sneaking {
+        if input.use_claimed || (o.sneak_only && !input.sneaking) {
             return;
         }
         if o.limit_items && !item_limit::matches(&o.allowed_items, &input.held) {

@@ -2168,3 +2168,24 @@ Unfinished in this scope (statuses unchanged):
 - Strafe.
 
 Next: a Freelook capture scenario (bind held, a turn, the third-person view, the player's yaw unchanged, and the perspective back on release), then the items above.
+
+## 2026-10-31: placement and rescue (worker round 2)
+
+Worker movement-a, branch `t3/a1f24057`. Commits: 0d8f682 (the movement rotation merged into the shared rotation claim), 0b1eb2b (GodBridge/TellyBridge pure logic and the movement-task helpers), 1c24462 (runtime and host wiring), f9eb269 (runtime tests: locks, Sprint, use claim, mode swap), 854c5a3 (bridge placements traced along the block reach, and the bridge scenario), and 9772e96 (merge of main 97dbaa7). The `Rotations`/`Shared` API is unchanged. There are no new hooks or support modules (see docs/hooks.md).
+
+Done:
+- **Shared rotation.** `src/core/rotation_runtime.rs` ports RotationManager (FixedRotationController as `Fixed`; Scaffold's point controller) over the shared rotation claim. WindCharge, Scaffold Legit and the bridge modes use it, and `src/modules/movement/rotation.rs` is removed. Re-run of tools/world_movement_scenario.py in fresh homes: movement-flwegmyx 28/28 and movement-visible-w245jxfu 6/6. In movement-zvt8yx78 (27/28) the only miss was NoSlowdown's bow timing, which is outside this scope. In movement-visible-lat7a2ee (5/6) the runway was read before the fill landed; the scenario now waits. Evidence: docs/evidence/movement-a-rotation-merge/.
+- **Scaffold GodBridge and TellyBridge** are ported near 1:1 and integrated: activation blocks, edge sneak, direction and corners, mode and point rotations, the movement-task keys, the use-item click through the host's use path, and the Sprint movement-input lock. tools/scaffold_bridge_scenario.py at 9772e96, fresh homes (evidence docs/evidence/movement-a-scaffold-bridge/):
+  - GodBridge (scaffold-god-9y15_itv), 23/24. It placed 30 stone off the runway (z −4 to −33, y 99) and carried the player past z −20 without dropping below y 100. The Sprint lock held, and Sprint sprinted afterwards (5.51 vs 4.53 b/s). The one miss: after S was released the bridge kept pressing back and strafe for the 60-tick window. The reference's `shouldReleaseControl` keeps bridging while the block 0.25 ahead is air, and here the placements never led that sample, so the hand-off to Sprint was not seen. The capture shows the 1-wide bridge.
+  - TellyBridge (scaffold-telly-cppjjyoc), 14/16. Activation, the idle edge-sneak and 6 placements pass. After the second in-air placement the player falls to the catch floor, so "Y increase" is never reached.
+- **Gates on 9772e96:** fmt 0; Clippy `-D warnings` 0; `cargo test --workspace` 243 + 1 + 4 + 0 passed, 0 failed; payload-test 0; stage/audit 44 hooks and 29 support modules, original AST restored; host check 0 (77 warning lines); host build 0. The coordinator runs `gates.sh --host` and the scenarios again after merging.
+- **Ledger:** target/ledger-updates/movement-a.json.
+  - `validated`, with the merged-rotation evidence added: WindCharge, Scaffold Legit, LegitScaffoldMode, ScaffoldEdgeSneakHelper.
+  - `integrated`: Scaffold, the GodBridge/TellyBridge modes, mode/4/5/6, BlatantScaffoldMode, TellyBridgeScaffoldMode, ScaffoldPointRotationController.
+
+Unfinished in this scope:
+- **TellyBridge in-air fall.** The rotation matches the reference rate. The cause is not found; candidates are the air movement keys while the yaw turns, and the jump distance.
+- **GodBridge post-release hand-off.** It needs a scenario that waits for the reference's stop condition, or a port bug found in it.
+- **Sensitivity time scale.** The rotation manager runs a constant 50 updates per tick; the reference runs `round(50 × getSensitivityTimeScale())`.
+- **Not started:** Block-In (Lowest cost / Hardest, the planner, graph and movement-controller helpers), Clutch, MLG, AutoLadder, and BedBreaker (Normal / Hypixel, its target render rows).
+- **Legacy Block-In controllers** (1.8.9/1.12.2) are not yet recorded as not-applicable-reviewed.

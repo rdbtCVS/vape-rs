@@ -55,6 +55,8 @@ pub enum Owner {
     AutoTotem,
     AntiFireball,
     Freecam,
+    /// The movement-task key bindings (`MovementInputHelper.setKeyPressed`).
+    KeyHelper,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -146,3 +146,9 @@ Movement worker B (2026-10-31, worker round 2): 5 hooks (`pearl-use-item`, `pear
 - `vape_freecam::tick` runs Freelook's post tick (the queued Toggle, Hold's bind state, the perspective put back) for every client tick. While Freecam is wanted, it also gathers the physical movement keys and the arrow keys and holds the player's rotation. The movement writer releases the seven movement keys and walks the player with the arrows under Move Fake.
 - The movement writer drops a socket-held key that is no longer physically held (`socket_held`/`socket_released`), so a control-socket key-up reaches the writer.
 - Freelook has no injection of its own; it shares `client-tick`, `freecam-camera` and `freecam-turn` with Freecam (Freecam is asked first).
+
+Movement-a worker (2026-10-31), no new hooks or support modules (still 44 hooks and 29 support modules):
+
+- `vape_world_actions::tick` (client-tick HEAD) now runs the shared rotation manager (`Runtime::rotation_tick_at`, the RotationManager port in `src/core/rotation_runtime.rs`) for every visible owner: WindCharge, Scaffold Legit, GodBridge and TellyBridge. The old movement-only rotation is gone.
+- Before the rotation, `scaffold_bridge_tick` runs GodBridge/TellyBridge (`Runtime::scaffold_bridge_tick`). It reads the inventory, the crosshair block (`crosshair_block`, the 26.3 `normalReachRayTrace`), the right button, the accumulated mouse and the user's movement keys. Its effects go through host paths: `Game.selected`, and `vape_macros::use_once` for `useItemKey.onTick(1)`.
+- The bridge modes' movement keys (the movement-task port, `src/modules/movement/movement_task.rs`) and their movement-input and right-click locks go through the one movement writer (`vape_input_delays::movement`). Sprint reads the movement-input lock there.
