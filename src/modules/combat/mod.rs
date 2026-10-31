@@ -9,6 +9,7 @@ pub mod knockback;
 pub mod reach;
 pub mod rotation;
 pub mod silent_aura;
+pub mod sprint;
 pub mod trigger_bot;
 pub mod velocity;
 pub mod wtap;

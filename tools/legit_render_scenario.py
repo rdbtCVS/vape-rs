@@ -248,7 +248,8 @@ def tags(r):
 def run(resources, allow_stale):
     with NativeSession(resources, 'legit-render-', allow_stale=allow_stale) as session:
         checks = Checks(session.root)
-        session.seed({'schema': 1, 'modules': {},
+        # AntiDebuff is hidden by default; unhide it as the GUI would.
+        session.seed({'schema': 1, 'modules': {'render.anti-debuff': {'visible': True}},
                       'settings': {**{f'{m}.binds': [k] for m, k in BINDS.items()}, **SETTINGS}})
         session.launch(creative=True)
         session.call('time', '6000')

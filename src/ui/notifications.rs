@@ -14,8 +14,7 @@ const NOMINAL_WIDTH: f32 = 136.0;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     Info,
-    /// Only the unported hidden-module and online-account paths raise it.
-    #[allow(dead_code)]
+    /// Hidden-module refusals; the online-account paths stay unported.
     Warning,
     Alert,
 }
