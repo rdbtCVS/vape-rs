@@ -128,6 +128,7 @@ registry! {
     InventoryFill => "inventory.inventory-fill", "InventoryFill", "Inventory", None, [];
     TargetFilter => "utility.target-filter", "TargetFilter", "Utility", None, [];
     HitSelect => "combat.hit-select", "HitSelect", "Combat", None, [];
+    BlockHit => "combat.block-hit", "BlockHit", "Combat", None, [];
 }
 
 impl ModuleId {

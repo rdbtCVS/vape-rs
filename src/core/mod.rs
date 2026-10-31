@@ -1566,7 +1566,7 @@ impl Runtime {
         let world = self.session.in_world();
         super::modules::blatant::outbound::Active {
             blink: world && self.enabled(ModuleId::Blink),
-            fake_lag: world && self.enabled(ModuleId::FakeLag),
+            fake_lag: world && self.enabled(ModuleId::FakeLag) && !self.fake_lag_yields(),
             no_item_release: world && self.enabled(ModuleId::NoItemRelease),
             potion_saver: world && self.enabled(ModuleId::PotionSaver),
         }
@@ -1586,7 +1586,11 @@ impl Runtime {
         let world = self.session.in_world();
         self.outbound
             .tick(&self.settings, active, world, target_hurt, queued);
-        self.outbound.take_flush()
+        self.outbound.take_flush() || self.fake_lag_flushes()
+    }
+    /// Repel flushes while BlockHit's Lag holds the claim; Blink keeps its own.
+    fn fake_lag_flushes(&self) -> bool {
+        self.fake_lag_yields() && !self.enabled(ModuleId::Blink)
     }
     /// The entity our last attack hit, whose hurt time Repel watches.
     pub fn outbound_target(&self) -> Option<i32> {
@@ -1598,7 +1602,7 @@ impl Runtime {
     }
     /// Whether a send just asked for every held packet to go.
     pub fn outbound_flush(&mut self) -> bool {
-        self.outbound.take_flush()
+        self.outbound.take_flush() || self.fake_lag_flushes()
     }
     /// AntiDebuff's effects to take off the local player this tick.
     pub fn anti_debuff(&self) -> Vec<&'static str> {
@@ -2330,7 +2334,8 @@ impl Runtime {
                 | ModuleId::PropHunt
                 | ModuleId::InventoryBlur
                 | ModuleId::TargetFilter
-                | ModuleId::HitSelect => continue,
+                | ModuleId::HitSelect
+                | ModuleId::BlockHit => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

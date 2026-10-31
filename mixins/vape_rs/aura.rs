@@ -107,8 +107,12 @@ pub(super) fn tick(game: &mut Game<'_>) {
                 if !remote::attack(game, id) {
                     remote::miss(game);
                 }
+                crate::game::vape_block_hit::silent_click(game);
             }
-            silent_aura::Click::Miss => remote::miss(game),
+            silent_aura::Click::Miss => {
+                remote::miss(game);
+                crate::game::vape_block_hit::silent_click(game);
+            }
             silent_aura::Click::None => {}
         }
     }

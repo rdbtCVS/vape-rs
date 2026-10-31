@@ -311,7 +311,7 @@ impl People for Targets {
         self.names.enemy(name)
     }
     fn teammate(&self, entity: &EntityView) -> bool {
-        !entity.name.is_empty() && self.teammates.iter().any(|t| *t == entity.name)
+        !entity.name.is_empty() && self.teammates.contains(&entity.name)
     }
     fn team_color(&self, entity: &EntityView) -> Option<u32> {
         self.colors.get(&entity.name).copied()

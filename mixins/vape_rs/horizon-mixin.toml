@@ -677,3 +677,37 @@ kind = "HEAD"
 cancellable = true
 helper = "adapters/hit_select_continue_attack.rs"
 bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+# BlockHit: the modes' use key, the cancelled use press under the binds,
+# Predict's damage notice (inbound-packet) and Lag's held release-use packet
+# below outbound-packet (LOWEST: what another hook held never reaches it).
+[[module]]
+id = "block-hit"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_block_hit"
+source = "block_hit.rs"
+
+[[injection]]
+id = "block-hit-mouse"
+target = "horizon_client::game::Game<'_>::play_mouse"
+kind = "HEAD"
+cancellable = true
+priority = 90
+helper = "adapters/block_hit_mouse.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "button", ty = "winit::event::MouseButton", value = "button" },
+  { name = "pressed", ty = "bool", value = "pressed" },
+]
+
+[[injection]]
+id = "block-hit-send"
+target = "horizon_client::game::remote::Game<'_>::send"
+kind = "HEAD"
+cancellable = true
+priority = 90
+helper = "adapters/block_hit_send.rs"
+bindings = [
+ { name = "game", ty = "&crate::game::Game<'_>", value = "self" },
+ { name = "packet", ty = "&horizon_protocol::packets::play::Serverbound", value = "&packet" },
+]

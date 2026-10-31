@@ -1,4 +1,5 @@
 pub mod aim_assist;
+pub mod block_hit;
 pub mod click_timing;
 pub mod clicker;
 pub mod hit_select;
