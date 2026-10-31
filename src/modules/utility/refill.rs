@@ -437,6 +437,8 @@ mod tests {
         let mut refill = Refill::default();
         let options = Options::default();
         let mut snap = snapshot();
+        // A free hotbar slot, so the enable checks pass.
+        snap.slots[3].item = None;
         snap.screen_open = false;
         snap.is_player_inventory = false;
         assert_eq!(refill.step(&snap, &options), vec![Effect::OpenInventory]);

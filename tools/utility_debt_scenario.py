@@ -194,7 +194,9 @@ def throwpot_soup(case):
 
 
 def throwdebuff(case, mode):
-    case.prepare({'inventory.throw-debuff.mode': mode})
+    # Hidden by default as in the reference; hidden modules refuse binds.
+    case.prepare({'inventory.throw-debuff.mode': mode},
+                 {'inventory.throw-debuff': {'visible': True}})
     items = (POISON, POISON, WEAKNESS, HEALING) if mode == 'all' else (WEAKNESS, POISON, POISON)
     for slot, item in enumerate(items):
         case.put(f'hotbar.{slot}', item)
