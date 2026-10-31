@@ -52,6 +52,8 @@ pub enum Owner {
     Scaffold,
     WindCharge,
     NoFall,
+    /// The movement-task key bindings (`MovementInputHelper.setKeyPressed`).
+    KeyHelper,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

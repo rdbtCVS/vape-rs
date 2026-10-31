@@ -34,6 +34,14 @@ fn scaffold_edge(game: &mut Game<'_>) -> bool {
     motion.no_player_collision(bounds).unwrap_or(false)
 }
 
+/// `isOnLadder`: the player is in a climbable block (`LivingEntity.onClimbable`).
+fn on_ladder(game: &mut Game<'_>) -> bool {
+    let entities = game.player_entity_collisions();
+    let Some(player) = game.player.as_mut() else { return false; };
+    let mut motion = horizon_client::motion::MotionWorld { entities: &entities, player, scene: &mut game.world, assets: &game.pack.assets, collision_binding: game.collision, resources: game.motion };
+    motion.climbable().unwrap_or(false)
+}
+
 /// The movement writer's requests from these modules.
 pub(crate) fn requests(game: &mut Game<'_>, active: bool, again: bool, view: &HostView) -> Vec<Request> {
     let client = game.__horizon_mixins_vape_rs_client().clone();
@@ -52,6 +60,7 @@ pub(crate) fn requests(game: &mut Game<'_>, active: bool, again: bool, view: &Ho
     let scaffold = active && with_client(&client, |runtime| runtime.enabled(ModuleId::Scaffold));
     if scaffold && !again && game.player.is_some() {
         let edge = scaffold_edge(game);
+        let on_ladder = on_ladder(game);
         let held = crate::game::vape_combat::held(game);
         let player = game.player.as_ref().unwrap();
         let on_ground = player.ground.on_ground;
@@ -69,6 +78,7 @@ pub(crate) fn requests(game: &mut Game<'_>, active: bool, again: bool, view: &Ho
                 pitch: game.pitch,
                 forward,
                 on_ground,
+                on_ladder,
                 edge,
                 held,
             };
