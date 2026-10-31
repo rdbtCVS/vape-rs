@@ -1620,3 +1620,24 @@ Ledger: target/ledger-updates/clicker-movement-debt.json is applied. Every check
 - excluded-approved: 13
 - blocked: 12
 - not-applicable-reviewed: 10
+
+## 2026-10-31: Panic validated (tools/panic_scenario.py)
+
+New scenario tools/panic_scenario.py: a fresh isolated home on main 8987b8d (bundle c8e2ef58a77d, the merged build). It passed 12/12; evidence is in docs/evidence/coordinator-panic.
+
+Fullbright, Sprint and NoHurtCam start enabled, each with its own bind.
+- **Re-enable off (default):** the default F10 bind disables all three, and a second F10 restores nothing. Panic itself never stays enabled.
+- **After a relaunch with Re-enable on:** F10 disables the set, and a second F10 restores exactly that set.
+- **The reference `U(mod)` reset:** after a Panic, enabling Fullbright through its bind forgets the saved set. The next F10 disables Fullbright, and the one after it restores only Fullbright.
+
+module.panic: integrated → validated (target/ledger-updates/coordinator-panic.json). The visible-by-default, F10-bound deviation stays as recorded in decisions.md.
+
+## 2026-10-31: Workers resumed after an API 403; Freelook unblocked; re-pin anticheat note
+
+All ten round-3/4 workers stopped at about 19:55 on a transient "API Error: 403 Not authorized". Their worktrees kept their commits and uncommitted edits, and each was resumed in its own thread with that state. The merged clicker-movement-debt and hud-client worktrees were removed: 0 commits ahead of main, clean.
+
+Freelook (module.freelookhudmodule and six modes) was `blocked` as "needs a Horizon camera-rotation hook". That was wrong. movement-b's Freecam adds cancellable HEAD hooks on `perspective::Game::player_camera_entity` (a replacement camera entity) and `turn_player` (mouse turns), which is that capability. Freelook moves to movement-b and shares those hooks through one dispatcher each. The reference never passes Freelook's `perspectiveMode` to `addValue`, so Perspective is not a user setting and stays at 3rd Person.
+
+The scope-coverage check (target/agent-tools/coverage.py over target/worker-briefs/round2-scope.txt, with the round-3/4 scopes added) leaves no open row unowned. The one exception is the helper `abstractblockinmovementcontroller`, whose status follows its owners.
+
+Re-pin to `5062f225`: upstream's acting combat check (fdfa4fbfa: more attacks than swings in a client tick, or two targets in one tick) runs only on a dedicated server's hub. `dedicated.rs:873` is the only `set_anticheat` call outside tests, and `lan/anticheat.rs` says the hub holds none of it for a LAN world. The integrated-server and LAN scenarios therefore run without it. A dedicated-server run would see blatant modules flagged as designed, which is not a regression.
