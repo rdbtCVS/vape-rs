@@ -761,3 +761,9 @@ target = "horizon_client::game::native_hooks::Game<'_>::native_tick"
 kind = "HEAD"
 helper = "adapters/auto_heal_post_motion.rs"
 bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[module]]
+id = "modern-combat"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_modern_combat"
+source = "modern_combat.rs"

@@ -99,6 +99,15 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_hit_select` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/hit_select.rs` |
 | `vape_block_hit` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/block_hit.rs` |
 
+| `vape_modern_combat` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/modern_combat.rs` |
+
+Combat-b worker (2026-10-31, round 2), no new hooks, one new support module `vape_modern_combat`:
+
+- `mouse-bind` lets HitSwap, AutoMace and ShieldBreaker see a physical left press (swallowed or not) through `vape_modern_combat::press`; a cancelled press goes no further.
+- `client-tick` runs `vape_modern_combat::tick` (slot steps, synthetic attacks, swing releases) after TriggerBot. `vape_modern_combat::trigger_assist` gives TriggerBot its cooldown and Shield check bypasses, and `request(Source)` routes TriggerBot's and the AutoClicker's synthetic attacks through the dispatch.
+- `auto-tool-attack` and `remote-attack` call `vape_modern_combat::post_attack` after the host's own attack (AutoMace's two-tick swap back, Stun slam's follow-up).
+- AntiFireball (`src/core/anti_fireball_runtime.rs`) has no host hook yet.
+
 Inventory worker (2026-10-31), no new hooks:
 
 - `vape_transactions::dispatch`, in `client-frame`, runs the use-sequence executor (`Runtime::throw_frame`) for Throwpot, ThrowDebuff and AutoHeal Legit. Its effects use the host's own paths: `Game.selected`, `vape_macros::use_once`, and `remote_drop`/`drop_held`.

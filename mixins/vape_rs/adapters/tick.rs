@@ -46,6 +46,7 @@ fn tick(game: &mut crate::game::Game<'_>) {
     crate::game::vape_hit_select::tick(game);
     crate::game::vape_block_hit::tick(game);
     crate::game::vape_combat::trigger_bot(game);
+    crate::game::vape_modern_combat::tick(game);
     crate::game::vape_aura::tick(game);
     crate::game::vape_combat::velocity_tick(game);
     crate::game::vape_combat::reach_tick(game);

@@ -53,6 +53,7 @@ pub enum Owner {
     WindCharge,
     NoFall,
     AutoTotem,
+    AntiFireball,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

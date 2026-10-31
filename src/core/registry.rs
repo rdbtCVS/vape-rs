@@ -130,6 +130,10 @@ registry! {
     HitSelect => "combat.hit-select", "HitSelect", "Combat", None, [];
     BlockHit => "combat.block-hit", "BlockHit", "Combat", None, [];
     HitFlick => "combat.hit-flick", "HitFlick", "Combat", None, [];
+    HitSwap => "combat.hit-swap", "HitSwap", "Utility", None, [];
+    AutoMace => "combat.auto-mace", "AutoMace", "Combat", None, [];
+    ShieldBreaker => "combat.shield-breaker", "ShieldBreaker", "Combat", None, [];
+    AntiFireball => "combat.anti-fireball", "AntiFireball", "Utility", None, [];
 }
 
 impl ModuleId {

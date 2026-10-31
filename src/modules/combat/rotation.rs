@@ -121,6 +121,10 @@ impl Claim {
     pub fn clear(&mut self) {
         *self = Self::default();
     }
+    /// The requester waiting for the claim.
+    pub fn pending(&self) -> Option<Claimant> {
+        self.pending
+    }
 }
 
 /// Degrees one mouse count turns the view (`getMouseScale() * 0.15`).

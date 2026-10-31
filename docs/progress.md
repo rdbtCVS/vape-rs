@@ -1933,3 +1933,64 @@ Still open in this scope:
 - InventoryActionGuard: no combat scenario.
 - ThrowDebuff orders nearest-first; the reference doesn't sort. Left to its owner.
 - Host gates: the host build above ran on `109d27c`. `5195a4f` and later change only docs and the AutoHeal scenario tool. On the coordinator's instruction, the post-merge host check and build are not run here; the coordinator runs `gates.sh --host` and these scenarios on main after the merge.
+
+## 2026-10-31: modern-item combat (worker round 2)
+
+Worker combat-b, branch t3/3acb15a0. Main 97dbaa7 is merged.
+
+**Landed**
+
+- **HitSwap (module.hitswap): validated.** src/modules/combat/hit_swap.rs, with the shared dispatch in src/modules/combat/weapon_swap.rs and src/core/modern_combat_runtime.rs.
+- **AutoMace (module.automace): integrated.** src/modules/combat/auto_mace.rs.
+  - Manual, Auto, Density and Breach are validated.
+  - Aim, Silent aim and the Elytra swaps are blocked: they need a fall simulation the host can't run without side effects.
+  - module.automacerotationcontroller is blocked.
+- **ShieldBreaker (module.shieldbreaker): validated.** src/modules/combat/shield_breaker.rs.
+- **TriggerBot overrides.** TriggerBot's cooldown and Shield check bypasses for ShieldBreaker, HitSwap and AutoMace are wired through `vape_modern_combat::trigger_assist`. TriggerBot's synthetic attack runs through HitSwap's swap; tools/modern_combat_scenario.py covers this.
+- **Host bridge.** mixins/vape_rs/modern_combat.rs is the support module `vape_modern_combat`. It needs no new hooks; it is called from mouse-bind, client-tick, auto-tool-attack and remote-attack.
+- **AntiFireball (module.bowaimbot, display AntiFireball): implemented-core.**
+  - Code: src/modules/combat/anti_fireball.rs and src/core/anti_fireball_runtime.rs, plus registry, settings, and the setEnabled/disable/session hooks in src/core/mod.rs.
+  - Also added: `Claim::pending` in rotation.rs and `Owner::AntiFireball` in movement_input.rs.
+  - The reference has no separate bow aimbot.
+  - There is no host mixin yet, so the module does nothing in game.
+- **Reach (module.reach): still blocked.** The exact missing capability is now named in the ledger and decisions.md. The server re-aims and re-picks a guest's attack at 3 blocks; it has no vanilla `canInteractWithEntity(box, 3.0)` id check.
+  - Misplace is client-side in mechanism, but it is blocked by the same capability, so it is not ported.
+  - module.autoclickerentitypositionstate follows it as blocked.
+
+**Scenarios** (fresh isolated homes through tools/native_session.py, HORIZON_SERVER_THREAD=1; screenshots inspected)
+
+- tools/modern_combat_scenario.py, single player: 24/24 (target/scenarios/modern-combat-hufocm5c). Density V smash 52.2, Breach IV 34.0, sword 10.5.
+- tools/shield_breaker_scenario.py, two owned processes over LAN: 23/23 (target/scenarios/shield-guest-1u499pyc).
+- Evidence is copied to docs/evidence/combat-b-modern/. The SP run's 2 MB commands.json is not copied.
+- Earlier failed or partial attempts are kept under target/scenarios only:
+  - modern-combat-3rsiwg6v, 4wsdwtah, hr6jwuoa, pskd2ujd, vslh5mxc
+  - shield-guest-56sh7_gg, bv7hk71h, gumvj60z, mq5zvtwb, oxm28bs2
+  - These runs were harness fixes; one is the persistent control socket that a one-tick slot needed.
+
+**Gates** (merged tree)
+
+- `cargo fmt --all --check`: ok.
+- `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`: ok.
+- `cargo test --workspace --locked --offline`: 251 passed (246 + 1 + 4 + 0), 0 failed.
+- `cargo run -p xtask --locked --offline -- payload-test`: 246 passed, 0 failed.
+- Stage and audit: ok. "original AST restored after removing exactly 44 hooks and 30 support modules; other inputs unchanged".
+- Host check under the lock: CHECK_RC=0 (21:39:48 to 21:50:51).
+- Host build: skipped at the coordinator's request, to shorten the lock queue. The coordinator runs gates.sh --host (host check and build) and these scenarios on main after the merge. The scenarios above ran on host builds of this branch before the merge with main.
+
+**Ledger.** /home/bob/Documents/vape-rs/target/ledger-updates/combat-b.json has 11 rows:
+
+| Status | Rows |
+| --- | --- |
+| validated | hitswap, shieldbreaker, automace.mode.manual/auto/density/breach |
+| integrated | automace |
+| implemented-core | bowaimbot |
+| blocked | automacerotationcontroller, reach, autoclickerentitypositionstate |
+
+**Unfinished in scope**
+
+- AntiFireball's host mixin and its scenario.
+  - The mixin needs: a projectile snapshot, the crosshair at the silent rotation via `redirectable_hit`/`mob_hit`/`before_block`, `S::Attack` on a server, and the movement-writer requests plus Sprint's `movement_locked`.
+- CrystalAura and its helper rows are not started. The host supports them: end_crystal.rs, game/end.rs.
+- AutoAnchor and its helper rows are not started. The host supports them: respawn_anchor.rs.
+- AutoMace's Aim, Silent aim and Elytra are blocked, as above.
+- HitSwap's Swords option and Limit to items, and ShieldBreaker's Double click and Limit to items, are unit-tested only.
