@@ -175,7 +175,7 @@ fn in_water(game: &Game<'_>, p: [f64; 3]) -> bool {
 /// guest), thrown tridents and thrown potions (not experience bottles, whose
 /// previous position is one motion back).
 pub(crate) fn in_flight(game: &Game<'_>) -> Vec<InFlight> {
-    let v = |v: glam::DVec3| [v.x, v.y, v.z];
+    let v = |v: horizon_core::geometry::Vec3| [v.x, v.y, v.z];
     let mut out: Vec<InFlight> = game
         .creatures
         .projectiles
@@ -257,7 +257,7 @@ fn projectile_lines(
 /// Block Overlay's target: the outline boxes of the block under the
 /// crosshair, unless a mob under it is nearer (`objectMouseOver` is then
 /// the entity).
-fn overlay_target(game: &Game<'_>) -> Vec<[f64; 6]> {
+pub(crate) fn overlay_target(game: &Game<'_>) -> Vec<[f64; 6]> {
     let Some(hit) = game.pick() else {
         return Vec::new();
     };

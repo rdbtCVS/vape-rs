@@ -136,9 +136,35 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
     out
 }
 
-/// StorageESP's (and later modules') filled through-wall quads, in the
-/// see-through name tag pass as name tag backgrounds are: the HUD atlas's
-/// white texel, unlit, tinted.
+/// The HUD atlas's white texel, which tints to any colour.
+fn white_uv(game: &Game<'_>) -> Option<[f32; 2]> {
+    let mut white = horizon_client::hud::HudBatch::new([1, 1]);
+    white.fill(&game.gui.atlas, 0.0, 0.0, 1.0, 1.0, 0);
+    white.vertices.first().map(|v| v.uv)
+}
+
+/// World quads as vertices relative to `camera`, unlit and tinted, on
+/// `layer` with `light`.
+fn push_quads(
+    quads: Vec<crate::game::vape_rs::modules::render::world::Quad>,
+    uv: [f32; 2],
+    camera: glam::DVec3,
+    layer: u32,
+    light: u32,
+    out: &mut Vec<Vertex>,
+) {
+    for q in quads {
+        let c = q.color;
+        let color = (c & 0xff00_ff00) | ((c & 0x00ff_0000) >> 16) | ((c & 0x0000_00ff) << 16);
+        for corner in q.corners {
+            let at = glam::DVec3::from_array(corner.0) - camera;
+            out.push(Vertex { normal: [0; 4], pos: at.as_vec3().to_array(), uv, layer, color, light, glint_uv: [0.0, 0.0] });
+        }
+    }
+}
+
+/// StorageESP's and PropHunt's filled through-wall quads, in the
+/// see-through name tag pass as name tag backgrounds are.
 fn world_quads(
     game: &Game<'_>,
     client: &crate::game::vape_rs::core::Client,
@@ -146,26 +172,41 @@ fn world_quads(
     alpha: f64,
     see_through: &mut Vec<Vertex>,
 ) {
-    let storage = crate::game::fishing::vape_world_lines::storage_blocks(game, alpha as f32);
-    let tnts = crate::game::fishing::vape_world_lines::tnts(game, alpha);
-    let props = crate::game::fishing::vape_world_lines::falling_blocks(game, alpha);
-    let quads = with_client(client, |runtime| runtime.world_quads(&storage, &tnts, &props, alpha as f32));
+    let (storage_on, props_on) = with_client(client, |runtime| (runtime.world_line_sources().0, runtime.props_wanted()));
+    let storage = if storage_on { crate::game::fishing::vape_world_lines::storage_blocks(game, alpha as f32) } else { Vec::new() };
+    let props = if props_on { crate::game::fishing::vape_world_lines::falling_blocks(game, alpha) } else { Vec::new() };
+    let quads = with_client(client, |runtime| runtime.world_quads(&storage, &props));
     if quads.is_empty() {
         return;
     }
-    let mut white = horizon_client::hud::HudBatch::new([1, 1]);
-    white.fill(&game.gui.atlas, 0.0, 0.0, 1.0, 1.0, 0);
-    let Some(uv) = white.vertices.first().map(|v| v.uv) else {
+    if let Some(uv) = white_uv(game) {
+        push_quads(quads, uv, camera, 2, 0, see_through);
+    }
+}
+
+/// Explosions' blast sphere and Block Overlay's fill: depth-tested and
+/// blended without writing depth (the translucent item overlay), at full
+/// light.
+fn depth_quads(
+    game: &Game<'_>,
+    client: &crate::game::vape_rs::core::Client,
+    camera: glam::DVec3,
+    alpha: f64,
+    explosions_on: bool,
+    overlay_on: bool,
+    out: &mut Vec<Vertex>,
+) {
+    let tnt = if explosions_on { crate::game::fishing::vape_world_lines::tnts(game, alpha) } else { Vec::new() };
+    let target = if overlay_on { crate::game::fishing::vape_world_lines::overlay_target(game) } else { Vec::new() };
+    let quads = with_client(client, |runtime| runtime.depth_quads(&tnt, alpha as f32, &target));
+    if quads.is_empty() {
+        return;
+    }
+    let Some(uv) = white_uv(game) else {
         return;
     };
-    for q in quads {
-        let c = q.color;
-        let color = (c & 0xff00_ff00) | ((c & 0x00ff_0000) >> 16) | ((c & 0x0000_00ff) << 16);
-        for corner in q.corners {
-            let at = glam::DVec3::from_array(corner.0) - camera;
-            see_through.push(Vertex { normal: [0; 4], pos: at.as_vec3().to_array(), uv, layer: 2, color, light: 0, glint_uv: [0.0, 0.0] });
-        }
-    }
+    game.mark_translucent_entity(out.len(), "minecraft:name_tag");
+    push_quads(quads, uv, camera, horizon_client::gfx::TRANSLUCENT_ITEM_OVERLAY, vertex_light(0xFF), out);
 }
 
 /// `name_tag_geometry` HEAD: NameTags' and ItemESP's tags over everything,
@@ -179,8 +220,12 @@ pub(crate) fn geometry(
     see_through: &mut Vec<Vertex>,
 ) -> ControlFlow<()> {
     let client = game.__horizon_mixins_vape_rs_client().clone();
-    if with_client(&client, |runtime| runtime.world_quads_active()) {
+    let (quads_on, (explosions_on, overlay_on)) = with_client(&client, |runtime| (runtime.world_quads_active(), runtime.depth_active()));
+    if quads_on {
         world_quads(game, &client, camera, alpha, see_through);
+    }
+    if explosions_on || overlay_on {
+        depth_quads(game, &client, camera, alpha, explosions_on, overlay_on, out);
     }
     let (tags_on, items_on, replace) = with_client(&client, |runtime| {
         let (t, i) = runtime.world_tag_sources();
