@@ -22,6 +22,18 @@ Rust schema 1 stores `modules`, `settings`, `friends`, `enemies`, `ui` and unkno
 
 ## Reference UI geometry and styling
 
-`ui/click/frame/impl/main/ClickGuiMainFrame.java`: 400×240 frame, 40 header, 136 frame overlay and 120 content overlay widths. Sections are Modules, Friends and Profiles (`ClickGuiSection`). Modules page has category/favorites selection, module/legit search, cards and settings sidecars. `ModuleComponent` row is 110×20; floating category header is 110×18. HUD overview width is 137.5, body height 50, header 20. Source theme uses background RGB(26,25,26), secondary RGB(37,36,38), foreground RGB(209,209,209), muted RGB(89,88,89), accent RGB(6,161,126).
+`ui/click/frame/impl/main/ClickGuiMainFrame.java`: 400×240 frame, 40 header, 136 frame overlay and 120 content overlay widths. Sections are Modules, Friends and Profiles (`ClickGuiSection`). Modules page has category/favorites selection, module/legit search, cards and settings sidecars. `ModuleComponent` row is 110×20; floating category header is 110×18. HUD overview width is 137.5, body height 50, header 20. Source theme uses background RGB(26,25,26), secondary RGB(37,36,38), foreground RGB(209,209,209), muted RGB(89,88,89). The accent is `ThemeColors.z()` = `ClientSettings.getAccentColor()`, the ClientSettings "Gui Color" (default RGB(5,134,105)): toggles, section-tab underlines, module cards, macro icons and Text GUI "Match GUI color" follow it. `ThemeColors.O` RGB(6,161,126) is fixed: HUD editor guide lines (`HudModuleFrameBase`) and SUCCESS/FRIENDINVITESENT notifications.
 
 Recreate retained local controls in this structure; do not replace the interface with stock Horizon settings widgets. Do not reproduce online-only tabs/controls as placeholders. Real reference captures, final font/icon provenance and pixel/interaction parity remain unverified.
+
+## Click GUI over play
+
+`ClientSettings.openGui` opens a natively created screen; `GuiScreenNativeCallbackBridge` forwards only `drawScreen` and `mouseClicked`, so the screen's pause flag is not visible in the Java text. `module/blatant/InvWalk.shouldHandleCurrentScreen` (lines 58-69) keeps movement in any non-chat screen except while `ClientSettings.activeComponent` (a focused click GUI text field) is set, which only makes sense if the world keeps ticking under the click GUI. Rust treats the click GUI as non-pausing (an inference, not a capture), keeps the vanilla HUD under it without a dim, and draws the Text GUI, Target Info and notifications over its frames. The HUD editor keeps its dim.
+
+## Text GUI clicks
+
+`TextGuiSettings` "Click disable" (default off) acts only while the click GUI is open: a hovered row's colour blends toward white, and a press on a row toggles its module. A module switched off this way stays listed, with a grey `| Disabled` suffix, until the GUI closes. The hit rectangle is the row's background box from the previous drawn frame, in GUI pixels. "Match GUI color" paints rows with the Gui Color accent.
+
+## Tooltips
+
+`GuiComponent.bindValue` gives a value-bound component a `ToolTips` built from the value description (font scale 0.75); headers carry fixed texts such as "Edit hidden modules". While hovered with "Show tooltips" on, the first child with a tooltip claims it; otherwise `updateToolTipHover` accumulates `tooltipHoverMillis += now - tooltipHoverStartMillis` per frame and shows the tooltip at the mouse once it reaches 2000. `hideToolTips` resets both counters. `ToolTips` draws last: box at mouse x+8 (flipped left past the screen half-width minus 8) and mouse y (flipped up past the bottom), size (text width + 6, lines × (line height + 1) + 2.5), fill RGB(20,20,20) with a RGB(26,25,26) shadow, RGB(35,35,35) outline, text RGB(163,163,163) at (+3, +2).

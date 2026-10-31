@@ -215,6 +215,15 @@ cancellable = true
 helper = "adapters/gui_blur.rs"
 bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
 
+# The click GUI and the HUD editor do not pause a single-player world.
+[[injection]]
+id = "gui-no-pause"
+target = "horizon_client::game::Game<'_>::pauses_game"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/gui_no_pause.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+
 [[injection]]
 id = "no-hurt-camera"
 target = "horizon_client::game::fov::Game<'_>::bob_matrix"

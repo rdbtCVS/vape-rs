@@ -21,7 +21,6 @@ const MUTED: u32 = 0xff7a7a7a;
 const FAINT: u32 = 0xff595859;
 /// Capture id prefix for a profile's keybind.
 const PROFILE_BIND: &str = "profile:";
-const ACCENT: u32 = 0xff06a17e;
 const FAVORITE: u32 = 0xffec812c;
 const DANGER: u32 = 0xfffa3238;
 
@@ -407,6 +406,8 @@ pub struct Gui {
     pub open: bool,
     pub hud_editor: bool,
     pub hud_regions: Vec<HudRegion>,
+    /// `ThemeColors` accent: ClientSettings Gui Color, set each frame.
+    pub accent: u32,
     /// The HUD editor frame's group tab: Favorite, All, HUD or Game.
     hud_group: &'static str,
     dragging_hud: Option<(String, f32, f32)>,
@@ -465,6 +466,7 @@ impl Default for Gui {
             open: false,
             hud_editor: false,
             hud_regions: Vec::new(),
+            accent: super::client_settings::DEFAULT_ACCENT,
             hud_group: "All",
             dragging_hud: None,
             selected: None,

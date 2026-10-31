@@ -15,25 +15,28 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
     let Some(frame) = frame else {
         return;
     };
-    // Retain glyph uploads already gathered by the host while replacing only
-    // the owned pause-menu surface. Closing restores the original path.
-    batch.vertices.clear();
-    batch.blends.clear();
-    batch.blur_at = 0;
     let atlas = &game.gui.atlas;
-    batch.fill(
-        atlas,
-        0.0,
-        0.0,
-        batch.width,
-        batch.height,
-        if frame.hud_editor {
-            0x33000000
-        } else {
-            0x99000000
-        },
-    );
+    if !frame.hud_editor {
+        // The reference's click GUI is its own screen over the game: the HUD
+        // stays under it, blurred with the world only by "Blur background"
+        // (the gui-blur hook), and there is no pause title or dim.
+        crate::game::vape_hud::drop_paused_title(game, batch);
+        // Its Text GUI and Target Info overlays draw over that blur.
+        let panels = crate::game::vape_hud::snapshot(game, !game.ui.hide_gui)
+            .map(|snapshot| with_client(&client, |runtime| runtime.panels(snapshot)))
+            .unwrap_or_default();
+        with_client(&client, |runtime| runtime.set_text_gui_boxes(Vec::new()));
+        for panel in panels.iter().filter(|p| crate::game::vape_hud::GUI_OVERLAYS.contains(&p.module)) {
+            crate::game::vape_hud::panel(game, batch, panel);
+        }
+    }
     if frame.hud_editor {
+        // Retain glyph uploads already gathered by the host while replacing
+        // only the owned screen's surface with the HUD previews.
+        batch.vertices.clear();
+        batch.blends.clear();
+        batch.blur_at = 0;
+        batch.fill(atlas, 0.0, 0.0, batch.width, batch.height, 0x33000000);
         let panels = crate::game::vape_hud::snapshot(game, true)
             .map(|snapshot| {
                 with_client(&client, |runtime| {
@@ -158,4 +161,8 @@ fn gui_render(game: &crate::game::Game<'_>, batch: &mut horizon_client::hud::Hud
         batch.clip_since(first, ox + x * fs, oy + y * fs, ox + (x + w) * fs, oy + (y + h) * fs);
     }
     batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
+    if !frame.hud_editor {
+        crate::game::vape_hud::notifications(game, batch);
+    }
 }
+

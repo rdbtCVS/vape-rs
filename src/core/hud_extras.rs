@@ -3,11 +3,12 @@
 // `getDetailedSuffix`) and its show/hide animation.
 
 use super::super::ui::Snapshot;
-use super::super::ui::client_settings::bind_text;
+use super::super::ui::client_settings::{DEFAULT_ACCENT, bind_text};
 use super::super::ui::hud::Content;
 use super::super::ui::notifications::{self, Kind};
 use super::super::ui::target_info::{self, Seen, Shown};
 use super::super::ui::text_gui::{self, Row, View, decimal};
+use super::rainbow::{readable_hsb, rgb_to_hsb};
 use super::{ModuleId, Runtime};
 use serde_json::{Value, json};
 
@@ -282,6 +283,66 @@ impl Runtime {
             _ => value,
         }
     }
+    /// `ClientSettings.getAccentColor`: Gui Color, or under its rainbow the
+    /// readable colour 0.03 behind its (already cycling) hue at 0.9/1.0.
+    pub fn accent(&self) -> u32 {
+        let color = self
+            .settings
+            .get("client.gui-color")
+            .and_then(Value::as_u64)
+            .map_or(DEFAULT_ACCENT, |v| v as u32);
+        if !self.hud_flag("client.gui-color.rainbow") {
+            return color;
+        }
+        let [hue, ..] = rgb_to_hsb(color);
+        let mut hue = hue - 0.03;
+        if hue <= 0.0 {
+            hue += 1.0;
+        }
+        readable_hsb(hue, 0.9, 1.0)
+    }
+    /// Whether the click GUI (not the HUD editor) is open: the HUD then
+    /// stays drawn under it, as under the reference's GUI screen.
+    pub fn gui_shows_hud(&self) -> bool {
+        self.gui.open && !self.gui.hud_editor
+    }
+    /// Text GUI "Click disable" applies while the click GUI is open.
+    fn text_gui_clicking(&self) -> bool {
+        self.gui_shows_hud() && self.hud_flag(text_gui::CLICK_DISABLE)
+    }
+    /// The painter's module row boxes for this frame, in HUD pixels.
+    pub fn set_text_gui_boxes(&mut self, boxes: Vec<(&'static str, [f32; 4])>) {
+        self.text_gui_boxes = boxes;
+    }
+    fn text_gui_hit(&self, (x, y): (f32, f32)) -> Option<&'static str> {
+        self.text_gui_boxes
+            .iter()
+            .find(|(_, [bx, by, w, h])| x >= *bx && x < bx + w && y >= *by && y < by + h)
+            .map(|(id, _)| *id)
+    }
+    /// `TextGuiOverlayComponent.e`: with Click disable on, a press on a row
+    /// toggles its module. A module switched off stays listed as Disabled;
+    /// one switched back on keeps its row at full, without a fade-in. The
+    /// click is not consumed: the GUI has already handled it.
+    pub(super) fn text_gui_click(&mut self, cursor: (f32, f32)) {
+        if !self.text_gui_clicking() {
+            return;
+        }
+        let Some(module) = self
+            .text_gui_hit(cursor)
+            .and_then(|id| ModuleId::ALL.into_iter().find(|m| m.id() == id))
+        else {
+            return;
+        };
+        if self.enabled(module) {
+            self.set_enabled(module, false);
+            self.text_gui_disabled.insert(module.id());
+        } else {
+            self.set_enabled(module, true);
+            self.text_gui_disabled.remove(module.id());
+            self.text_gui_rows.show(module.id());
+        }
+    }
     /// Advance the Text GUI's row animations once per HUD frame.
     pub(super) fn tick_text_gui(&mut self) {
         let now = std::time::Instant::now();
@@ -290,9 +351,33 @@ impl Runtime {
             .replace(now)
             .map_or(0.0, |then| now.duration_since(then).as_secs_f32() * 1000.0)
             .min(1000.0);
-        let shown: Vec<&'static str> = self.text_gui_listed().iter().map(|m| m.id()).collect();
+        // `u()`: closing the GUI or turning Click disable off drops the
+        // held rows at once; a module enabled elsewhere lists normally.
+        if !self.text_gui_clicking() {
+            for id in std::mem::take(&mut self.text_gui_disabled) {
+                self.text_gui_rows.forget(id);
+            }
+        }
+        let back: Vec<&'static str> = self
+            .text_gui_disabled
+            .iter()
+            .copied()
+            .filter(|id| {
+                ModuleId::ALL
+                    .iter()
+                    .any(|m| m.id() == *id && self.enabled(*m))
+            })
+            .collect();
+        for id in back {
+            self.text_gui_disabled.remove(id);
+        }
+        let mut shown: Vec<&'static str> = self.text_gui_listed().iter().map(|m| m.id()).collect();
+        shown.extend(self.text_gui_disabled.iter().copied());
         let animate = self.hud_flag("hud.text-gui.animations");
         self.text_gui_rows.update(&shown, elapsed, animate);
+        for id in self.text_gui_disabled.iter().copied() {
+            self.text_gui_rows.show(id);
+        }
     }
     pub(super) fn text_gui_content(&self, preview: bool) -> Option<Content> {
         let mode = match self.hud_text("hud.text-gui.suffix").as_str() {
@@ -300,32 +385,35 @@ impl Runtime {
             "None" => SuffixMode::None,
             _ => SuffixMode::Basic,
         };
+        let accent = self.accent();
+        let rainbow = self.hud_flag("client.gui-color.rainbow");
         let color_mode = self.hud_text("hud.text-gui.color-mode");
         let custom_color = self.hud_number("hud.text-gui.color") as u32;
         let color_of = |module: ModuleId| match color_mode.as_str() {
-            "Match GUI color" => text_gui::GUI_COLOR,
+            "Match GUI color" => accent,
             "Custom color" => custom_color,
-            _ => text_gui::module_color(module.id()).unwrap_or(text_gui::GUI_COLOR),
+            _ => text_gui::module_color(module.id()).unwrap_or(accent),
         };
         let mut rows: Vec<Row> = self
             .text_gui_rows
             .fading()
             .filter_map(|id| ModuleId::ALL.into_iter().find(|m| m.id() == id))
             .map(|module| Row {
+                id: module.id(),
                 name: module.name().into(),
-                suffix: self.module_suffix(module, mode),
+                suffix: if self.text_gui_disabled.contains(module.id()) {
+                    "\u{a7}7| Disabled".into()
+                } else {
+                    self.module_suffix(module, mode)
+                },
                 color: color_of(module),
                 progress: self.text_gui_rows.progress(module.id()),
             })
             .collect();
-        let accent = if color_mode == "Custom color" {
-            custom_color
-        } else {
-            text_gui::GUI_COLOR
-        };
         if rows.is_empty() && preview {
             rows = (1..=3)
                 .map(|n| Row {
+                    id: "",
                     name: format!("Example {n}"),
                     suffix: String::new(),
                     color: accent,
@@ -335,7 +423,7 @@ impl Runtime {
         }
         let text = self.hud_text("hud.text-gui.text");
         let custom = (self.hud_flag("hud.text-gui.custom-text") && !text.is_empty()).then(|| {
-            let color = if self.hud_flag("hud.text-gui.custom-text-color") {
+            let color = if self.hud_flag("hud.text-gui.custom-text-color") && !rainbow {
                 self.hud_number("hud.text-gui.text-color") as u32
             } else {
                 accent
@@ -345,6 +433,11 @@ impl Runtime {
         if rows.is_empty() && custom.is_none() && !self.hud_flag("hud.text-gui.watermark") {
             return None;
         }
+        let hovered = if self.text_gui_clicking() {
+            self.text_gui_hit(self.gui_cursor)
+        } else {
+            None
+        };
         Some(Content::TextGui(View {
             rows,
             alphabetical: self.hud_text("hud.text-gui.sort") == "Alphabetical",
@@ -354,6 +447,8 @@ impl Runtime {
             watermark: self.hud_flag("hud.text-gui.watermark"),
             custom,
             accent,
+            rainbow,
+            hovered,
         }))
     }
 }
@@ -473,10 +568,100 @@ mod tests {
             .set("hud.text-gui.custom-text", json!(true))
             .unwrap();
         r.settings.set("hud.text-gui.text", json!("&cHi")).unwrap();
-        assert_eq!(
-            view(&r).custom,
-            Some(("\u{a7}cHi".into(), text_gui::GUI_COLOR))
-        );
+        assert_eq!(view(&r).custom, Some(("\u{a7}cHi".into(), DEFAULT_ACCENT)));
+    }
+
+    #[test]
+    fn match_gui_color_and_the_watermark_follow_gui_color() {
+        let mut r = Runtime::default();
+        r.modules.get_mut(&ModuleId::Fly).unwrap().enabled = true;
+        r.settings
+            .set("hud.text-gui.color-mode", json!("Match GUI color"))
+            .unwrap();
+        r.tick_text_gui();
+        assert_eq!(view(&r).rows[0].color, DEFAULT_ACCENT);
+        r.settings
+            .set("client.gui-color", json!(0xff12_3456u32))
+            .unwrap();
+        assert_eq!(view(&r).rows[0].color, 0xff12_3456);
+        assert_eq!(view(&r).accent, 0xff12_3456);
+        assert!(!view(&r).rainbow);
+        // Rainbow: 0.03 behind the colour's hue, readable at 0.9/1.0.
+        r.settings
+            .set("client.gui-color.rainbow", json!(true))
+            .unwrap();
+        let [hue, ..] = rgb_to_hsb(0xff12_3456);
+        assert_eq!(r.accent(), readable_hsb(hue - 0.03, 0.9, 1.0));
+        assert!(view(&r).rainbow);
+        // The custom text colour gives way to the accent under rainbow.
+        for (id, value) in [
+            ("hud.text-gui.custom-text", json!(true)),
+            ("hud.text-gui.custom-text-color", json!(true)),
+            ("hud.text-gui.text", json!("Hi")),
+        ] {
+            r.settings.set(id, value).unwrap();
+        }
+        assert_eq!(view(&r).custom, Some(("Hi".into(), r.accent())));
+    }
+
+    #[test]
+    fn click_disable_toggles_rows_in_the_open_click_gui() {
+        let mut r = Runtime::default();
+        let fly = ModuleId::Fly.id();
+        r.set_enabled(ModuleId::Fly, true);
+        r.tick_text_gui();
+        r.set_text_gui_boxes(vec![(fly, [100.0, 10.0, 40.0, 11.0])]);
+        let rows = |r: &Runtime| -> Vec<(String, String, f32)> {
+            view(r)
+                .rows
+                .into_iter()
+                .map(|row| (row.name, row.suffix, row.progress))
+                .collect()
+        };
+        // Off by default, and only while the click GUI is open.
+        r.gui.open = true;
+        r.text_gui_click((110.0, 15.0));
+        assert!(r.enabled(ModuleId::Fly));
+        r.settings
+            .set(text_gui::CLICK_DISABLE, json!(true))
+            .unwrap();
+        r.gui.hud_editor = true;
+        r.text_gui_click((110.0, 15.0));
+        assert!(r.enabled(ModuleId::Fly));
+        r.gui.hud_editor = false;
+        // Hover follows the pointer over a row.
+        r.gui_cursor = (110.0, 15.0);
+        assert_eq!(view(&r).hovered, Some(fly));
+        r.gui_cursor = (90.0, 15.0);
+        assert_eq!(view(&r).hovered, None);
+        r.text_gui_click((99.0, 15.0));
+        assert!(r.enabled(ModuleId::Fly), "outside the box");
+        // A click disables it; the row stays, marked, at full.
+        r.text_gui_click((110.0, 15.0));
+        assert!(!r.enabled(ModuleId::Fly));
+        r.tick_text_gui();
+        r.tick_text_gui();
+        let held = vec![("Fly".into(), "\u{a7}7| Disabled".into(), 1.0)];
+        assert_eq!(rows(&r), held);
+        // A second click enables it again at full, without a fade-in.
+        r.text_gui_click((110.0, 15.0));
+        assert!(r.enabled(ModuleId::Fly));
+        r.tick_text_gui();
+        assert_eq!(rows(&r), [("Fly".into(), String::new(), 1.0)]);
+        // Disabled by click, then enabled elsewhere: listed normally.
+        r.text_gui_click((110.0, 15.0));
+        r.tick_text_gui();
+        r.set_enabled(ModuleId::Fly, true);
+        r.tick_text_gui();
+        assert!(r.text_gui_disabled.is_empty());
+        // Closing the GUI drops a held row at once instead of fading it.
+        r.text_gui_click((110.0, 15.0));
+        r.tick_text_gui();
+        assert_eq!(rows(&r), held);
+        r.gui.open = false;
+        r.tick_text_gui();
+        assert!(rows(&r).is_empty());
+        assert!(r.text_gui_disabled.is_empty());
     }
 
     #[test]

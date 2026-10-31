@@ -100,7 +100,7 @@ def run(resources):
               session.saved()['settings']['hud.text-gui.color'] == stored,
               [stored, session.saved()['settings']['hud.text-gui.color']])
 
-        # The click GUI pauses the game, so no tick waits while it is open.
+        # The world keeps ticking under the open click GUI (gui-no-pause).
         key('rshift')
         blurred = capture('gui-blur-on')
         key('rshift')

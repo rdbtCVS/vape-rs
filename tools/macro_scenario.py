@@ -89,7 +89,7 @@ def run(resources):
         session.call('time', '1000')
         session.call('key', 'n', 'tap')
         settle()
-        day = session.call('state')['day_time'] % 24000
+        day = session.call('status')['day_time'] % 24000
         assert day == 6000, day
         checks.append('command macro runs once')
 

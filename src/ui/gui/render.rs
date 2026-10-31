@@ -639,7 +639,7 @@ impl Gui {
                 l.row_label(x + 6.0 + dx, y, h, "VAPE", 0xffffffff, 1.0, Align::Left);
             }
             let badge = Rect(x + 32.0, y + 6.0, 13.0, 10.0);
-            l.fill(badge, ACCENT);
+            l.fill(badge, self.accent);
             l.fill(
                 Rect(badge.0 + 0.5, badge.1 + 0.5, badge.2 - 1.0, badge.3 - 1.0),
                 BG,
@@ -649,7 +649,7 @@ impl Gui {
                 badge.1,
                 badge.3,
                 "V4",
-                ACCENT,
+                self.accent,
                 SMALL_SCALE,
                 Align::Center,
             );
@@ -694,7 +694,7 @@ impl Gui {
                 Align::Left,
             );
             if selected {
-                l.fill(Rect(tx, top + 11.5, width, 0.75), ACCENT);
+                l.fill(Rect(tx, top + 11.5, width, 0.75), self.accent);
             }
             l.hit(Rect(tx - 2.0, top, width + 4.0, 14.0), Hit::HudGroup(group));
             tx += width + 9.0;
@@ -874,7 +874,7 @@ impl Gui {
         let expanded = self.selected.as_deref() == Some(&m.id);
         let hovered = row.contains(self.hover) && l.clip.contains(self.hover);
         let (background, color) = if m.enabled {
-            (Some(ACCENT), contrast(ACCENT))
+            (Some(self.accent), contrast(self.accent))
         } else if expanded || hovered {
             (Some(PRESSED), FG)
         } else {
@@ -984,7 +984,7 @@ impl Gui {
         let row = Rect(x, y, FRAME_WIDTH, ROW_HEIGHT);
         let hovered = row.contains(self.hover) && l.clip.contains(self.hover);
         let (background, color) = if m.enabled {
-            (Some(ACCENT), contrast(ACCENT))
+            (Some(self.accent), contrast(self.accent))
         } else if hovered {
             (Some(PRESSED), FG)
         } else {
@@ -1004,9 +1004,9 @@ impl Gui {
             )
         };
         if m.visible {
-            l.fill(inset(0.0), ACCENT);
+            l.fill(inset(0.0), self.accent);
             l.fill(inset(0.5), INSET);
-            l.fill(inset(1.0), ACCENT);
+            l.fill(inset(1.0), self.accent);
         } else {
             l.fill(inset(0.0), OUTLINE);
             l.fill(inset(0.5), INSET);
@@ -1057,7 +1057,7 @@ impl Gui {
                 Kind::Boolean => {
                     let on = value.as_bool().unwrap_or(false);
                     let track = Rect(x + w - 22.0, y + 5.0, 14.0, 8.0);
-                    l.rounded(track, if on { ACCENT } else { TRACK });
+                    l.rounded(track, if on { self.accent } else { TRACK });
                     l.fill(
                         Rect(
                             if on { track.0 + 7.5 } else { track.0 + 1.5 },
@@ -1089,7 +1089,7 @@ impl Gui {
                     let t =
                         ((current - min) / (max - min).max(f64::EPSILON)).clamp(0.0, 1.0) as f32;
                     l.fill(track, TRACK);
-                    l.fill(Rect(track.0, track.1, track.2 * t, track.3), ACCENT);
+                    l.fill(Rect(track.0, track.1, track.2 * t, track.3), self.accent);
                     l.fill(
                         Rect(track.0 + track.2 * t - 2.0, track.1 - 1.5, 4.0, 5.0),
                         FG,
@@ -1124,7 +1124,7 @@ impl Gui {
                             track.2 * (b - a).max(0.0),
                             track.3,
                         ),
-                        ACCENT,
+                        self.accent,
                     );
                     for t in [a, b] {
                         l.fill(
@@ -1181,7 +1181,7 @@ impl Gui {
                         y,
                         h,
                         &text,
-                        if capturing { ACCENT } else { FG },
+                        if capturing { self.accent } else { FG },
                         FIELD_SCALE,
                         Align::Right,
                     );
@@ -1291,7 +1291,7 @@ impl Gui {
                     row.1,
                     row.3,
                     option,
-                    if selected { ACCENT } else { FG },
+                    if selected { self.accent } else { FG },
                     FIELD_SCALE,
                     Align::Left,
                 );
@@ -1350,7 +1350,7 @@ impl Gui {
                     Align::Left,
                 );
                 let track = Rect(row.0 + row.2 - 14.0, row.1 + 1.0, 14.0, 8.0);
-                l.rounded(track, if on { ACCENT } else { TRACK });
+                l.rounded(track, if on { self.accent } else { TRACK });
                 l.fill(
                     Rect(
                         if on { track.0 + 7.5 } else { track.0 + 1.5 },
@@ -1390,7 +1390,7 @@ impl Gui {
             self.edit_paint(l, rect, value);
             l.fill(
                 Rect(rect.0 + 1.0, rect.1 + rect.3 - 0.5, rect.2 - 2.0, 0.5),
-                ACCENT,
+                self.accent,
             );
         } else {
             let clip = l.clip;
@@ -1421,7 +1421,7 @@ impl Gui {
         if active {
             l.fill(
                 Rect(rect.0 + 1.0, rect.1 + rect.3 - 0.5, rect.2 - 2.0, 0.5),
-                ACCENT,
+                self.accent,
             );
         }
         l.icon(rect.0 + 5.0, rect.1 + (rect.3 - 4.0) / 2.0, 0.8, icon, FG);
@@ -1606,7 +1606,7 @@ impl Gui {
                         .join(" + ")
                 },
                 if capturing {
-                    ACCENT
+                    self.accent
                 } else if self.macro_binds.is_empty() {
                     FAINT
                 } else {
@@ -1631,7 +1631,7 @@ impl Gui {
             l.rounded(
                 track,
                 if self.macro_double_click {
-                    ACCENT
+                    self.accent
                 } else {
                     TRACK
                 },
@@ -1759,7 +1759,7 @@ impl Gui {
             Align::Left,
         );
         let track = Rect(x + FRAME_WIDTH - 22.0, y + 3.0, 14.0, 8.0);
-        l.rounded(track, if enabled { ACCENT } else { TRACK });
+        l.rounded(track, if enabled { self.accent } else { TRACK });
         l.fill(
             Rect(
                 if enabled {
@@ -1792,7 +1792,7 @@ impl Gui {
                 y + 3.5,
                 &fit(&person.name, 62.0, FIELD_SCALE),
                 if person.relation == "friends" {
-                    ACCENT
+                    self.accent
                 } else {
                     DANGER
                 },

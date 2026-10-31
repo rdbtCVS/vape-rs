@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 from native_session import NativeSession
+import gui_layout
 
 
 def run(resources):
@@ -66,7 +67,8 @@ def run(resources):
         assert not enabled('hud.compass')
 
         # No bind activates while a screen is open.
-        for opener, name in (('e', 'inventory'), ('t', 'chat')):
+        # The scenario world is creative, so E opens the creative inventory.
+        for opener, name in (('e', 'creative'), ('t', 'chat')):
             session.call('key', opener, 'tap')
             session.call('wait', '2')
             assert screen() == name, screen()
@@ -147,12 +149,12 @@ def run(resources):
             'empty GUI bind falls back to Right Shift and opens the GUI']}, indent=2) + '\n')
 
 
-# Click GUI positions (800x600 window, GUI scale 2), as in gui_scenario.py:
-# the Render frame opens in the first column, Fullbright is its fourth row
-# and its expanded settings put the Bind row at y=133.
-RENDER = (30, 58)
-FULLBRIGHT_DOTS = (221, 96)
-BIND_ROW = (180, 133)
+# Click GUI positions (800x600 window, GUI scale 2) from gui_layout.py: the
+# Render frame opens in the first column, and Fullbright's expanded settings
+# put its Bind row 37 below the row.
+RENDER = gui_layout.category('Render')
+FULLBRIGHT_DOTS = gui_layout.dots('Render', 'render.fullbright')
+BIND_ROW = (180, FULLBRIGHT_DOTS[1] + 37)
 
 
 def rebind(session, enabled):

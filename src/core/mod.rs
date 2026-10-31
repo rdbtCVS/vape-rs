@@ -10,7 +10,7 @@ pub mod movement_input;
 pub mod movement_runtime;
 mod profile_runtime;
 pub mod profiles;
-mod rainbow;
+pub(crate) mod rainbow;
 mod registry;
 pub mod render_runtime;
 pub mod settings;
@@ -125,6 +125,14 @@ pub struct Runtime {
     hud_state: super::ui::hud_state::HudState,
     text_gui_rows: super::ui::text_gui::Animator,
     text_gui_clock: Option<std::time::Instant>,
+    /// Text GUI "Click disable": modules switched off by a click, kept
+    /// listed while the click GUI stays open.
+    text_gui_disabled: std::collections::BTreeSet<&'static str>,
+    /// The Text GUI's module row boxes in screen pixels, from the last
+    /// painted frame.
+    text_gui_boxes: Vec<(&'static str, [f32; 4])>,
+    /// The pointer in HUD pixels while the GUI is open.
+    gui_cursor: (f32, f32),
     toasts: super::ui::notifications::Toasts,
     toast_clock: Option<std::time::Instant>,
     rainbows: rainbow::Rainbows,
@@ -528,6 +536,9 @@ impl Default for Runtime {
             hud_state: super::ui::hud_state::HudState::default(),
             text_gui_rows: Default::default(),
             text_gui_clock: None,
+            text_gui_disabled: Default::default(),
+            text_gui_boxes: Vec::new(),
+            gui_cursor: (0.0, 0.0),
             toasts: Default::default(),
             rainbows: Default::default(),
             toast_clock: None,
@@ -1045,6 +1056,8 @@ impl Runtime {
             return None;
         }
         self.gui.update_viewport(viewport);
+        self.gui_cursor = cursor;
+        self.gui.accent = self.accent();
         let actions = self.gui.pointer(cursor);
         self.perform(actions);
         self.gui.multi_bind = self
@@ -1073,6 +1086,7 @@ impl Runtime {
         })
     }
     pub fn gui_pointer(&mut self, cursor: (f32, f32)) {
+        self.gui_cursor = cursor;
         let actions = self.gui.pointer(cursor);
         self.perform(actions);
     }
@@ -1103,8 +1117,12 @@ impl Runtime {
         if !self.gui.open {
             return;
         }
+        self.gui_cursor = cursor;
         let actions = self.gui.mouse(button, pressed, cursor, &self.gui_view());
         self.perform(actions);
+        if pressed {
+            self.text_gui_click(cursor);
+        }
     }
     pub fn release_input(&mut self) {
         self.cancel_macros(true);

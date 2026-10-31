@@ -4,12 +4,12 @@
 // This file is pure: the core builds a `View`, the host painter measures and
 // draws the `Draw` list `layout` returns.
 
+use super::super::core::rainbow::{readable_hsb, rgb_to_hsb};
 use super::super::core::settings::{Definition, Kind};
 use serde_json::json;
 
 pub const ID: &str = "hud.text-gui";
-/// `ClientSettings` GUI accent, used by "Match GUI color".
-pub const GUI_COLOR: u32 = 0xff06a17e;
+pub const CLICK_DISABLE: &str = "hud.text-gui.click-disable";
 const SUFFIX_GRAY: u32 = 0xff969696;
 
 fn key(k: &str) -> String {
@@ -19,6 +19,10 @@ fn key(k: &str) -> String {
 pub fn definitions() -> Vec<Definition> {
     let color =
         |id: &str, label: &str| Definition::new(&key(id), label, Kind::Color, json!(0xffce0707u32));
+    let describe = |mut d: Definition, text: &str| {
+        d.description = text.into();
+        d
+    };
     vec![
         Definition::choice(&key("sort"), "Sort", &["Length", "Alphabetical"], "Length"),
         Definition::choice(
@@ -34,21 +38,43 @@ pub fn definitions() -> Vec<Definition> {
             "Module color",
         ),
         color("color", "Text GUI color").when(&key("color-mode"), json!("Custom color")),
-        Definition::boolean(&key("shadow"), "Shadow", true),
-        Definition::boolean(&key("animations"), "Animations", true),
+        describe(
+            Definition::boolean(CLICK_DISABLE, "Click disable", false),
+            "Click modules in text gui to toggle them",
+        ),
+        describe(
+            Definition::boolean(&key("shadow"), "Shadow", true),
+            "Renders shadowed text",
+        ),
+        describe(
+            Definition::boolean(&key("animations"), "Animations", true),
+            "Use animations on text gui",
+        ),
         Definition::boolean(&key("smooth-font"), "Smooth font", true),
-        Definition::boolean(&key("watermark"), "Watermark", false),
-        Definition::boolean(&key("hide-modules"), "Hide modules", false),
+        describe(
+            Definition::boolean(&key("watermark"), "Watermark", false),
+            "Renders a vape watermark",
+        ),
+        describe(
+            Definition::boolean(&key("hide-modules"), "Hide modules", false),
+            "Allows you to blacklist certain modules from being shown",
+        ),
         // Stored like the reference's, which never reads it.
-        Definition::boolean(&key("rescale"), "Rescale", true),
-        Definition::new(
-            &key("hidden"),
-            "Hidden Modules",
-            Kind::StringList {
-                max_entries: 64,
-                max_chars: 64,
-            },
-            json!(["ESP", "NameTags", "StorageESP"]),
+        describe(
+            Definition::boolean(&key("rescale"), "Rescale", true),
+            "Rescales text GUI",
+        ),
+        describe(
+            Definition::new(
+                &key("hidden"),
+                "Hidden Modules",
+                Kind::StringList {
+                    max_entries: 64,
+                    max_chars: 64,
+                },
+                json!(["ESP", "NameTags", "StorageESP"]),
+            ),
+            "Name of module to hide",
         )
         .when(&key("hide-modules"), json!(true)),
         Definition::boolean(&key("custom-text"), "Add custom text", false),
@@ -187,6 +213,8 @@ pub fn spans(text: &str, base: u32) -> Vec<Span> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
+    /// The module, or empty for the editor's example rows.
+    pub id: &'static str,
     pub name: String,
     pub suffix: String,
     pub color: u32,
@@ -206,6 +234,10 @@ pub struct View {
     pub custom: Option<(String, u32)>,
     /// The colour of the watermark and editor examples.
     pub accent: u32,
+    /// "Gui Color" rainbow: module rows step down in hue from the accent.
+    pub rainbow: bool,
+    /// The module row under the cursor while "Click disable" applies.
+    pub hovered: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -232,6 +264,26 @@ pub struct Layout {
     pub width: f32,
     pub height: f32,
     pub draws: Vec<Draw>,
+    /// Each drawn module row's box (x, y, w, h), for "Click disable".
+    pub rows: Vec<(&'static str, [f32; 4])>,
+}
+
+/// The hovered row's colour (`ColorUtil.calculatePerceivedBrightness`, then
+/// `MutableColor.blend`): bright colours dim toward translucent gray, the
+/// rest lighten toward white. Alpha blends like the other channels.
+pub fn hover_blend(argb: u32) -> u32 {
+    let channel = |c: u32, shift: u32| ((c >> shift) & 0xff) as f32;
+    let [r, g, b] = [16, 8, 0].map(|shift| channel(argb, shift));
+    let brightness = (r * r * 0.241 + g * g * 0.691 + b * b * 0.068).sqrt() as i32;
+    let (with, f) = if brightness > 200 {
+        (0x6464_6464u32, 0.1)
+    } else {
+        (0xffff_ffff, 0.2)
+    };
+    [24, 16, 8, 0].into_iter().fold(0, |out, shift| {
+        let mixed = (channel(argb, shift) * (1.0 - f) + channel(with, shift) * f) as u32;
+        out | mixed.min(255) << shift
+    })
 }
 
 /// Name and suffix size factors: 16 and 14 (16 without smooth font) of the
@@ -317,10 +369,24 @@ pub fn layout(view: &View, s: f32, right: bool, measure: impl Fn(&str, f32) -> f
     }
     let row_height = 8.0 * s + 3.0 * s;
     y += 1.0 * s;
+    let mut boxes = Vec::new();
+    let [mut hue, saturation, brightness] = rgb_to_hsb(view.accent);
     for (row, w) in rows {
         let p = row.progress.clamp(0.0, 1.0);
         if p <= 0.0 {
             continue;
+        }
+        let mut color = row.color;
+        if view.rainbow && !row.id.is_empty() {
+            hue -= 0.025;
+            if hue <= 0.0 {
+                hue = 1.0;
+            }
+            color = (row.color & 0xff00_0000)
+                | (readable_hsb(hue, saturation, brightness) & 0x00ff_ffff);
+        }
+        if !row.id.is_empty() && view.hovered == Some(row.id) {
+            color = hover_blend(color);
         }
         let fade = |argb: u32| {
             let a = ((argb >> 24) as f32 * p).round() as u32;
@@ -346,13 +412,16 @@ pub fn layout(view: &View, s: f32, right: bool, measure: impl Fn(&str, f32) -> f
                 color: fade(0x281e1e1e),
             });
         }
+        if !row.id.is_empty() {
+            boxes.push((row.id, [bx, y, box_w, row_height]));
+        }
         let bar_x = if right { bx + box_w - 1.5 * s } else { bx };
         draws.push(Draw::Fill {
             x: bar_x,
             y,
             w: 1.5 * s,
             h: row_height,
-            color: fade(row.color),
+            color: fade(color),
         });
         let tx = if right {
             bx + box_w - 4.0 * s - w
@@ -361,7 +430,7 @@ pub fn layout(view: &View, s: f32, right: bool, measure: impl Fn(&str, f32) -> f
         };
         let ty = y + 1.5 * s;
         let name_w = measure(&row.name, s);
-        text(&mut draws, tx, ty, s, &row.name, fade(row.color));
+        text(&mut draws, tx, ty, s, &row.name, fade(color));
         if !row.suffix.is_empty() {
             let sy = ty + (8.0 * s - 8.0 * s * suffix_scale) * 0.75;
             text(
@@ -379,6 +448,7 @@ pub fn layout(view: &View, s: f32, right: bool, measure: impl Fn(&str, f32) -> f
         width,
         height: y.max(10.0 * s),
         draws,
+        rows: boxes,
     }
 }
 
@@ -413,6 +483,14 @@ impl Animator {
     pub fn progress(&self, id: &str) -> f32 {
         self.progress.get(id).copied().unwrap_or(0.0)
     }
+    /// Show a row at once at full progress (a click-enabled module).
+    pub fn show(&mut self, id: &'static str) {
+        self.progress.insert(id, 1.0);
+    }
+    /// Drop a row without fading it (click-disabled rows on GUI close).
+    pub fn forget(&mut self, id: &str) {
+        self.progress.remove(id);
+    }
     pub fn fading(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.progress.keys().copied()
     }
@@ -428,6 +506,7 @@ mod tests {
 
     fn row(name: &str, suffix: &str) -> Row {
         Row {
+            id: "",
             name: name.into(),
             suffix: suffix.into(),
             color: 0xff00ff00,
@@ -545,5 +624,54 @@ mod tests {
         assert_eq!(module_color("inventory.refill"), None);
         assert_eq!(module_color("hud.fps"), None);
         assert_eq!(module_color("render.no-hurt-camera"), None);
+    }
+
+    #[test]
+    fn hover_blend_darkens_bright_rows_and_lightens_dark_ones() {
+        // Perceived brightness 255 > 200: 10% toward (100, 100, 100, 100).
+        assert_eq!(hover_blend(0xffff_ffff), 0xefef_efef);
+        // Black: 20% toward white, alpha included.
+        assert_eq!(hover_blend(0xff00_0000), 0xff33_3333);
+    }
+
+    #[test]
+    fn module_rows_report_boxes_and_rainbow_steps_their_hue() {
+        let bars = |view: &View| -> Vec<u32> {
+            layout(view, 1.0, true, measure)
+                .draws
+                .iter()
+                .filter_map(|d| match d {
+                    Draw::Fill { w, color, .. } if *w == 1.5 => Some(*color),
+                    _ => None,
+                })
+                .collect()
+        };
+        let module = |id: &'static str, name: &str| Row {
+            id,
+            ..row(name, "")
+        };
+        let mut view = View {
+            rows: vec![module("a", "Long row"), module("b", "Row"), row("Ex", "")],
+            accent: 0xff05_8669,
+            ..View::default()
+        };
+        let out = layout(&view, 1.0, true, measure);
+        let ids: Vec<_> = out.rows.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, ["a", "b"], "examples get no click box");
+        let [bx, y, w, h] = out.rows[1].1;
+        assert_eq!((y, h), (12.0, 11.0));
+        assert_eq!(bx + w, out.width, "right-anchored");
+        assert_eq!(bars(&view), [0xff00ff00; 3]);
+        view.rainbow = true;
+        let rainbow = bars(&view);
+        let [accent, ..] = rgb_to_hsb(0xff05_8669);
+        let hues: Vec<f32> = rainbow.iter().map(|c| rgb_to_hsb(*c)[0]).collect();
+        assert!((hues[0] - (accent - 0.025)).abs() < 0.02, "{hues:?}");
+        assert!((hues[1] - (accent - 0.05)).abs() < 0.02, "{hues:?}");
+        assert_eq!(rainbow[2], 0xff00ff00, "examples keep their colour");
+        view.hovered = Some("b");
+        let hovered = bars(&view);
+        assert_eq!(hovered[0], rainbow[0]);
+        assert_eq!(hovered[1], hover_blend(rainbow[1]));
     }
 }
