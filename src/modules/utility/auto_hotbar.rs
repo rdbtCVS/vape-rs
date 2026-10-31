@@ -104,13 +104,41 @@ fn category(kind: Kind) -> Option<Category> {
         Kind::Block | Kind::Other => return None,
     })
 }
+/// The kind a rule's own item id names without an instance: the tool and
+/// weapon classes and armor pieces, from the same id suffixes the host
+/// bridge classifies stacks by. Other kinds (food, potions, blocks) need
+/// the item's components, so they come from a matching stack.
+fn kind_of_id(id: &str) -> Option<Kind> {
+    let class = [
+        ("_sword", ItemClass::Sword),
+        ("_bow", ItemClass::Bow),
+        (":bow", ItemClass::Bow),
+        ("_pickaxe", ItemClass::Pickaxe),
+        ("_axe", ItemClass::Axe),
+        ("_shovel", ItemClass::Shovel),
+        ("_hoe", ItemClass::Hoe),
+    ]
+    .into_iter()
+    .find(|(suffix, _)| id.ends_with(suffix));
+    if let Some((_, class)) = class {
+        return Some(Kind::Class(class));
+    }
+    ["_helmet", "_chestplate", "_leggings", "_boots"]
+        .iter()
+        .any(|suffix| id.ends_with(suffix))
+        .then_some(Kind::Armor)
+}
 impl SlotRule {
+    /// The reference compares the candidate's item class with the rule
+    /// item's class, so the rule needs no copy of its item in the inventory.
     fn exemplar_kind(&self, snapshot: &Snapshot) -> Option<Kind> {
-        snapshot
-            .slots(|_| true)
-            .filter_map(|s| s.item.as_ref())
-            .find(|i| i.fingerprint.id == self.item)
-            .map(kind)
+        kind_of_id(&self.item).or_else(|| {
+            snapshot
+                .slots(|_| true)
+                .filter_map(|s| s.item.as_ref())
+                .find(|i| i.fingerprint.id == self.item)
+                .map(kind)
+        })
     }
     fn matches(&self, item: &Item, exemplar: Option<Kind>) -> bool {
         item.fingerprint.id == self.item
@@ -234,6 +262,7 @@ mod tests {
             Some((11, Click::SwapHotbar(0)))
         );
         s.slots[0].item = s.slots[11].item.take();
+        assert_eq!(next_click(&s, &rules[..1], &mut None), None);
         let mut cobble = item("cobblestone", ItemClass::Other, 0.0);
         cobble.max_count = 64;
         cobble.fingerprint.count = 20;
@@ -249,5 +278,26 @@ mod tests {
             next_click(&s, &rules, &mut origin),
             Some((1, Click::Pickup))
         );
+    }
+
+    #[test]
+    fn any_material_needs_no_copy_of_the_rule_item() {
+        // A diamond-sword rule with no diamond sword anywhere: the best
+        // sword of any material replaces the worse one in the slot.
+        let rules = parse_rules(
+            r#"[{"slot":0,"item":"minecraft:diamond_sword","anyMaterial":true,"onlyBest":true}]"#,
+        )
+        .unwrap();
+        let mut s = snapshot(true, std::time::Instant::now());
+        s.slots[0].item = Some(item("wooden_sword", ItemClass::Sword, 4.0));
+        s.slots[10].item = Some(item("iron_sword", ItemClass::Sword, 6.0));
+        s.slots[11].item = Some(item("stone_sword", ItemClass::Sword, 5.0));
+        assert_eq!(
+            next_click(&s, &rules, &mut None),
+            Some((10, Click::SwapHotbar(0)))
+        );
+        // Without "Any material" only the exact item counts.
+        let exact = parse_rules(r#"[{"slot":0,"item":"minecraft:diamond_sword"}]"#).unwrap();
+        assert_eq!(next_click(&s, &exact, &mut None), None);
     }
 }
