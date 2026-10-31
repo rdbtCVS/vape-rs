@@ -11,6 +11,7 @@ pub mod movement_runtime;
 pub mod profiles;
 mod registry;
 pub mod render_runtime;
+pub mod rotation_runtime;
 pub mod settings;
 pub mod throw_runtime;
 
@@ -111,6 +112,7 @@ pub struct Runtime {
     long_jump: super::modules::blatant::long_jump::State,
     anti_fall: super::modules::blatant::anti_fall::State,
     world_movement: movement_runtime::State,
+    rotations: rotation_runtime::Rotations,
     /// A clicker was reset while holding its mapping down: [attack, use].
     clicker_release: [bool; 2],
     motion_override: Option<([f64; 3], [f64; 3])>,
@@ -505,6 +507,7 @@ impl Default for Runtime {
             long_jump: Default::default(),
             anti_fall: Default::default(),
             world_movement: Default::default(),
+            rotations: Default::default(),
             clicker_release: [false; 2],
             motion_override: None,
             explosion_reentry: false,
@@ -1083,6 +1086,7 @@ impl Runtime {
     /// host action.
     fn reset_combat(&mut self) {
         self.combat_session_reset();
+        self.rotation_session_reset();
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();

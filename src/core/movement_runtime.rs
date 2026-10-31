@@ -5,6 +5,7 @@
 use super::super::actions::{Lease, Owner, Resource};
 use super::super::modules::blatant::no_fall;
 use super::super::modules::movement::{inv_walk, scaffold, step, wind_charge};
+use super::rotation_runtime::Shared;
 use super::{ModuleId, Runtime};
 
 const WIND_CHARGE_OWNER: Owner = Owner("utility.wind-charge");
@@ -39,7 +40,9 @@ impl Runtime {
             }
             ModuleId::Scaffold => self.world_movement.legit.reset(),
             ModuleId::WindCharge if !enabled => {
+                let mut rotation = Shared::of(&mut self.combat, &mut self.rotations);
                 let state = &mut self.world_movement;
+                state.wind_charge.release(&mut rotation);
                 state.wind_restore = state.wind_charge.restore_slot();
                 state.wind_charge.reset();
                 if let Some(lease) = state.wind_lease.take() {
@@ -98,7 +101,11 @@ impl Runtime {
         };
         self.world_movement.wind_lease = Some(lease);
         let options = wind_charge::Options::read(&self.settings);
-        let actions = self.world_movement.wind_charge.tick(&options, tick);
+        let mut rotation = Shared::of(&mut self.combat, &mut self.rotations);
+        let actions = self
+            .world_movement
+            .wind_charge
+            .tick(&options, tick, &mut rotation);
         if let Some(reason) = actions.refused {
             self.notify(format!("WindCharge: {reason}"));
         }

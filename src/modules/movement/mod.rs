@@ -1,8 +1,7 @@
 // Movement and world-interaction modules ported from the reference's
-// blatant/utility packages: Scaffold (Legit), InvWalk and WindCharge, plus an
-// isolated port of the reference's fixed rotation controller.
+// blatant/utility packages: Scaffold (Legit), InvWalk and WindCharge. Their
+// rotation is the shared one (`core::rotation_runtime`).
 pub mod inv_walk;
-pub mod rotation;
 pub mod scaffold;
 pub mod step;
 pub mod wind_charge;

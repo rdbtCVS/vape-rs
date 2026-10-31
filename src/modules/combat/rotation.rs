@@ -8,6 +8,12 @@
 // controller (`addPendingStep`/`applyPendingMovement`), so every step is a
 // multiple of the sensitivity's degrees-per-count, and is advanced the
 // reference's 50 controller updates per client tick.
+//
+// The reference's `RotationManager` runs one controller at a time: the
+// silent `Managed` rotation (`AdaptiveRotationController`) or a visible
+// `Fixed` one (`FixedRotationController`, `PointRotationController`) that
+// turns the view itself. The movement and world modules drive either through
+// `core::rotation_runtime` under the same claim.
 
 /// Every module that may own the rotation, with the reference priorities.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,6 +223,10 @@ pub struct Managed {
     pending_yaw: f32,
     pending_pitch: f32,
     target: Option<(f32, f32)>,
+    /// `setTolerance` (0 for SilentAura).
+    tolerance: f32,
+    /// `isComplete` of the last update.
+    complete: bool,
 }
 impl Managed {
     /// `setController`: starts from the current view.
@@ -232,10 +242,24 @@ impl Managed {
             };
         }
         self.relative = false;
+        self.tolerance = 0.0;
     }
+    /// `setTargetRotation`; an `UNSET` axis is left where it is.
     pub fn set_target(&mut self, yaw: f32, pitch: f32) {
         self.relative = false;
-        self.target = Some((yaw, pitch.clamp(-90.0, 90.0)));
+        self.complete = false;
+        let pitch = if pitch == UNSET {
+            UNSET
+        } else {
+            pitch.clamp(-90.0, 90.0)
+        };
+        self.target = Some((yaw, pitch));
+    }
+    pub fn set_tolerance(&mut self, tolerance: f32) {
+        self.tolerance = tolerance;
+    }
+    pub fn complete(&self) -> bool {
+        self.complete
     }
     /// `releaseController`: return to the view, then hand rotation back.
     pub fn release(&mut self) {
@@ -272,9 +296,12 @@ impl Managed {
         let predicted_pitch = self.pitch - (-self.pending_pitch as i32) as f32 * degrees;
         let yaw_error = f64::from(wrap((target.0 - predicted_yaw) % 360.0));
         let pitch_error = f64::from(wrap((target.1 - predicted_pitch) % 360.0));
-        let outside = |e: f64| (e.abs() / f64::from(degrees)).round() > 0.0;
-        let yaw_done = !outside(yaw_error);
-        let pitch_done = !outside(pitch_error);
+        let limit = (f64::from(self.tolerance) / f64::from(degrees))
+            .round()
+            .max(0.0);
+        let outside = |e: f64| (e.abs() / f64::from(degrees)).round() > limit;
+        let yaw_done = target.0 == UNSET || !outside(yaw_error);
+        let pitch_done = target.1 == UNSET || !outside(pitch_error);
         if !yaw_done {
             self.pending_yaw = Self::axis(
                 self.pending_yaw,
@@ -336,6 +363,7 @@ impl Managed {
         for _ in 0..updates {
             complete = self.update(target, degrees, speed());
         }
+        self.complete = complete;
         if self.relative
             && (complete
                 || (wrap(view.0 - self.yaw).abs() <= degrees
@@ -345,6 +373,132 @@ impl Managed {
             return true;
         }
         false
+    }
+}
+
+/// `FixedRotationController.UNSET_ROTATION`: that axis is left alone.
+pub const UNSET: f32 = -999.0;
+
+/// A visible controller (`FixedRotationController`): queues mouse counts that
+/// turn the view itself, `speed * 0.25` counts per update (plus 5% of the
+/// remaining error with linear acceleration).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fixed {
+    pub target: [f32; 2],
+    pub speed: f32,
+    /// `MouseRotationController.tolerance` (3 by default).
+    pub tolerance: f32,
+    pub linear_acceleration: bool,
+    pub scale_axes: bool,
+    /// `setClampStepToRemaining`.
+    pub clamp: bool,
+    /// `setRetainAfterCompletion`: stays active once complete.
+    pub retain: bool,
+    pending: [f32; 2],
+    complete: bool,
+}
+
+impl Fixed {
+    pub fn new(target: [f32; 2], speed: f32) -> Self {
+        Self {
+            target,
+            speed,
+            tolerance: 3.0,
+            linear_acceleration: false,
+            scale_axes: false,
+            clamp: false,
+            retain: false,
+            pending: [0.0; 2],
+            complete: false,
+        }
+    }
+    pub fn complete(&self) -> bool {
+        self.complete
+    }
+    pub fn set_complete(&mut self, complete: bool) {
+        self.complete = complete;
+    }
+    /// `setTargetRotation`.
+    pub fn set_target(&mut self, target: [f32; 2]) {
+        self.target = target;
+        self.complete = false;
+    }
+    /// `isComplete() && !shouldRetainAfterCompletion()`: the manager drops it.
+    pub fn finished(&self) -> bool {
+        self.complete && !self.retain
+    }
+    fn outside(&self, error: f64, per_count: f32) -> bool {
+        let per_count = f64::from(per_count);
+        (error / per_count).round() > (f64::from(self.tolerance) / per_count).round().max(0.0)
+    }
+    /// `updateYaw` (axis 0) or `updatePitch` (axis 1) from `rotation`;
+    /// true when that axis is done.
+    pub fn update_axis(&mut self, axis: usize, rotation: [f32; 2], per_count: f32) -> bool {
+        if self.target[axis] == UNSET {
+            return true;
+        }
+        let pitch = if axis == 1 && rotation[1] == -90.0 {
+            -89.99
+        } else {
+            rotation[1]
+        };
+        let predicted = [
+            rotation[0] + self.pending[0].trunc() * per_count,
+            pitch + self.pending[1].trunc() * per_count,
+        ];
+        let error = [
+            f64::from(wrap((self.target[0] - predicted[0]) % 360.0)),
+            f64::from(wrap((self.target[1] - predicted[1]) % 360.0)),
+        ];
+        let absolute = error[axis].abs();
+        if !self.outside(absolute, per_count) {
+            return true;
+        }
+        let mut step = f64::from(self.speed) * 0.25;
+        let ratio = absolute / error[1 - axis].abs();
+        if self.scale_axes && ratio < 1.0 {
+            step *= ratio;
+        }
+        if self.linear_acceleration {
+            step += absolute * 0.05;
+        }
+        if self.clamp {
+            step = step.min((error[axis] / f64::from(per_count)).abs());
+        }
+        let step = step as f32;
+        self.pending[axis] += if error[axis] > 0.0 { step } else { -step };
+        false
+    }
+    /// `applyPendingMovement`: whole counts turn `rotation`, the remainder
+    /// is kept.
+    pub fn apply(&mut self, rotation: [f32; 2], per_count: f32) -> [f32; 2] {
+        let counts = [self.pending[0].trunc(), self.pending[1].trunc()];
+        self.pending = [self.pending[0] - counts[0], self.pending[1] - counts[1]];
+        [
+            rotation[0] + counts[0] * per_count,
+            (rotation[1] + counts[1] * per_count).clamp(-90.0, 90.0),
+        ]
+    }
+    /// `MouseRotationController.update` then `applyPendingMovement`.
+    pub fn update(&mut self, rotation: [f32; 2], per_count: f32) -> [f32; 2] {
+        let yaw = self.update_axis(0, rotation, per_count);
+        let pitch = self.update_axis(1, rotation, per_count);
+        if yaw && pitch && self.pending[0].abs() < 1.0 && self.pending[1].abs() < 1.0 {
+            self.complete = true;
+        }
+        self.apply(rotation, per_count)
+    }
+    /// One client tick's updates until it finishes.
+    pub fn tick(&mut self, rotation: [f32; 2], sensitivity: f64, updates: u32) -> [f32; 2] {
+        let per_count = degrees_per_count(sensitivity).max(1e-4);
+        let mut rotation = rotation;
+        for _ in 0..updates {
+            if self.finished() {
+                break;
+            }
+            rotation = self.update(rotation, per_count);
+        }
+        rotation
     }
 }
 
@@ -417,6 +571,80 @@ mod tests {
             ended |= m.tick((0.0, 0.0), 0.5, UPDATES_PER_TICK, step);
         }
         assert!(ended && !m.active && m.sent().is_none());
+    }
+
+    #[test]
+    fn fixed_pitch_only_reaches_the_ground_and_keeps_yaw() {
+        let mut c = Fixed::new([UNSET, 90.0], 7.0);
+        c.tolerance = 5.0;
+        c.linear_acceleration = true;
+        let mut r = [33.0, 0.0];
+        let mut ticks = 0;
+        while !c.complete() && ticks < 20 {
+            r = c.tick(r, 0.5, UPDATES_PER_TICK);
+            ticks += 1;
+        }
+        assert!(c.complete(), "not complete after {ticks} ticks");
+        assert_eq!(r[0], 33.0);
+        assert!(r[1] > 84.0 && r[1] <= 90.0, "pitch {}", r[1]);
+        assert!(ticks <= 5, "{ticks}");
+    }
+
+    #[test]
+    fn fixed_yaw_turns_the_short_way_round() {
+        let mut c = Fixed::new([-170.0, UNSET], 12.0);
+        let mut r = [170.0, 10.0];
+        for _ in 0..10 {
+            r = c.tick(r, 0.5, UPDATES_PER_TICK);
+        }
+        assert!(c.complete());
+        assert!(wrap(r[0] + 170.0).abs() <= 3.5, "yaw {}", r[0]);
+        assert!(r[0] > 170.0 || r[0] < -160.0);
+    }
+
+    #[test]
+    fn fixed_clamped_and_retained_settles_without_overshoot() {
+        let mut c = Fixed::new([40.0, 30.0], 12.0);
+        c.tolerance = 0.5;
+        c.clamp = true;
+        c.linear_acceleration = true;
+        c.retain = true;
+        let mut r = [0.0, 0.0];
+        for _ in 0..20 {
+            r = c.tick(r, 0.5, UPDATES_PER_TICK);
+        }
+        assert!(c.complete() && !c.finished());
+        // Within the tolerance, never past the target.
+        let near = c.tolerance + degrees_per_count(0.5);
+        assert!(r[0] <= 40.0 && r[1] <= 30.0, "{r:?}");
+        assert!(40.0 - r[0] <= near && 30.0 - r[1] <= near, "{r:?}");
+    }
+
+    #[test]
+    fn managed_unset_axis_stays_and_tolerance_completes() {
+        let mut m = Managed::default();
+        m.start((25.0, 0.0));
+        m.set_target(UNSET, 90.0);
+        m.set_tolerance(5.0);
+        let step = || Step {
+            counts: 7.0 * 0.25,
+            clamp: false,
+            proportional: false,
+            linear: true,
+        };
+        for _ in 0..10 {
+            m.tick((25.0, 0.0), 0.5, UPDATES_PER_TICK, step);
+        }
+        assert!(m.complete());
+        assert_eq!(m.yaw, 25.0);
+        assert!(m.pitch > 84.0, "{}", m.pitch);
+    }
+
+    #[test]
+    fn wrap_matches_minecraft() {
+        assert_eq!(wrap(190.0), -170.0);
+        assert_eq!(wrap(-190.0), 170.0);
+        assert_eq!(wrap(180.0), -180.0);
     }
 
     #[test]
