@@ -1620,3 +1620,14 @@ Ledger: target/ledger-updates/clicker-movement-debt.json is applied. Every check
 - excluded-approved: 13
 - blocked: 12
 - not-applicable-reviewed: 10
+
+## 2026-10-31: Panic validated (tools/panic_scenario.py)
+
+New scenario tools/panic_scenario.py: a fresh isolated home on main 8987b8d (bundle c8e2ef58a77d, the merged build). It passed 12/12; evidence is in docs/evidence/coordinator-panic.
+
+Fullbright, Sprint and NoHurtCam start enabled, each with its own bind.
+- **Re-enable off (default):** the default F10 bind disables all three, and a second F10 restores nothing. Panic itself never stays enabled.
+- **After a relaunch with Re-enable on:** F10 disables the set, and a second F10 restores exactly that set.
+- **The reference `U(mod)` reset:** after a Panic, enabling Fullbright through its bind forgets the saved set. The next F10 disables Fullbright, and the one after it restores only Fullbright.
+
+module.panic: integrated → validated (target/ledger-updates/coordinator-panic.json). The visible-by-default, F10-bound deviation stays as recorded in decisions.md.
