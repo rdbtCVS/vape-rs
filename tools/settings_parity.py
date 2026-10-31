@@ -12,11 +12,12 @@ registered settings from values the reference creates but never shows
 (not passed to addValue/U). Writes target/parity/report.json. Rows with no matching module
 are submodes, helpers or not-started rows.
 """
-import collections, csv, json, re
+import collections, csv, json, os, re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT.parent / 'Vape-v4'  # read as text only
+# A worktree sits away from the checkout; VAPE_RS_REFERENCE names the reference.
+REFERENCE = Path(os.environ.get('VAPE_RS_REFERENCE') or ROOT.parent / 'Vape-v4')  # read as text only
 norm = lambda s: re.sub(r'[^a-z0-9]', '', s.lower())
 # Rows whose settings live outside a registry module.
 ALIASES = {'module.clientsettings': 'client'}

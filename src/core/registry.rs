@@ -51,7 +51,7 @@ registry! {
     Clock => "hud.clock", "Clock", "HUD", Some((250.0, 8.0)), [];
     Keystrokes => "hud.keystrokes", "Keystrokes", "HUD", Some((8.0, 120.0)), [];
     ArmorStatus => "hud.armor", "Armor Status", "HUD", Some((330.0, 100.0)), [];
-    PotionEffects => "hud.potions", "Potion Effects", "HUD", Some((240.0, 180.0)), [];
+    PotionEffects => "hud.potions", "Potion Status", "HUD", Some((240.0, 180.0)), [];
     TextGui => "hud.text-gui", "Text GUI", "HUD", Some((4000.0, 2.0)), [];
     TargetInfo => "hud.target-info", "Target Info", "HUD", Some((200.0, 240.0)), [];
     ReachDisplay => "hud.reach-display", "Reach Display", "HUD", Some((8.0, 64.0)), [];
