@@ -39,6 +39,8 @@ pub enum Effect {
 pub struct Refill {
     gate: Gate,
     opened: bool,
+    /// The player inventory has been shown during this run.
+    shown: bool,
     done: bool,
     seed: u64,
     queued: Vec<(u16, Click)>,
@@ -54,6 +56,7 @@ impl Refill {
     pub fn cancel(&mut self) {
         self.gate.clear();
         self.opened = false;
+        self.shown = false;
         self.done = false;
         self.queued.clear();
     }
@@ -71,12 +74,21 @@ impl Refill {
             };
         }
         if !snapshot.is_player_inventory {
+            // As in the reference, the run finishes once the inventory it
+            // worked in is no longer shown (the player closed it); it does
+            // not reopen it.
+            if self.shown {
+                self.queued.clear();
+                self.done = true;
+                return Vec::new();
+            }
             if !snapshot.screen_open {
                 self.opened = true;
                 return vec![Effect::OpenInventory];
             }
             return Vec::new();
         }
+        self.shown = true;
         match self.gate.observe(snapshot) {
             Outcome::Waiting => return Vec::new(),
             Outcome::Invalidated => {
@@ -95,6 +107,18 @@ impl Refill {
         }
         if let Some((slot, click)) = self.queued.first().copied() {
             self.queued.remove(0);
+            // The double-click's second shift-click only goes out while the
+            // source still holds healing items (a stackable custom heal);
+            // on an emptied slot it would be a no-op click.
+            if click == Click::QuickMove
+                && !(snapshot
+                    .slot(slot)
+                    .and_then(|s| s.item.as_ref())
+                    .is_some_and(|i| heal(i, options.kind))
+                    && (0..9).any(|n| snapshot.hotbar(n).is_some_and(|s| s.item.is_none())))
+            {
+                return Vec::new();
+            }
             return snapshot
                 .slot(slot)
                 .and_then(|source| {
@@ -159,26 +183,40 @@ impl Refill {
                 .into_iter()
                 .collect();
         }
-        self.gate
+        let issued: Vec<_> = self
+            .gate
             .issue(
                 snapshot,
                 Request::for_slot(snapshot, source, Click::QuickMove),
             )
             .map(Effect::Request)
             .into_iter()
-            .collect()
+            .collect();
+        // The reference shift-clicks the source a second time 20 % of the
+        // time.
+        if !issued.is_empty() && self.random() <= 0.2 {
+            self.queued.push((source.index, Click::QuickMove));
+        }
+        issued
     }
-    fn shuffle(&mut self, slots: &mut Vec<&Slot>) {
+    fn random(&mut self) -> f64 {
+        self.next_seed();
+        (self.seed >> 11) as f64 / (1u64 << 53) as f64
+    }
+    fn next_seed(&mut self) {
         if self.seed == 0 {
             self.seed = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |duration| duration.as_nanos() as u64)
                 | 1;
         }
+        self.seed ^= self.seed << 13;
+        self.seed ^= self.seed >> 7;
+        self.seed ^= self.seed << 17;
+    }
+    fn shuffle(&mut self, slots: &mut Vec<&Slot>) {
         for n in (1..slots.len()).rev() {
-            self.seed ^= self.seed << 13;
-            self.seed ^= self.seed >> 7;
-            self.seed ^= self.seed << 17;
+            self.next_seed();
             slots.swap(n, self.seed as usize % (n + 1));
         }
     }
@@ -211,6 +249,7 @@ mod tests {
             score: 0.0,
             healing,
             harmful_splash: false,
+            meta: Default::default(),
         }
     }
     fn snapshot() -> Snapshot {
@@ -236,6 +275,7 @@ mod tests {
             is_player_inventory: true,
             is_chest: false,
             chest_title_standard: false,
+            vitals: Default::default(),
             observed: std::time::Instant::now(),
         }
     }
@@ -297,6 +337,38 @@ mod tests {
             refill.step(&snap, &options).as_slice(),
             [Effect::CloseInventory, Effect::Disable]
         ));
+        assert!(!refill.active());
+    }
+    #[test]
+    fn closing_its_inventory_finishes_without_reopening() {
+        let mut refill = Refill::default();
+        let options = Options {
+            hotbar_clear: true,
+            ..Options::default()
+        };
+        let mut snap = snapshot();
+        snap.screen_open = false;
+        snap.is_player_inventory = false;
+        assert_eq!(refill.step(&snap, &options), vec![Effect::OpenInventory]);
+        snap.screen_open = true;
+        snap.is_player_inventory = true;
+        assert!(matches!(
+            refill.step(&snap, &options).as_slice(),
+            [Effect::Request(_)]
+        ));
+        // The click lands, then the player closes the inventory.
+        snap.revision += 1;
+        snap.carried = snap.slot(9).unwrap().item.clone();
+        snap.slots.last_mut().unwrap().item = None;
+        snap.carried = None;
+        snap.screen_open = false;
+        snap.is_player_inventory = false;
+        let first = refill.step(&snap, &options);
+        let second = refill.step(&snap, &options);
+        assert!(
+            !first.contains(&Effect::OpenInventory) && !second.contains(&Effect::OpenInventory)
+        );
+        assert!([first, second].concat().contains(&Effect::Disable));
         assert!(!refill.active());
     }
     #[test]
