@@ -18,8 +18,9 @@ FRIENDS, PROFILES = (30, 172), (30, 192)
 GEAR, HUD_EDITOR = (94, 16), (107, 232)
 # A frame in the first column: header 6..26, body from y=26, 20-unit rows.
 FIRST_ROW, FIRST_DOTS = (160, 36), (221, 36)
-# Fullbright's offset from the Render frame's first row, by name order; its
-# inline settings open below it.
+# Fullbright's offset from the Render frame's first row, by name order with
+# default-hidden modules (AntiDebuff) left out; its inline settings open
+# below it.
 FB = gui_layout.row('Render', 'render.fullbright')[1] - FIRST_ROW[1]
 FULLBRIGHT_ROW, FULLBRIGHT_DOTS = (160, 36 + FB), (221, 36 + FB)
 CREATE, IMPORT, PROFILE_FIELD, SUBMIT = (150, 36), (203, 36), (170, 54), (221, 54)
@@ -80,7 +81,7 @@ def run(resources):
         # The header gear opens the client settings frame.
         click(GEAR)
         capture('global-settings')
-        click((170, 95))  # Settings sort by id: bind indicator, GUI scale (24 high), GUI binding, multi-bind.
+        click((170, 113))  # Settings sort by id: blur background, bind indicator, GUI scale (24 high), GUI binding, multi-bind.
         capture('multi-bind')
         assert session.saved()['settings']['client.multi-bind'] is True
         click(GEAR)
