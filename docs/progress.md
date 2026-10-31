@@ -1376,3 +1376,37 @@ Routed to the running round-2 workers:
 Unassigned, for round 3: RightClicker Hold to Click, and the SpawnerFinder label.
 
 Tests: `cargo fmt --check` and `cargo clippy --all-targets -D warnings` are clean; the dump test passes (1/1).
+
+## 2026-10-31: settings-parity audit reads the reference sources
+
+`tools/settings_parity.py` now parses declarations straight from each row's reference sources, read as text and never run; the ledger's `settings_and_defaults` text is the fallback. It counts a value as shown only when the reference passes its field to `addValue(...)` or `U(...)`. Values that are created but never added are hidden and run at their default; these are reported as "hidden in reference" rather than as gaps. It also:
+- resolves ModeOption field defaults (`this.threeDimensionalMode`) to their labels ("3D");
+- reads the default from the right argument when `ModeValue.create` has a description;
+- skips `((Object)this)` owners;
+- compares RandomValue ranges as well as NumberValue ranges;
+- maps ClientSettings ("GUI") to our `client.*` settings.
+
+Corrections to the previous entry:
+- RightClicker "Hold to Click", ESP "Enemy Only" / "Enemies List Only" and AutoHeal "Inventory Only" are hidden in the reference, so they are not gaps. Our RightClicker always holds, which matches the hidden default (src/modules/combat/clicker.rs). module.rightclicker is back to `validated` with its original evidence.
+- ESP's mode default matches ("3D"); the earlier "default differs" was a parse artefact.
+
+New gaps found:
+- ClientSettings: "Blur background" (default true) and "Rainbow speed" (0.1–10, default 1). Every reference ColorValue has a rainbow toggle; our color kind is a single ARGB value. module.clientsettings is lowered to `integrated`.
+- SilentAura: the non-AI "Kiss" rotation mode ("Kiss speed" 5–90 default 30, "Kiss jitter" 0–1 default 0.15) and "Break blocks delay" (0–2000 ms, default 0–10). Also "Target color", next to the earlier Show target / Attack color.
+- KillAura: "Target Color".
+- AutoTotem: "Silent move delay", next to "Silent open".
+- AutoArmor: Delay. The reference allows 1–200 ms with default 100–120; ours allows 100–200 with default 120.
+- SpawnerFinder: the label is "Spawners". "Spawner names-whitelist" is only the storage id.
+
+Routed:
+- combat-a: Kiss mode, Break blocks delay and the target colors.
+- inventory: AutoTotem.
+- render: the SpawnerFinder label.
+- hud-client: Blur background and Rainbow speed.
+- Round 3 (target/worker-briefs/round3-plan.md): AutoArmor Delay.
+
+Every other number and random range the audit can parse matches the reference.
+
+Current report: 26 missing settings on integrated rows, all routed (3 are SilentAura's excluded AI settings). Plus 2 missing on the blocked Reach row, 2 range differences (AutoArmor Delay, Text GUI Scale), 1 default difference (AutoArmor Delay) and 9 values hidden in the reference. The validated count is 57 and integrated is 39.
+
+Tests: `settings_dump` passes (1/1, 645 definitions).

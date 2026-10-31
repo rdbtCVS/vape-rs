@@ -7,14 +7,19 @@ target/parity/settings.json, written by
     VAPE_RS_SETTINGS_DUMP=$PWD/target/parity/settings.json \
         cargo test --locked --offline --test settings_dump
 
-Text only; writes target/parity/report.json. Rows with no matching module
+Text only; the reference sources (../Vape-v4) are read, never run, to tell
+registered settings from values the reference creates but never shows
+(not passed to addValue/U). Writes target/parity/report.json. Rows with no matching module
 are submodes, helpers or not-started rows.
 """
 import collections, csv, json, re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+REFERENCE = ROOT.parent / 'Vape-v4'  # read as text only
 norm = lambda s: re.sub(r'[^a-z0-9]', '', s.lower())
+# Rows whose settings live outside a registry module.
+ALIASES = {'module.clientsettings': 'client'}
 
 def args(text, start):
     """Split the argument list starting at text[start] == '('."""
@@ -61,32 +66,86 @@ def lit(a):
     except ValueError:
         return a
 
+def registered(paths):
+    """Fields the reference shows: those passed to addValue(...) or U(...).
+
+    None when the source has no such call (nothing to compare against).
+    """
+    names = set()
+    for rel in re.split(r'[;|]\s*', paths):
+        source = REFERENCE / rel.strip()
+        if not rel.strip() or not source.is_file():
+            continue
+        text = source.read_text(errors='replace')
+        for m in re.finditer(r'\b(?:addValue|U)\s*\(', text):
+            names.update(re.findall(r'this\.(\w+)', ','.join(args(text, m.end() - 1))))
+    return names or None
+
+OPTION = re.compile(r'ModeOption\s+(\w+)\s*=\s*[^;]*?"([^"]*)"|this\.(\w+)\s*=\s*new ModeOption\s*\(\s*"([^"]*)"')
+
+def options(paths):
+    """Mode option fields and their labels, as in `threeDimensionalMode = new ESP3D(this, "3D")`."""
+    out = {}
+    for rel in re.split(r'[;|]\s*', paths):
+        source = REFERENCE / rel.strip()
+        if rel.strip() and source.is_file():
+            for m in OPTION.finditer(source.read_text(errors='replace')):
+                out.setdefault(m.group(1) or m.group(3), m.group(2) if m.group(1) else m.group(4))
+    return out
+
+DECL = re.compile(r'\b(\w*Value)\s*\)?\s*\.\s*create\w*\s*\(|\bnew (\w*Value)\s*\(')
+
+def statements(r):
+    """Setting declarations: from the reference sources when present,
+    else from the ledger's settings_and_defaults text."""
+    found = []
+    for rel in re.split(r'[;|]\s*', r['reference_paths']):
+        source = REFERENCE / rel.strip()
+        if rel.strip() and source.is_file():
+            text = source.read_text(errors='replace')
+            for m in DECL.finditer(text):
+                line = text[text.rfind('\n', 0, m.start()) + 1:m.start()]
+                found.append((line, text, m))
+    if found:
+        return found
+    for part in r['settings_and_defaults'].split(' | '):
+        m = DECL.search(part)
+        if m:
+            found.append((part[:m.start()], part, m))
+    return found
+
 def reference():
     out = {}
     for r in csv.DictReader(open(ROOT / 'docs/features.csv')):
         if r['kind'] not in ('module', 'client', 'submodule'):
             continue
         decls = []
-        for part in r['settings_and_defaults'].split(' | '):
-            m = re.search(r'(\w*Value)\.create\s*\(', part) or re.search(r'new (\w*Value)\s*\(', part)
-            if not m:
+        shown = registered(r['reference_paths'])
+        labels = options(r['reference_paths'])
+        for line, text, m in statements(r):
+            kind = m.group(1) or m.group(2)
+            if kind in ('Value', 'ModeValue') and 'create' not in m.group(0) and kind == 'Value':
                 continue
-            a = [lit(x) for x in args(part, m.end() - 1)]
-            kind = m.group(1)
-            a = a[1:] if a and (a[0] in ('this', 'Object)this') or str(a[0]).endswith('this')) else a
+            a = [lit(x) for x in args(text, m.end() - 1)]
+            a = a[1:] if a and str(a[0]).strip('()').endswith('this') else a  # the owner
             if kind == 'LimitValue' or kind == 'OptionalLimitValue':
                 a = a[1:]  # storage id first
             if not a or not isinstance(a[0], str) or not a[0]:
                 continue  # label built at runtime; not comparable as text
             d = {'kind': kind, 'label': a[0]}
+            field = re.search(r'(?:this\.|\b\w+(?:<[^>]*>)? )(\w+)\s*=\s*(?:\(\w+\)\s*)*$', line)
+            d['hidden'] = bool(shown is not None and field and field.group(1) not in shown)
             if kind in ('BooleanValue', 'ClientSettingsBooleanValue'):
                 d['default'] = a[1] if len(a) > 1 else None
             elif kind == 'NumberValue' and len(a) >= 7:
                 d.update(min=a[3], default=a[4], max=a[5], step=a[6])
             elif kind in ('RandomValue', 'RandomClickDelayValue') and len(a) >= 7:
-                d.update(min=a[3], default=[a[4], a[5]], max=a[6])
+                d.update(min=a[3], default=[a[4], a[5]], max=a[6], step=a[7] if len(a) > 7 and isinstance(a[7], float) else None)
             elif kind == 'ModeValue' and len(a) >= 2:
-                d['default'] = a[1]
+                # create(owner, name[, description], default, options...)
+                d['default'] = next((x for x in a[1:3] if isinstance(x, str) and x.startswith('this.')), a[1])
+                if isinstance(a[1], str) and a[1].startswith('this.'):
+                    d['default'] = labels.get(a[1][5:], a[1])
             decls.append(d)
         if decls:
             out[r['id']] = (r['display_name'], r['status'], decls)
@@ -107,7 +166,7 @@ def main():
     reg, defs = ours()
     report = []
     for rid, (name, status, decls) in sorted(ref.items()):
-        mid = reg.get(norm(name)) or reg.get(norm(rid.split('.')[-1]))
+        mid = ALIASES.get(rid) or reg.get(norm(name)) or reg.get(norm(rid.split('.')[-1]))
         if not mid:
             report.append({'row': rid, 'status': status, 'problem': 'no module', 'name': name})
             continue
@@ -116,7 +175,8 @@ def main():
         for d in decls:
             o = bylabel.get(norm(d['label']))
             if not o:
-                report.append({'row': rid, 'status': status, 'problem': 'missing setting', 'label': d['label'], 'kind': d['kind'], 'ref_default': d.get('default')})
+                problem = 'hidden in reference' if d['hidden'] else 'missing setting'
+                report.append({'row': rid, 'status': status, 'problem': problem, 'label': d['label'], 'kind': d['kind'], 'ref_default': d.get('default')})
                 continue
             rd, od = d.get('default'), o['default']
             if rd is None or isinstance(rd, str) and not re.match(r'^[\w .+-]+$', rd):
@@ -133,7 +193,7 @@ def main():
                 same = norm(rd) == norm(od) or bool(field and norm(od) and norm(od) in field)
             if not same:
                 report.append({'row': rid, 'status': status, 'problem': 'default differs', 'label': d['label'], 'ref': rd, 'ours': od, 'id': o['id']})
-            if d['kind'] == 'NumberValue' and 'Number' in o['kind']:
+            if (d['kind'] == 'NumberValue' and 'Number' in o['kind']) or (d['kind'].startswith('Random') and 'Range' in o['kind'] and 'min' in d):
                 m = re.search(r'min: ([-\d.e]+), max: ([-\d.e]+), step: ([-\d.e]+)', o['kind'])
                 if m and (abs(float(m.group(1)) - d['min']) > 1e-9 or abs(float(m.group(2)) - d['max']) > 1e-9):
                     report.append({'row': rid, 'status': status, 'problem': 'range differs', 'label': d['label'], 'ref': [d['min'], d['max'], d['step']], 'ours': [float(x) for x in m.groups()], 'id': o['id']})
