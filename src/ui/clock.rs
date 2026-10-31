@@ -86,21 +86,12 @@ fn system_zone_id() -> Option<String> {
         .filter(|id| SHORT_AMERICA.contains(&id.as_str()) || zoneinfo.join(id).is_file())
 }
 
-/// Windows: the registry's `TimeZoneKeyName` through the JDK's
-/// `tzmappings` (CLDR `windowsZones`, territory 001).
+/// Windows: the JVM reads the registry's `TimeZoneKeyName`, which the
+/// payload cannot (no registry API, and it may not spawn `reg`), so the
+/// zone is unknown and the date stays "dd / MM".
 #[cfg(windows)]
 fn system_zone_id() -> Option<String> {
-    let out = std::process::Command::new("reg")
-        .args([
-            "query",
-            r"HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation",
-            "/v",
-            "TimeZoneKeyName",
-        ])
-        .output()
-        .ok()?;
-    let key = reg_value(&String::from_utf8_lossy(&out.stdout), "TimeZoneKeyName")?;
-    windows_zone_id(&key).map(String::from)
+    None
 }
 
 /// `getSystemTimeZoneID` on Linux: `TZ`, else `/etc/timezone`, else the
@@ -180,63 +171,6 @@ fn find_zoneinfo_file(bytes: &[u8], dir: &std::path::Path, top: bool) -> Option<
     None
 }
 
-/// A `REG_SZ` value from `reg query` output.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn reg_value(output: &str, name: &str) -> Option<String> {
-    output.lines().find_map(|line| {
-        let rest = line.trim().strip_prefix(name)?.trim_start();
-        let value = rest.strip_prefix("REG_SZ")?.trim();
-        (!value.is_empty()).then(|| value.to_string())
-    })
-}
-
-/// The America zones of the JDK's `tzmappings` (CLDR `windowsZones`,
-/// territory 001, plus the legacy Mexico keys). Other keys map outside
-/// America; an unknown key falls back to a GMT offset id.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn windows_zone_id(key: &str) -> Option<&'static str> {
-    const AMERICA: &[(&str, &str)] = &[
-        ("Alaskan Standard Time", "America/Anchorage"),
-        ("Aleutian Standard Time", "America/Adak"),
-        ("Argentina Standard Time", "America/Buenos_Aires"),
-        ("Atlantic Standard Time", "America/Halifax"),
-        ("Bahia Standard Time", "America/Bahia"),
-        ("Canada Central Standard Time", "America/Regina"),
-        ("Central America Standard Time", "America/Guatemala"),
-        ("Central Brazilian Standard Time", "America/Cuiaba"),
-        ("Central Standard Time", "America/Chicago"),
-        ("Central Standard Time (Mexico)", "America/Mexico_City"),
-        ("Cuba Standard Time", "America/Havana"),
-        ("E. South America Standard Time", "America/Sao_Paulo"),
-        ("Eastern Standard Time", "America/New_York"),
-        ("Eastern Standard Time (Mexico)", "America/Cancun"),
-        ("Greenland Standard Time", "America/Godthab"),
-        ("Haiti Standard Time", "America/Port-au-Prince"),
-        ("Magallanes Standard Time", "America/Punta_Arenas"),
-        ("Mexico Standard Time", "America/Mexico_City"),
-        ("Mexico Standard Time 2", "America/Chihuahua"),
-        ("Montevideo Standard Time", "America/Montevideo"),
-        ("Mountain Standard Time", "America/Denver"),
-        ("Mountain Standard Time (Mexico)", "America/Mazatlan"),
-        ("Newfoundland Standard Time", "America/St_Johns"),
-        ("Pacific SA Standard Time", "America/Santiago"),
-        ("Pacific Standard Time", "America/Los_Angeles"),
-        ("Pacific Standard Time (Mexico)", "America/Tijuana"),
-        ("Paraguay Standard Time", "America/Asuncion"),
-        ("SA Eastern Standard Time", "America/Cayenne"),
-        ("SA Pacific Standard Time", "America/Bogota"),
-        ("SA Western Standard Time", "America/La_Paz"),
-        ("Saint Pierre Standard Time", "America/Miquelon"),
-        ("Tocantins Standard Time", "America/Araguaina"),
-        ("Turks And Caicos Standard Time", "America/Grand_Turk"),
-        ("US Eastern Standard Time", "America/Indianapolis"),
-        ("US Mountain Standard Time", "America/Phoenix"),
-        ("Venezuela Standard Time", "America/Caracas"),
-        ("Yukon Standard Time", "America/Whitehorse"),
-    ];
-    AMERICA.iter().find(|(k, _)| *k == key).map(|(_, id)| *id)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,19 +245,5 @@ mod tests {
             Some("America/Chicago")
         );
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn windows_keys_map_through_tzmappings() {
-        let out = "\r\nHKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\TimeZoneInformation\r\n    TimeZoneKeyName    REG_SZ    Pacific Standard Time\r\n\r\n";
-        let key = reg_value(out, "TimeZoneKeyName").unwrap();
-        assert_eq!(key, "Pacific Standard Time");
-        assert_eq!(windows_zone_id(&key), Some("America/Los_Angeles"));
-        assert_eq!(windows_zone_id("W. Europe Standard Time"), None);
-        assert_eq!(windows_zone_id("Hawaiian Standard Time"), None);
-        assert_eq!(
-            reg_value("TimeZoneKeyName REG_DWORD 0x1", "TimeZoneKeyName"),
-            None
-        );
     }
 }
