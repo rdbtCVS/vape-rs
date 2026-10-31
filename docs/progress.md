@@ -893,3 +893,12 @@ Validation:
   - ThrowDebuff one-of-each threw one poison and one weakness and kept the second poison.
   - AutoHeal Legit healed 6 → 15 HP using 2 of 4 pots; once disabled it threw nothing more at low health.
 - `tools/inventory_scenario.py`: the first run failed on the Refill reopen bug above; the rerun is recorded in the next entry.
+
+## 2026-10-31: inventory worker, recovery scenario through the bounded gate
+
+- `tools/inventory_scenario.py` passed in survival in a fresh isolated home against the host build of 5204104 (evidence `docs/evidence/inventory-recovery.json`, scenario dir deleted after the run):
+  - Refill (soup): closing its inventory mid-run disabled it with 1 of 3 hotbar soups moved and the screen back to playing; a second run completed (3 hotbar soups, 2 left in main) and closed the screen.
+  - ChestSteal: escape after 3 of 6 diamonds left 3 in the chest; reopening took the remaining 3 and closed the chest.
+  - AutoTotem (random slot): one of two main-inventory totems moved to the offhand and the screen returned to playing.
+- AutoFish recovery has no scenario yet; it stays integrated.
+- Validation on worker/inventory (main 604d679 already merged): `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` clean; `cargo test --workspace --locked --offline` 140 lib + 3 integration passed; `cargo run -p xtask --locked --offline -- payload-test` 140 passed.
