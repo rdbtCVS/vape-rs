@@ -574,7 +574,7 @@ impl EdgeSneak {
     }
 }
 
-/// The block the crosshair's 3-block ray hit (`normalReachRayTrace`);
+/// The block the crosshair's block-reach ray hit (`normalReachRayTrace`);
 /// `side` is `EnumFacing` order (down, up, north, south, west, east).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hit {

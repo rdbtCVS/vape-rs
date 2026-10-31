@@ -94,10 +94,26 @@ fn inventory(game: &Game<'_>) -> Inventory {
     }
 }
 
-/// `normalReachRayTrace`: the block the crosshair's 3-block ray hits.
+/// `normalReachRayTrace` (`rayTraceUsingManagedRotation(3.0, 0, false)`, the
+/// 1.20.6+ mouse-over of RayTraceUtil): the block along the block reach the
+/// host's own pick uses (4.5, 5 in creative); the 3.0 only bounds entities.
+/// An entity on the ray before the block leaves no block hit (an entity hit
+/// within 3, a miss past it). LAN guests count within the host's guest pick.
 fn crosshair_block(game: &Game<'_>) -> Option<Hit> {
     let (eye, dir) = game.aim()?;
-    let hit = game.clip_ray(eye, dir, 3.0)?;
+    let reach = game.reach();
+    let hit = game.clip_ray(eye, dir, reach)?;
+    let distance = (0..3).map(|i| (hit.point[i] - eye[i]).powi(2)).sum::<f64>().sqrt();
+    let entity = game
+        .mobs
+        .iter()
+        .filter(|m| m.alive() && Some(m.id) != game.riding)
+        .filter_map(|m| crate::game::ray_box(eye, dir, reach, m.bounds()))
+        .chain(game.guest_hit().map(|(_, d)| d))
+        .any(|d| d < distance);
+    if entity {
+        return None;
+    }
     let side = match hit.face {
         [0, -1, 0] => 0,
         [0, 1, 0] => 1,
