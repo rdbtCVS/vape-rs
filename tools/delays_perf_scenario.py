@@ -144,9 +144,8 @@ def performance(r):
     r.checks.check('performance: frames were recorded in every bench', all(b.get('frames', 0) > 50 for b in
                                                                           (plain, loaded, after)),
                    [b.get('frames') for b in (plain, loaded, after)])
-    # The frame rate follows the compositor's pacing of this window (vsync,
-    # occlusion by other windows), which the scenario does not control, so
-    # it is recorded; the check is on the frame's own CPU time.
+    # The frame rate depends on the machine's load, which the scenario does
+    # not control, so it is recorded; the check is on the frame's own CPU time.
     cpu = [b.get('cpu', {}).get('avg_ms') or 0 for b in (plain, loaded, after)]
     r.checks.check('performance: twelve render/HUD modules add under 3 ms of CPU per frame',
                    cpu[1] <= cpu[0] + 3.0 and cpu[1] <= cpu[2] + 3.0,
@@ -158,6 +157,9 @@ def performance(r):
 def run(resources, allow_stale):
     with NativeSession(resources, 'delays-perf-', allow_stale=allow_stale) as session:
         checks = Checks(session.root)
+        # Off: vanilla's AFK limiter (30 fps a minute after the last input).
+        (session.root / 'game').mkdir(parents=True, exist_ok=True)
+        (session.root / 'game' / 'options.txt').write_text('inactivityFpsLimit:"minimized"\n')
         session.seed({'schema': 1, 'modules': {},
                       'settings': {**{f'{m}.binds': [k] for m, k in BINDS.items()}, **SETTINGS}})
         session.launch(creative=True)

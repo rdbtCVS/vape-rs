@@ -1329,3 +1329,18 @@ Removal audit on this tree:
 - Local profiles and the friend/enemy records stay local files.
 
 Gates: fmt; Clippy `-D warnings` (xtask); 4 xtask tests, including the new denied cases (`ureq::get`, an `https://` constant, a telemetry push) and the allowed ones (a doc comment with a URL, `game.server_packs.prompt`); `xtask pack` on the real payload passes the stricter audit.
+
+## 2026-10-31: per-module frame cost (tools/perf_scenario.py)
+
+New `tools/perf_scenario.py` sets up the delays-perf scene: 24 cows, 8 chests, an item and a held snowball. It takes a 10 s host bench with nothing on, each of the twelve render/HUD modules alone, all of them, and nothing again. Checks: each module alone adds under 1 ms of average CPU per frame and all of them under 3 ms; every bench runs at the same frame cap; nothing costs anything once off.
+
+The earlier perf record blamed the 118 → 30 fps drop on "compositor pacing". That was wrong. The host keeps vanilla's AFK limiter (`FramerateLimitTracker`: 30 fps a minute after the last player input), and ctl key presses don't reset it.
+- Run 1 (`perf-q07fj7d4`, limiter on, 61/66): the frame rate fell during the hud.armor and hud.potions benches, then stayed at 30 fps for every later bench, including all modules off.
+- At that cap, all twelve modules cost 1.92 ms avg / 3.47 ms p99 CPU against a baseline of 0.98–1.52 ms. The large per-module averages and p99s (hud.potions 6.6 / 30 ms, ESP 5.0 / 25 ms) came from the benches where the cap kicked in, not from the modules.
+
+Both perf scenarios now seed the scratch `options.txt` with `inactivityFpsLimit:"minimized"`, as the host's own benchmark mode does.
+- Run 2 (`perf-7q1ii6a8`, 63/67): 94–117 fps in every bench.
+- The machine was at load 25 on 12 cores while the seven workers compiled. The two baseline benches differed by 1.2 ms, and all modules together (4.66 ms) cost less than ItemESP alone (5.47 ms), so the per-module failures (hud.coordinates, NameTags, ItemESP, Trajectories) are not attributable.
+- The game also took over 15 s to quit under that load (harness timeout after the results were written).
+
+Open: rerun `perf_scenario.py` on an idle machine after the round-2 merges. Performance stays unvalidated until then.
