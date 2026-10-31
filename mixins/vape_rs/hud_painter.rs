@@ -28,27 +28,126 @@ fn armor_points(game: &crate::game::Game<'_>, item: Option<&str>) -> f32 {
         .map(|(_, _, amount, _, _)| *amount as f32)
         .sum()
 }
-/// `RotationUtil.j`: the fist (1) plus the weapon bonus, reduced by the
-/// defender's armor as `(25 - armor) / 25`.
-fn hit_damage(game: &crate::game::Game<'_>, weapon: Option<&str>, armor: f32) -> f32 {
-    let bonus = weapon
-        .and_then(|id| game.res.items().get(id))
-        .map_or(0.0, |info| info.attack_damage as f32);
-    (1.0 + bonus) * (25.0 - armor) / 25.0
+/// `ItemStackScoreUtil.a`: a sword's or tool's default attack-damage
+/// modifiers (any slot), 0 for anything else.
+fn weapon_bonus(game: &crate::game::Game<'_>, stack: Option<&horizon_client::items::ItemStack>) -> f32 {
+    let Some((id, info)) = stack.and_then(|s| game.res.items().get(&s.item).map(|i| (&*s.item, i))) else {
+        return 0.0;
+    };
+    if !id.ends_with("_sword") && !info.components.iter().any(|c| c == "minecraft:tool") {
+        return 0.0;
+    }
+    info.modifiers
+        .iter()
+        .filter(|(attribute, ..)| attribute == "minecraft:attack_damage" || attribute == "attack_damage")
+        .map(|(_, _, amount, _, _)| *amount as f32)
+        .sum()
 }
-fn own_loadout(game: &crate::game::Game<'_>) -> (Option<String>, f32) {
-    let weapon = game
-        .inventory
-        .get(game.selected)
-        .and_then(|s| s.as_ref())
-        .map(|s| s.item.to_string());
+/// What `RotationUtil.j` reads from one side: the held stack's Sharpness and
+/// weapon bonus, the armor points (`RotationUtil.g`, players only) and the
+/// Resistance amplifier.
+fn fighter(
+    game: &crate::game::Game<'_>,
+    held: Option<&horizon_client::items::ItemStack>,
+    armor: f32,
+    resistance: Option<i32>,
+) -> crate::game::vape_rs::ui::target_info::Fighter {
+    crate::game::vape_rs::ui::target_info::Fighter {
+        sharpness: held.map_or(0, |s| s.enchantment_level("minecraft:sharpness")),
+        weapon_bonus: weapon_bonus(game, held),
+        armor,
+        resistance,
+    }
+}
+/// The local player's side of `RotationUtil.y` and its attack-damage
+/// attribute (`b` reads the local player's for both sides).
+fn own_fighter(game: &crate::game::Game<'_>) -> (crate::game::vape_rs::ui::target_info::Fighter, Option<f32>) {
+    let held = game.inventory.get(game.selected).and_then(|s| s.as_ref());
     let armor = game
         .armor
         .iter()
         .map(|s| armor_points(game, s.as_ref().map(|s| &*s.item)))
         .sum();
-    (weapon, armor)
+    let resistance = game
+        .potions
+        .effects
+        .list
+        .iter()
+        .find(|e| e.id == "resistance")
+        .map(|e| e.amplifier as i32);
+    let attack = game.player.as_ref().and_then(|player| {
+        player
+            .attributes
+            .lookup(player.attributes.key("minecraft:attack_damage").as_ref())
+            .and_then(|h| player.attributes.instance(&h).ok())
+            .map(|i| i.cached_value() as f32)
+    });
+    (fighter(game, held, armor, resistance), attack)
 }
+/// `onPlayerUseItem` / `onEntityJoinWorld`: a potion item whose contents
+/// (custom effects included) heal: instant health or regeneration.
+pub(super) fn heal_potion(stack: &horizon_client::items::ItemStack) -> bool {
+    if !matches!(
+        &*stack.item,
+        "minecraft:potion" | "minecraft:splash_potion" | "minecraft:lingering_potion"
+    ) {
+        return false;
+    }
+    let heals = |effect: &str| {
+        matches!(effect.strip_prefix("minecraft:").unwrap_or(effect), "instant_health" | "regeneration")
+    };
+    stack
+        .potion()
+        .and_then(horizon_client::brewing::potion)
+        .is_some_and(|d| d.effects.iter().any(|(effect, _, _)| heals(effect)))
+        || stack.custom_potion_effects().iter().any(|(effect, _, _)| heals(effect))
+}
+/// Target Info runs on the player's game, not on a server thread's.
+fn target_pots_skip(game: &crate::game::Game<'_>) -> bool {
+    game.serving.is_some() || game.options.dedicated.is_some() || game.guest_use.is_some()
+}
+/// `TargetInfoHudModule.onPlayerUseItem`: the local player used a heal
+/// potion (`use_potion_item` in a local world, `remote_use_item` on a
+/// server). A drink counts when its use starts.
+pub(super) fn target_heal_used(game: &crate::game::Game<'_>, stack: Option<&horizon_client::items::ItemStack>) {
+    let Some(stack) = stack else {
+        return;
+    };
+    if target_pots_skip(game) || (&*stack.item == "minecraft:potion" && game.using.is_some()) || !heal_potion(stack) {
+        return;
+    }
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    crate::game::vape_rs::core::with_client(&client, |runtime| runtime.target_info_heal_used());
+}
+/// `TargetInfoHudModule.onEntityJoinWorld` for a thrown heal potion: at
+/// `launch_thrown` in a local world; from a server, when the potion
+/// entity's item first arrives (its spawn carries no item: the stack comes
+/// in its entity data right after).
+pub(super) fn target_heal_joined(game: &crate::game::Game<'_>, stack: &horizon_client::items::ItemStack) {
+    if target_pots_skip(game) || !heal_potion(stack) {
+        return;
+    }
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    crate::game::vape_rs::core::with_client(&client, |runtime| runtime.target_info_heal_joined());
+}
+/// The remote side of [`target_heal_joined`]: a thrown potion's item
+/// (`ThrowableItemProjectile.DATA_ITEM_STACK`, index 8) counts once, when
+/// the stack the host knew for it was not yet a heal potion.
+pub(super) fn target_remote_potion(game: &crate::game::Game<'_>, id: i32, stack: Option<horizon_client::items::ItemStack>) {
+    let Some(stack) = stack else {
+        return;
+    };
+    let known = game
+        .potions
+        .thrown_tracked()
+        .find(|(thrown, ..)| *thrown == id as u32)
+        .is_some_and(|(_, _, known, ..)| heal_potion(known));
+    if game.potions.has_thrown(id as u32) && !known {
+        target_heal_joined(game, &stack);
+    }
+}
+/// The skin a player is drawn with (the default skin when it has none).
+const DEFAULT_SKIN: &str = "entity/player/wide/steve";
 fn seen_mob(
     game: &crate::game::Game<'_>,
     mob: &horizon_client::mobs::Mob,
@@ -74,23 +173,33 @@ fn seen_mob(
                 &biome_title(&mob.kind.id),
             )
         });
-    let (weapon, own_armor) = own_loadout(game);
+    let player = &*mob.kind.id == "minecraft:player";
     let extra = &mob.extra;
-    let armor = [&extra.head, &extra.chest, &extra.legs, &extra.feet]
-        .into_iter()
-        .map(|item| armor_points(game, item.as_deref()))
-        .sum();
-    let dealt = hit_damage(game, weapon.as_deref(), armor).max(1.0);
-    let taken = hit_damage(game, extra.main_hand.as_deref(), own_armor).max(1.0);
+    let armor = if player {
+        [&extra.head, &extra.chest, &extra.legs, &extra.feet]
+            .into_iter()
+            .map(|item| armor_points(game, item.as_deref()))
+            .sum()
+    } else {
+        0.0
+    };
+    let resistance = extra
+        .effects
+        .iter()
+        .find(|(id, ..)| *id == "minecraft:resistance" || *id == "resistance")
+        .map(|(_, _, amplifier)| *amplifier);
+    let target = fighter(game, extra.main_hand_stack(), armor, resistance);
+    let (me, attack) = own_fighter(game);
     crate::game::vape_rs::ui::target_info::Seen {
         id: mob.id as i32,
         name,
         health: mob.health,
         max_health: horizon_client::mobs::finalize::max_health(mob),
-        player: &*mob.kind.id == "minecraft:player",
+        player,
         distance,
         hurt_time: mob.hurt_time,
-        damage: (dealt - taken) as i32,
+        damage: crate::game::vape_rs::ui::target_info::damage_comparison(attack, &me, &target),
+        skin: player.then(|| mob.skin.clone().unwrap_or_else(|| DEFAULT_SKIN.into())),
     }
 }
 /// The crosshair entity Target Info may show: living, not an armor stand.
@@ -140,6 +249,12 @@ fn target_feed(game: &crate::game::Game<'_>) -> crate::game::vape_rs::ui::target
         health: p.health.health(),
         max_health: 20.0,
         player: true,
+        skin: Some(
+            game.player_model
+                .as_ref()
+                .and_then(|m| m.skin.clone())
+                .unwrap_or_else(|| DEFAULT_SKIN.into()),
+        ),
         ..Seen::default()
     });
     Feed {
@@ -163,18 +278,7 @@ pub(super) fn snapshot(
     let player = game.player.as_ref()?;
     let position = [player.position.x, player.position.y, player.position.z];
     let now = chrono::Local::now();
-    static AMERICAN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let american = *AMERICAN.get_or_init(|| {
-        std::env::var("TZ")
-            .ok()
-            .is_some_and(|s| s.contains("America"))
-            || std::fs::read_link("/etc/localtime")
-                .ok()
-                .is_some_and(|p| p.to_string_lossy().contains("America"))
-            || std::fs::read_to_string("/etc/timezone")
-                .ok()
-                .is_some_and(|s| s.contains("America"))
-    });
+    let american = crate::game::vape_rs::ui::clock::american_zone();
     let armor = std::array::from_fn(|slot| {
         game.armor[slot].as_ref().map(|stack| ArmorPiece {
             slot,
@@ -560,6 +664,16 @@ fn target_info(
         }
     }
     ui.finish();
+    // `TargetInfoEntityPreviewComponent`: a player's 12x12 face (skin
+    // u 8..16, no hat layer) in white at the panel's alpha, drawn with the
+    // host's own skin sprite like the tab list.
+    if let (Some((fx, fy)), Some(skin)) = (crate::game::vape_rs::ui::target_info::face_origin(view), &view.skin) {
+        use horizon_client::hud_layout::{GuiDraw, PoseOp};
+        let mut face = vec![GuiDraw::Push(vec![PoseOp::Translate(x + fx * s, y + fy * s), PoseOp::Scale(s, s)])];
+        horizon_client::tab_list::face(&mut face, skin, 0, 0, 12, false, false, color(0xffffffff, panel.enabled));
+        face.push(GuiDraw::Pop);
+        horizon_client::hud_layout::paint(batch, atlas, &face);
+    }
     batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
     Rect(x, y, w, h)
 }

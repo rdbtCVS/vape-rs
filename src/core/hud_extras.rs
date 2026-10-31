@@ -106,6 +106,19 @@ impl Runtime {
             self.target_info.clear();
         }
     }
+    /// `onPlayerUseItem`: the local player used a heal potion (the host
+    /// checks the stack). The GUI preview targets the local player.
+    pub fn target_info_heal_used(&mut self) {
+        if self.enabled(ModuleId::TargetInfo) {
+            self.target_info.local_heal_used(self.gui.open);
+        }
+    }
+    /// `onEntityJoinWorld`: a thrown heal potion entered the world.
+    pub fn target_info_heal_joined(&mut self) {
+        if self.enabled(ModuleId::TargetInfo) {
+            self.target_info.heal_joined(self.gui.open);
+        }
+    }
     pub(super) fn tick_target_info(&mut self, snapshot: &Snapshot) {
         let now = std::time::Instant::now();
         let elapsed = self

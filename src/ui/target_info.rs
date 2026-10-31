@@ -72,8 +72,11 @@ pub struct Seen {
     /// Distance from the local player.
     pub distance: f32,
     pub hurt_time: i32,
-    /// `RotationUtil.y(me, target)`: `max(me→target, 1) - max(target→me, 1)`.
+    /// `RotationUtil.y(me, target)`: `max(me→target, 1) - max(target→me, 1)`
+    /// ([`damage_comparison`]).
     pub damage: i32,
+    /// A player's skin texture as the host draws it (players only).
+    pub skin: Option<String>,
 }
 
 /// What the host saw this HUD frame.
@@ -99,6 +102,8 @@ pub struct View {
     pub pots: Option<i32>,
     pub combo: Option<i32>,
     pub damage: Option<i32>,
+    /// The player skin whose face fills the 12x12 entity preview.
+    pub skin: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -116,8 +121,11 @@ pub struct Tracker {
     since_refresh_ms: f32,
     hits: i32,
     combo: i32,
-    /// Healing potions are not tracked on this host (always 0).
+    /// `potsUsedStrip`: heal pots thrown near the target minus our own.
     pots: i32,
+    /// `pendingLocalHealingPotions`: our own heal pots used but not yet
+    /// seen joining the world.
+    pending_local: i32,
     displayed: f32,
     snap: bool,
     animation_ms: f32,
@@ -140,6 +148,30 @@ impl Tracker {
     #[cfg(test)]
     pub fn combo(&self) -> i32 {
         self.combo
+    }
+    #[cfg(test)]
+    pub fn pots(&self) -> i32 {
+        self.pots
+    }
+    /// `onPlayerUseItem`: the local player used a heal potion while a
+    /// target is shown (`preview`: the GUI shows the local player).
+    pub fn local_heal_used(&mut self, preview: bool) {
+        if preview || self.target.is_some() {
+            self.pending_local += 1;
+        }
+    }
+    /// `onEntityJoinWorld`: a thrown heal potion joined the world. One of
+    /// our own pending potions counts against us, any other for the target.
+    pub fn heal_joined(&mut self, preview: bool) {
+        if !preview && self.target.is_none() {
+            return;
+        }
+        if self.pending_local > 0 {
+            self.pots -= 1;
+            self.pending_local -= 1;
+        } else {
+            self.pots += 1;
+        }
     }
     pub fn clear(&mut self) {
         self.target = None;
@@ -266,8 +298,59 @@ impl Tracker {
             pots: shown.pots.then_some(self.pots),
             combo: shown.combo.then_some(self.combo),
             damage: shown.damage.then_some(target.damage),
+            skin: target.skin.clone().filter(|_| target.player),
         })
     }
+}
+
+/// What `RotationUtil.j` reads from one side of a fight.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Fighter {
+    /// The held item's Sharpness level.
+    pub sharpness: u32,
+    /// `ItemStackScoreUtil.a`: a held sword's or tool's default
+    /// attack-damage modifiers, 0 for anything else.
+    pub weapon_bonus: f32,
+    /// `RotationUtil.g`: armor points worn, counted for players only.
+    pub armor: f32,
+    /// The active Resistance amplifier.
+    pub resistance: Option<i32>,
+}
+
+/// `RotationUtil.b`: the local player's attack-damage attribute (`None`
+/// without one), plus the attacker's Sharpness (`0.5 + 0.5 * level` from
+/// 1.21) and weapon bonus. The local attribute stands in for both sides.
+fn base_damage(local_attack: Option<f32>, attacker: &Fighter) -> f32 {
+    let Some(mut damage) = local_attack else {
+        return 0.0;
+    };
+    let mut bonus = 0.0;
+    if attacker.sharpness > 0 {
+        bonus += 0.5 + 0.5 * attacker.sharpness as f32;
+    }
+    bonus += attacker.weapon_bonus;
+    if damage > 0.0 || bonus > 0.0 {
+        damage += bonus;
+    }
+    damage
+}
+
+/// `RotationUtil.j(attacker, defender)`: armor (`m`), then Resistance
+/// (`u`). Protection (`EnchantmentHelper.B`) is always 0 from 1.21.
+fn hit_damage(local_attack: Option<f32>, attacker: &Fighter, defender: &Fighter) -> f32 {
+    let mut damage = base_damage(local_attack, attacker);
+    damage = damage * (25.0 - defender.armor) as i32 as f32 / 25.0;
+    if let Some(amplifier) = defender.resistance {
+        damage = damage * (25 - (amplifier + 1) * 5) as f32 / 25.0;
+    }
+    if damage <= 0.0 { 0.0 } else { damage }
+}
+
+/// `RotationUtil.y(me, target)` as the damage strip shows it.
+pub fn damage_comparison(local_attack: Option<f32>, me: &Fighter, target: &Fighter) -> i32 {
+    let dealt = hit_damage(local_attack, me, target).max(1.0);
+    let taken = hit_damage(local_attack, target, me).max(1.0);
+    (dealt - taken) as i32
 }
 
 /// A rounded rectangle as rows of fills (`GuiRenderPrimitives` rounded rect).
@@ -360,6 +443,22 @@ fn truncate(text: &str, limit: f32, measure: &impl Fn(&str, f32) -> f32) -> Stri
     "...".into()
 }
 
+fn has_stats(view: &View) -> bool {
+    view.hits.is_some() || view.pots.is_some() || view.combo.is_some() || view.damage.is_some()
+}
+
+fn padding(view: &View) -> f32 {
+    if has_stats(view) { 5.0 } else { 10.0 }
+}
+
+/// Top-left of the 12x12 entity preview (`TargetInfoEntityPreviewComponent`)
+/// in layout units: the header's start, shown for players only.
+pub fn face_origin(view: &View) -> Option<(f32, f32)> {
+    let pad = padding(view);
+    let y = pad + 2.0 + if has_stats(view) { 14.0 } else { 0.0 };
+    view.player.then_some((pad, y))
+}
+
 /// Lay out the panel in HUD units. `measure(text, size)` is the width of
 /// `text` at `size` times the 8-unit font line.
 pub fn layout(view: &View, measure: impl Fn(&str, f32) -> f32) -> Layout {
@@ -376,7 +475,7 @@ pub fn layout(view: &View, measure: impl Fn(&str, f32) -> f32) -> Layout {
     .flatten()
     .collect();
     let stats = !strips.is_empty();
-    let pad = if stats { 5.0 } else { 10.0 };
+    let pad = padding(view);
     let content = 2.0 + if stats { 14.0 } else { 0.0 } + 10.0 + 8.0 + 4.0;
     let (width, height) = (100.0 + pad * 2.0, content + pad * 2.0);
     rounded(&mut draws, 0.0, 2.0, width, height, 3.0, 0xad121212);
@@ -418,8 +517,9 @@ pub fn layout(view: &View, measure: impl Fn(&str, f32) -> f32) -> Layout {
         }
         y += 14.0;
     }
-    // Header: the 12x12 entity preview (players only, not drawn on this
-    // host) then the truncated name, centred on the preview or the header.
+    // Header: the 12x12 entity preview (players only, drawn by the host
+    // painter at `face_origin`) then the truncated name, centred on the
+    // preview or the header.
     let name = if plain(&view.name).trim().is_empty() {
         "\u{a7}7(Empty Name)".to_string()
     } else {
@@ -558,6 +658,137 @@ mod tests {
         };
         let preview = t.view(Some(&own), true, Shown::default()).unwrap();
         assert_eq!((preview.name.as_str(), preview.fraction), ("Steve", 0.6));
+    }
+
+    #[test]
+    fn heal_pots_count_for_the_target_and_against_our_own() {
+        let mut t = Tracker::default();
+        // Nothing shown: neither event counts.
+        t.local_heal_used(false);
+        t.heal_joined(false);
+        assert_eq!(t.pots(), 0);
+        t.show(zombie(20.0, 0));
+        t.heal_joined(false);
+        t.heal_joined(false);
+        assert_eq!(t.pots(), 2);
+        // Our own potion joins after its use: one down, not one up.
+        t.local_heal_used(false);
+        t.local_heal_used(false);
+        t.heal_joined(false);
+        assert_eq!(t.pots(), 1);
+        t.heal_joined(false);
+        assert_eq!(t.pots(), 0);
+        t.heal_joined(false);
+        assert_eq!(t.pots(), 1);
+        let shown = Shown {
+            pots: true,
+            ..Shown::default()
+        };
+        assert_eq!(t.view(None, false, shown).unwrap().pots, Some(1));
+        // A new target resets the strip; the GUI preview counts without one.
+        t.show(Seen {
+            id: 8,
+            ..zombie(20.0, 0)
+        });
+        assert_eq!(t.pots(), 0);
+        t.clear();
+        t.local_heal_used(true);
+        t.heal_joined(true);
+        assert_eq!(t.pots(), -1);
+    }
+
+    #[test]
+    fn damage_comparison_follows_rotation_util() {
+        // Bare fists on both sides: max(1, 1) - max(1, 1).
+        let fist = Fighter::default();
+        assert_eq!(damage_comparison(Some(1.0), &fist, &fist), 0);
+        assert_eq!(damage_comparison(None, &fist, &fist), 0);
+        // A diamond sword (attribute 7 with the sword held, +6 bonus counted
+        // again) against an unarmored zombie: 13 - 1.
+        let sword = Fighter {
+            weapon_bonus: 6.0,
+            ..Fighter::default()
+        };
+        assert_eq!(damage_comparison(Some(7.0), &sword, &fist), 13 - 7);
+        // The zombie's side uses our attribute too: 7 - 13.
+        assert_eq!(damage_comparison(Some(7.0), &fist, &sword), 7 - 13);
+        // Sharpness V adds 3; full diamond (20 armor) on a player target
+        // keeps (int)(25 - 20) / 25 of it.
+        let sharp = Fighter {
+            sharpness: 5,
+            ..sword
+        };
+        let armored = Fighter {
+            armor: 20.0,
+            ..Fighter::default()
+        };
+        // dealt 16 * 5 / 25 = 3.2; taken 7 * 25 / 25 = 7.
+        assert_eq!(damage_comparison(Some(7.0), &sharp, &armored), -3);
+        // Fractional armor truncates: (int)(25 - 2.5) = 22.
+        let light = Fighter {
+            armor: 2.5,
+            ..Fighter::default()
+        };
+        // dealt 13 * 22 / 25 = 11.44; taken 7.
+        assert_eq!(damage_comparison(Some(7.0), &sword, &light), 4);
+        // Resistance II keeps 15 of 25; level V (amplifier 4) none.
+        let resistant = Fighter {
+            resistance: Some(1),
+            ..Fighter::default()
+        };
+        // dealt 13 * 15 / 25 = 7.8; taken 7: 0.8 truncates to 0.
+        assert_eq!(damage_comparison(Some(7.0), &sword, &resistant), 0);
+        assert!((hit_damage(Some(7.0), &sword, &resistant) - 7.8).abs() < 1e-5);
+        let immune = Fighter {
+            resistance: Some(4),
+            ..Fighter::default()
+        };
+        assert!((hit_damage(Some(7.0), &sword, &immune)).abs() < 1e-6);
+        assert_eq!(damage_comparison(Some(7.0), &sword, &immune), 1 - 7);
+        // No attribute: the attacker's side is 0 before the max(1).
+        assert_eq!(base_damage(None, &sharp), 0.0);
+        // Without attribute damage, the bonus alone still applies.
+        assert_eq!(base_damage(Some(0.0), &sword), 6.0);
+        assert_eq!(base_damage(Some(0.0), &fist), 0.0);
+    }
+
+    #[test]
+    fn the_face_sits_at_the_header_start_for_players() {
+        let view = View {
+            name: "Steve".into(),
+            player: true,
+            skin: Some("entity/player/wide/steve".into()),
+            ..View::default()
+        };
+        assert_eq!(face_origin(&view), Some((10.0, 12.0)));
+        let stats = View {
+            hits: Some(0),
+            ..view.clone()
+        };
+        assert_eq!(face_origin(&stats), Some((5.0, 21.0)));
+        assert_eq!(
+            face_origin(&View {
+                player: false,
+                ..view.clone()
+            }),
+            None
+        );
+        // Only players carry their skin into the view.
+        let mut t = Tracker::default();
+        let seen = Seen {
+            player: false,
+            skin: Some("x".into()),
+            ..zombie(20.0, 0)
+        };
+        t.show(seen);
+        assert_eq!(t.view(None, false, Shown::default()).unwrap().skin, None);
+        let own = Seen {
+            player: true,
+            skin: Some("entity/player/wide/steve".into()),
+            ..Seen::default()
+        };
+        let preview = t.view(Some(&own), true, Shown::default()).unwrap();
+        assert_eq!(preview.skin.as_deref(), Some("entity/player/wide/steve"));
     }
 
     #[test]

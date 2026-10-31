@@ -27,7 +27,9 @@
     "crates/horizon-client/src/ui_theme.rs": "d5d42115f49ec259425d007195d55d6df8f1e347ed5e2bd9ef9267d543b805bc",
     "crates/horizon-client/src/gizmos.rs": "55d976fc197ecd2b6802848c920b08df89d3fef1fe5071b9688e9445a182b216",
     "crates/horizon-client/src/game/scoreboard.rs": "1ad65e958d21fb23e3af1c96327fa7d88a7dce120bdc9086d53982e303377c7a",
-    "crates/horizon-client/src/game/glowing.rs": "65d9c022c76ce830d46ab82c4b889a2a3ea4512a42e72d462afdf09d3d84c786"
+    "crates/horizon-client/src/game/glowing.rs": "65d9c022c76ce830d46ab82c4b889a2a3ea4512a42e72d462afdf09d3d84c786",
+    "crates/horizon-client/src/game/potions.rs": "c4ef0a58dbf9467a5e3080c15ecf31cbc6049122a1aa5300d0bb5816c4288933",
+    "crates/horizon-client/src/game/remote_projectiles.rs": "9905f7b77ff8a4a40a254cb55b5796bbe9c097cc5be354e5b0d34dcd082b4bc6"
   },
   "reference_revision": "3d600a48106822755cea2d633062e5ab1f383d48",
   "validated_platforms": [],
