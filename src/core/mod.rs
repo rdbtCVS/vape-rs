@@ -381,6 +381,10 @@ impl Default for Runtime {
             .chain(super::modules::render::search::definitions())
             .chain(super::modules::render::spawner_finder::definitions())
             .chain(super::modules::render::murder_finder::definitions())
+            .chain(super::modules::render::block_overlay::definitions())
+            .chain(super::modules::render::projectiles::definitions())
+            .chain(super::modules::render::indicators::definitions())
+            .chain(super::modules::render::bed_plates::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -2320,7 +2324,11 @@ impl Runtime {
                 | ModuleId::SpawnerFinder
                 | ModuleId::MurderFinder
                 | ModuleId::PropHunt
-                | ModuleId::InventoryBlur => continue,
+                | ModuleId::InventoryBlur
+                | ModuleId::BlockOverlay
+                | ModuleId::Projectiles
+                | ModuleId::Indicators
+                | ModuleId::BedPlates => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

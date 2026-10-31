@@ -110,8 +110,6 @@ pub fn definitions() -> Vec<Definition> {
         Definition::boolean(&esp("hide-bots"), "Hide Bots", false),
         Definition::boolean(&tracer("enemy-only"), "Enemy Only", false)
             .when(&tracer("players"), json!(true)),
-        Definition::boolean(&tracer("enemies-list-only"), "Enemies List Only", false)
-            .when(&tracer("enemy-only"), json!(true)),
         Definition::boolean(&tracer("invisibles"), "Invisibles", false),
         Definition::boolean(&tracer("color-by-distance"), "Color by distance", false),
         Definition::boolean(
@@ -408,7 +406,6 @@ pub fn tracers(
     let key = |k: &str| format!("{TRACERS}.{k}");
     let invisibles = boolean(settings, &key("invisibles"), false);
     let enemy_only = boolean(settings, &key("enemy-only"), false);
-    let enemies_list_only = boolean(settings, &key("enemies-list-only"), false);
     let mut selected: Vec<(&EntityView, u32, f64)> = Vec::new();
     for e in entities {
         if !e.alive() || (!invisibles && e.fully_invisible()) {
@@ -429,16 +426,13 @@ pub fn tracers(
             continue;
         }
         if e.class == EntityClass::Player {
-            // Bots never get a tracer; "Enemy Only" keeps valid targets, or
-            // only enemies-list players with "Enemies List Only".
+            // Bots never get a tracer; "Enemy Only" keeps valid targets
+            // (`isValidTarget`: not a friend or teammate). The reference's
+            // "Enemies List Only" is never registered, so stays off.
             if people.bot(e) {
                 continue;
             }
-            let wanted = if enemies_list_only {
-                people.enemy(&e.name)
-            } else {
-                !people.friend(&e.name) && !people.teammate(e)
-            };
+            let wanted = !people.friend(&e.name) && !people.teammate(e);
             if enemy_only && !wanted {
                 continue;
             }

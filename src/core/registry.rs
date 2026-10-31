@@ -126,6 +126,10 @@ registry! {
     ThrowDebuff => "inventory.throw-debuff", "ThrowDebuff", "Inventory", None, [];
     AutoHeal => "inventory.auto-heal", "AutoHeal", "Hidden", None, [];
     InventoryFill => "inventory.inventory-fill", "InventoryFill", "Inventory", None, [];
+    BlockOverlay => "hud.block-overlay", "Block Overlay", "HUD", None, [];
+    Projectiles => "render.projectiles", "Projectiles", "Render", None, [];
+    Indicators => "render.indicators", "Indicators", "Render", None, [];
+    BedPlates => "render.bed-plates", "BedPlates", "World", None, [];
 }
 
 impl ModuleId {

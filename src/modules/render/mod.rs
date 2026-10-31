@@ -16,3 +16,7 @@ pub mod search;
 pub mod spawner_finder;
 pub mod storage_esp;
 pub mod trajectories;
+pub mod bed_plates;
+pub mod block_overlay;
+pub mod indicators;
+pub mod projectiles;
