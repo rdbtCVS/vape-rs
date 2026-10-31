@@ -175,8 +175,26 @@ fn meta(
     .iter()
     .map(|b| items.mining_speed(Some(stack), b))
     .fold(1.0_f32, f32::max);
+    // The tooltip's name line in the client language: custom name first,
+    // then the item's own name; the item name is the same line without a
+    // custom name.
+    let translate = |key: &str| game.pack.names.display_get(key);
+    let display_name = horizon_client::item_tooltip::name_line(stack, &translate);
+    let item_name = if stack.custom_name().is_some() {
+        let mut plain = stack.clone();
+        plain.data_mut().custom_name = None;
+        horizon_client::item_tooltip::name_line(&plain, &translate)
+    } else {
+        display_name.clone()
+    };
     ItemMeta {
         custom_name: stack.custom_name(),
+        display_name,
+        item_name,
+        lore: horizon_client::item_tooltip::lore_texts(stack)
+            .iter()
+            .map(|line| line.plain())
+            .collect(),
         effects,
         thrown_potion: matches!(
             id,
@@ -191,7 +209,19 @@ fn meta(
             .map(|(e, level)| (e.to_string(), *level))
             .collect(),
         mining_speed,
+        armor_points: modifier_sum(info, "minecraft:armor"),
+        armor_toughness: modifier_sum(info, "minecraft:armor_toughness"),
+        tool: info.is_some_and(|i| i.tool_damage_per_block.is_some()),
     }
+}
+fn modifier_sum(info: Option<&horizon_client::items::ItemInfo>, attribute: &str) -> f32 {
+    info.map_or(0.0, |i| {
+        i.modifiers
+            .iter()
+            .filter(|(a, ..)| a == attribute)
+            .map(|(_, _, amount, ..)| *amount as f32)
+            .sum()
+    })
 }
 fn slot(game: &Game<'_>, index: usize, role: SlotRole, value: Option<&ItemStack>) -> Slot {
     Slot {

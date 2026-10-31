@@ -185,7 +185,11 @@ pub fn closest(
     let (motion, (radius, height), steps) = match p.kind {
         Kind::Thrown(k) => {
             let flight = p.flight(k);
-            (Some(Motion::of(&flight)), k.collision(), projectiles::MAX_STEPS)
+            (
+                Some(Motion::of(&flight)),
+                k.collision(),
+                projectiles::MAX_STEPS,
+            )
         }
         Kind::Fireball { large } => (
             None,
@@ -444,24 +448,46 @@ mod tests {
         assert_eq!(d.len(), 10);
         assert_eq!(s.get(&key("alert-type")), Some(&json!("Threat")));
         let radius = s.get(&key("radius-scale")).and_then(Value::as_f64);
-        assert!(radius.is_some_and(|r| (r - 0.15).abs() < 1e-9), "{radius:?}");
+        assert!(
+            radius.is_some_and(|r| (r - 0.15).abs() < 1e-9),
+            "{radius:?}"
+        );
         let pearl = Projectile {
             kind: Kind::Thrown(projectiles::Kind::Pearl),
             ..arrow_at([5.0, 1.0, 0.0], [-1.0, 0.0, 0.0])
         };
         assert!(!followed(&s, &pearl, [0.0; 3]), "pearls are off by default");
-        assert!(followed(&s, &arrow_at([5.0, 1.0, 0.0], [-1.0, 0.0, 0.0]), [0.0; 3]));
+        assert!(followed(
+            &s,
+            &arrow_at([5.0, 1.0, 0.0], [-1.0, 0.0, 0.0]),
+            [0.0; 3]
+        ));
         // Straight down or stuck is not in the air; fireballs need not move.
         let mut still = arrow_at([5.0, 1.0, 0.0], [0.0, -1.0, 0.0]);
         assert!(!followed(&s, &still, [0.0; 3]));
         still.kind = Kind::Fireball { large: true };
         assert!(followed(&s, &still, [0.0; 3]));
         assert!(!followed(&s, &still, [2000.0, 0.0, 0.0]));
-        assert_eq!(Kind::from_entity("minecraft:fireball"), Some(Kind::Fireball { large: true }));
-        assert_eq!(Kind::from_entity("minecraft:wither_skull"), Some(Kind::Fireball { large: false }));
-        assert_eq!(Kind::Fireball { large: true }.color(0xff00_ff00), 0xffff_6d00);
-        assert_eq!(Kind::Fireball { large: false }.color(0xff00_ff00), 0xff00_ff00);
-        assert_eq!(Kind::Fireball { large: false }.item(), "minecraft:fire_charge");
+        assert_eq!(
+            Kind::from_entity("minecraft:fireball"),
+            Some(Kind::Fireball { large: true })
+        );
+        assert_eq!(
+            Kind::from_entity("minecraft:wither_skull"),
+            Some(Kind::Fireball { large: false })
+        );
+        assert_eq!(
+            Kind::Fireball { large: true }.color(0xff00_ff00),
+            0xffff_6d00
+        );
+        assert_eq!(
+            Kind::Fireball { large: false }.color(0xff00_ff00),
+            0xff00_ff00
+        );
+        assert_eq!(
+            Kind::Fireball { large: false }.item(),
+            "minecraft:fire_charge"
+        );
     }
 
     #[test]
@@ -493,7 +519,10 @@ mod tests {
         Shot {
             kind: Kind::Thrown(projectiles::Kind::Arrow),
             position,
-            distance: (0..3).map(|i| position[i] * position[i]).sum::<f64>().sqrt(),
+            distance: (0..3)
+                .map(|i| position[i] * position[i])
+                .sum::<f64>()
+                .sqrt(),
             closest,
         }
     }
@@ -523,7 +552,12 @@ mod tests {
         let f = frame();
         // Straight behind and to the right: the marker is right of centre.
         let out = draws(&s, &f, &[shot([6.0, 0.0, 0.0], 0.0)]);
-        let Some(Draw::Turned { pivot, degrees, inner }) = out.first() else {
+        let Some(Draw::Turned {
+            pivot,
+            degrees,
+            inner,
+        }) = out.first()
+        else {
             panic!("{out:?}");
         };
         // HUD half size 200 x 100 at 0.15: the ellipse is 30 x 15.

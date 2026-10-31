@@ -207,7 +207,9 @@ impl Runtime {
                 }
                 let profile = match self.inventory_profile() {
                     Ok(Some(profile)) => profile,
-                    Ok(None) => Profile::default(),
+                    // `shouldSkipProcessing`: no selected profile, nothing
+                    // to manage; the module stays on and idles.
+                    Ok(None) => return (None, delay, false),
                     Err(error) => {
                         self.notify(format!("InventoryManager: {error}"));
                         self.set_enabled(module, false);
@@ -332,6 +334,16 @@ mod tests {
     use super::super::super::inventory::{session::tests::snapshot, types::Click};
     use super::*;
     use std::time::Instant;
+
+    #[test]
+    fn manager_without_a_profile_idles_and_stays_on() {
+        let mut runtime = Runtime::default();
+        runtime.set_enabled(ModuleId::InventoryManager, true);
+        let mut s = snapshot(false, Instant::now());
+        s.session = runtime.session().epoch().value();
+        assert!(runtime.inventory_step(&s).is_empty());
+        assert!(runtime.enabled(ModuleId::InventoryManager));
+    }
 
     #[test]
     fn on_key_cleaner_opens_drops_closes_and_disables() {

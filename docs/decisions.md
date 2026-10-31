@@ -110,7 +110,7 @@
 - **AutoTotem extras.**
   - "Random slot" picks uniformly among the totem slots.
   - "Extra randomization" is the reference's `computeDelay`: a normal centred on the range with sd range/4, clamped to the range, plus an 18 % chance of a long pause of max(120, 1.25·range) to max(350, 3.25·range) ms.
-  - "Show totem count" computes the reference's count and colour (`Runtime::totem_count_display`). Nothing draws it yet, because the reference shows it in the active-module stack frame and that frame has no port here.
+  - "Show totem count" is drawn by the centre-screen active-module stack (see the inventory round-2 entry below).
   - "Silent open" and "Silent move delay" are not registered. `menu_ops` sends server clicks only while `Screen::Inventory` is shown, so clicking the player inventory with no screen open needs a Horizon API. This is blocked; there is no workaround.
 
 ## 2026-10-31: combat rotation and auras
@@ -136,3 +136,9 @@
 - Scoreboard is drawn by our HUD panel. It clones the board, blanks the score numbers unless Show score numbers is on, and paints the host's own `hud_overlays::sidebar` draws at the panel position. The `scoreboard-sidebar` HEAD hook cancels the vanilla sidebar only while the module is enabled. The reference text replacements (server IP, title) are not ported.
 - Inventory Blur cancels `menu_blur` on the survival/creative inventory with a radius. The radius is the client menu-blur setting when that is at least 1, and 5 otherwise, so the module still blurs when the vanilla option is off.
 - Panic default visibility (`setDefaultVisibility(false)`) stays open: our click GUI has no per-module visibility.
+
+## 2026-10-31: inventory worker round 2, item text matching and the centre stack
+
+- **Item text is the host's tooltip text.** Display name, item name and lore come from `horizon_client::item_tooltip` (`name_line`, `lore_texts`) with the resource pack's translations. Item name is the same line with the custom name removed, which is `getItemStackDisplayName` in the reference. Both sides are lowercased before comparing, as in `TextMatchMode`.
+- **Regex is a bounded subset of `java.util.regex`** (`src/inventory/text_regex.rs`). The only dependency is `serde_json`, so there is no regex crate. Literals, classes, groups, alternation, anchors, `\b` and greedy or lazy quantifiers are supported, with whole-input `String.matches` semantics. Lookaround, backreferences and possessive or atomic forms are rejected, which behaves like a `PatternSyntaxException`: the condition never matches, for both "matches" and "does not match". Backtracking has a step budget, so a pathological pattern fails instead of stalling the tick.
+- **Active-module stack.** `ActiveModuleStackFrame` is ported as the centre-screen stack in `src/modules/render/center_stack.rs`, with the reference layout: 10 below centre, one font line plus 4 per entry, the label centred, and a grey module-name suffix once there is more than one entry. Its entries are Health and AutoTotem's totem count, in that fixed order. The reference orders by module enable order. Our runtime does not keep an enable order, and with two entries a fixed order is the only visible difference. Scaffold, Clutch, AutoLadder and CrystalAura publish display info in the reference and will join the stack when those modules are ported. The ClientSettings visibility gates (`isInputEnabled`, main GUI stack) belong to the HUD/ClientSettings worker and are not applied here.

@@ -314,7 +314,10 @@ mod tests {
     fn defaults_show_arrows_and_pearls_only() {
         let s = settings();
         assert_eq!(shown(&s), vec![Kind::Arrow, Kind::Trident, Kind::Pearl]);
-        assert_eq!(Kind::from_entity("minecraft:ender_pearl"), Some(Kind::Pearl));
+        assert_eq!(
+            Kind::from_entity("minecraft:ender_pearl"),
+            Some(Kind::Pearl)
+        );
         assert_eq!(Kind::from_entity("minecraft:experience_bottle"), None);
         assert_eq!(Kind::Pearl.color(), 0xffad_0cff);
         assert_eq!(Kind::Arrow.collision(), (0.25, 0.5));

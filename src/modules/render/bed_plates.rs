@@ -249,7 +249,9 @@ mod tests {
     fn the_survey_splits_shells_into_layers_by_distance_from_both_halves() {
         let layers = survey([0, 0, 0], Facing::North, &mut defended);
         let layer = |l: &[(&str, u32)]| -> Layer {
-            l.iter().map(|(i, n)| (format!("minecraft:{i}"), *n)).collect()
+            l.iter()
+                .map(|(i, n)| (format!("minecraft:{i}"), *n))
+                .collect()
         };
         // Radius 1 (10 sides at the bed's level, its 3 x 4 top): a block
         // more than 1 from both halves (the corners, most of the top) is in
@@ -280,7 +282,10 @@ mod tests {
         let wool = || ("minecraft:white_wool".to_owned(), 3);
         let stone = || ("minecraft:end_stone".to_owned(), 5);
         let layers = [vec![wool()], vec![stone(), wool()], vec![]];
-        assert_eq!(shown(&layers), ["minecraft:white_wool", "minecraft:end_stone"]);
+        assert_eq!(
+            shown(&layers),
+            ["minecraft:white_wool", "minecraft:end_stone"]
+        );
         let layers = [vec![], vec![stone()], vec![wool()]];
         assert!(shown(&layers).is_empty());
     }

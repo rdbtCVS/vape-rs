@@ -2,8 +2,8 @@
 // HUD-time overlay (ESP 2D and the other screen-space modules) and ESP's
 // Outline colours.
 use super::super::modules::render::{
-    arrows, bed_plates, block_overlay, esp, explosions, health, indicators, name_tags, overlay,
-    projectiles, search, spawner_finder,
+    arrows, bed_plates, block_overlay, center_stack, esp, explosions, health, indicators,
+    name_tags, overlay, projectiles, search, spawner_finder,
 };
 use super::super::targeting::entities::EntityView;
 use super::{ModuleId, Runtime};
@@ -23,6 +23,7 @@ impl Runtime {
         ]
         .into_iter()
         .any(|id| self.enabled(id))
+            || self.totem_count_shown()
     }
     /// The friends' aliases, by name, for labels that show them.
     fn friend_aliases(&self) -> Vec<(String, String)> {
@@ -55,9 +56,14 @@ impl Runtime {
         if self.enabled(ModuleId::Arrows) {
             out.extend(arrows::draws(&self.settings, frame, &people));
         }
+        let mut stack = Vec::new();
         if self.enabled(ModuleId::Health) {
-            out.extend(health::draws(frame));
+            stack.push(health::entry(frame));
         }
+        if self.totem_count_shown() {
+            stack.push(center_stack::totem_entry(frame.own.totems));
+        }
+        out.extend(center_stack::draws(frame, &stack));
         if self.enabled(ModuleId::SpawnerFinder) {
             out.extend(spawner_finder::draws(&self.settings, frame));
         }

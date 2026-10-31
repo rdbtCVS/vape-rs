@@ -83,6 +83,9 @@ pub enum Align {
     #[default]
     Left,
     Center,
+    /// Left edge where the first `n` bytes of the text would be centred on
+    /// `x` (the active-module stack's label plus module-name suffix).
+    CenterOn(usize),
 }
 
 /// One item drawn as its model (the NameTags equipment row, BedPlates).
@@ -214,6 +217,8 @@ pub struct Own {
     pub position: [f64; 3],
     pub yaw: f32,
     pub hurt: bool,
+    /// Totems of undying in the main inventory, hotbar and off hand.
+    pub totems: u32,
 }
 
 /// Everything the overlay modules draw from in one frame.
