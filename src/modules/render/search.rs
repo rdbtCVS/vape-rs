@@ -73,9 +73,7 @@ fn entry(text: &str) -> Option<Block> {
         return None;
     }
     let (text, tracer) = match text.len().checked_sub(7) {
-        Some(at)
-            if text.is_char_boundary(at) && text[at..].eq_ignore_ascii_case("+tracer") =>
-        {
+        Some(at) if text.is_char_boundary(at) && text[at..].eq_ignore_ascii_case("+tracer") => {
             (text[..at].trim_end(), true)
         }
         _ => (text, false),

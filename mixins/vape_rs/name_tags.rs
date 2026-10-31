@@ -100,30 +100,8 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
         }
     }
     if items_on {
-        let items: Vec<Dropped> = game
-            .dropped
-            .iter()
-            .take(512)
-            .map(|d| {
-                let info = game.res.items().get(&d.stack.item);
-                let position = lerp(d.previous, d.position);
-                Dropped {
-                    item: HeldItem {
-                        id: Some(d.stack.item.trim_start_matches("minecraft:").to_owned()),
-                        display_name: horizon_client::stations::hover_name(&|id| game.pack.names.display_item(id), &d.stack),
-                        block: info.is_some_and(|i| i.block.is_some()),
-                        food: info.is_some_and(|i| i.food.is_some()),
-                        potion: d.stack.item.ends_with("potion"),
-                        slot: 0,
-                    },
-                    count: d.stack.count,
-                    max_stack: info.map_or(64, |i| i.max_stack),
-                    position: position.to_array(),
-                    distance: feet.distance(glam::DVec3::new(d.position.x, d.position.y, d.position.z)),
-                }
-            })
-            .collect();
-        for label in with_client(&client, |runtime| runtime.item_labels(&items)) {
+        let labels = item_labels(game, &client, alpha);
+        for label in labels {
             let n = label.lines.len();
             out.push(Extra {
                 at: glam::DVec3::from_array(label.at),
@@ -134,6 +112,55 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
         }
     }
     out
+}
+
+/// ItemESP's groups between ticks, with the world session and game time
+/// they were last advanced at.
+static ITEM_GROUPS: std::sync::Mutex<(Option<(u64, i64)>, crate::game::vape_rs::modules::render::item_esp::Groups)> =
+    std::sync::Mutex::new((None, crate::game::vape_rs::modules::render::item_esp::Groups::new()));
+
+/// ItemESP's tags, advancing its groups by the world's dropped items once a
+/// tick (`onPostTick`).
+fn item_labels(game: &Game<'_>, client: &crate::game::vape_rs::core::Client, alpha: f64) -> Vec<crate::game::vape_rs::modules::render::item_esp::Label> {
+    let Some(player) = game.player.as_ref() else {
+        return Vec::new();
+    };
+    let Ok(mut state) = ITEM_GROUPS.lock() else {
+        return Vec::new();
+    };
+    let feet = [player.position.x, player.position.y, player.position.z];
+    let epoch = with_client(client, |runtime| runtime.session().epoch().value());
+    let tick = (epoch, game.world.game_time);
+    if state.0.is_some_and(|(e, _)| e != epoch) {
+        state.1.clear();
+    }
+    let items: Option<Vec<Dropped>> = (state.0 != Some(tick)).then(|| {
+        let v = |v: horizon_core::geometry::Vec3| [v.x, v.y, v.z];
+        game.dropped
+            .iter()
+            .take(512)
+            .map(|d| {
+                let info = game.res.items().get(&d.stack.item);
+                Dropped {
+                    id: d.id,
+                    item: HeldItem {
+                        id: Some(d.stack.item.trim_start_matches("minecraft:").to_owned()),
+                        display_name: horizon_client::stations::hover_name(&|id| game.pack.names.display_item(id), &d.stack),
+                        block: info.is_some_and(|i| i.block.is_some()),
+                        food: info.is_some_and(|i| i.food.is_some()),
+                        potion: d.stack.item.ends_with("potion"),
+                        slot: 0,
+                    },
+                    count: d.stack.count,
+                    max_stack: info.map_or(64, |i| i.max_stack),
+                    position: v(d.position),
+                    previous: v(d.previous),
+                }
+            })
+            .collect()
+    });
+    state.0 = Some(tick);
+    with_client(client, |runtime| runtime.item_labels(&mut state.1, items.as_deref(), feet, alpha))
 }
 
 /// The HUD atlas's white texel, which tints to any colour.

@@ -1,18 +1,20 @@
 // Trajectories: the predicted flight of the held bow, throwable or trident,
-// drawn through walls with the shared `world::predict` integrator. Launch
+// drawn through walls, stepped as `Trajectories.onRender3D` does (see
+// `lines`) and ended with the reference's impact cross. Launch
 // speeds and gravity are the modern items' (`BowItem`, `SnowballItem`,
 // `ThrowablePotionItem`, `ExperienceBottleItem`, `TridentItem`,
 // `CrossbowItem`), and the shooter's known movement is added as
 // `Projectile.shootFromRotation` does (its vertical part only off the ground).
 use super::super::super::core::settings::{Definition, Kind, Settings};
 use super::super::super::targeting::entities::EntityView;
-use super::world::{Impact, ImpactKind, Line, Point, outline_box, predict_with_drag};
+use super::world::{Line, Point};
 use serde_json::{Value, json};
 
 pub const ID: &str = "render.trajectories";
 
-/// The host's block clip for one segment: the first hit point, if any.
-pub type BlockClip<'a> = &'a mut dyn FnMut([f64; 3], [f64; 3]) -> Option<[f64; 3]>;
+/// The host's block clip for one segment: the first hit point and the hit
+/// face's outward normal, if any.
+pub type BlockClip<'a> = &'a mut dyn FnMut([f64; 3], [f64; 3]) -> Option<([f64; 3], [i32; 3])>;
 
 pub fn definitions() -> Vec<Definition> {
     let key = |k: &str| format!("{ID}.{k}");
@@ -156,10 +158,51 @@ fn entity_hit(a: [f64; 3], b: [f64; 3], e: &EntityView) -> Option<f64> {
     Some(near)
 }
 
-/// The arc from `eye` along `yaw`/`pitch`, stopped by `block` (the host's
-/// block clip for a segment) or the nearest entity, plus a box at the
-/// impact. The path takes the aiming colour while it ends on an entity,
-/// and that entity's box the target colour.
+/// The axis of the face of `e`'s grown box nearest `hit` (x, then z, then y
+/// on a tie, as the reference picks the cross's rotation).
+fn entity_face(hit: [f64; 3], e: &EntityView) -> usize {
+    let d = |i: usize| {
+        (hit[i] - (e.bounds.min[i] - 0.3))
+            .abs()
+            .min((hit[i] - (e.bounds.max[i] + 0.3)).abs())
+    };
+    let (x, y, z) = (d(0), d(1), d(2));
+    let nearest = y.min(x.min(z));
+    if nearest == x {
+        0
+    } else if nearest == z {
+        2
+    } else {
+        1
+    }
+}
+
+/// The reference's impact marker (`drawImpactMarker`): four 0.25 arms from
+/// `at`, at width 1, in the plane across `axis`.
+fn cross(out: &mut Vec<Line>, at: [f64; 3], axis: usize, color: u32) {
+    for i in (0..3).filter(|&i| i != axis) {
+        for arm in [-0.25, 0.25] {
+            let mut end = at;
+            end[i] += arm;
+            out.push(Line {
+                start: Point(end),
+                end: Point(at),
+                color,
+                width: 1.0,
+            });
+        }
+    }
+}
+
+/// The arc from `eye` along `yaw`/`pitch`, as `Trajectories.onRender3D`
+/// steps it: each tick's segment is clipped by `block` (the host's block
+/// clip, with the hit face's normal) and then by the nearest entity, and the
+/// projectile moves its full step either way, so the path and the cross end
+/// one step past the impact (`TrajectoriesProjectileRenderState` segments
+/// join the points after each step). The path takes the trajectory colour
+/// while it ends on an entity and the aiming colour otherwise; the cross,
+/// turned across the face it hit, takes the target colour on an entity and
+/// the aiming colour on a block.
 #[allow(clippy::too_many_arguments)]
 pub fn lines(
     settings: &Settings,
@@ -168,7 +211,7 @@ pub fn lines(
     yaw: f32,
     pitch: f32,
     entities: &[EntityView],
-    mut block: impl FnMut([f64; 3], [f64; 3]) -> Option<[f64; 3]>,
+    mut block: impl FnMut([f64; 3], [f64; 3]) -> Option<([f64; 3], [i32; 3])>,
     out: &mut Vec<Line>,
 ) {
     let color = |k: &str, d: u32| {
@@ -182,61 +225,60 @@ pub fn lines(
         f64::from(pitch + launch.pitch_offset).to_radians(),
     );
     let direction = [-y.sin() * p.cos(), -p.sin(), y.cos() * p.cos()];
-    let start = Point([eye[0], eye[1] - 0.1, eye[2]]);
-    let velocity: [f64; 3] =
+    let mut at = [eye[0], eye[1] - 0.1, eye[2]];
+    let mut motion: [f64; 3] =
         std::array::from_fn(|i| direction[i] * launch.speed + launch.shooter[i]);
-    let mut struck = None;
-    let prediction = predict_with_drag(
-        start,
-        velocity,
-        launch.gravity,
-        launch.drag,
-        launch.steps,
-        |a, b| {
-            let block_hit = block(a.0, b.0);
-            let limit = block_hit.map_or(1.0, |hit| {
-                let full = super::super::super::targeting::entities::distance(a.0, b.0);
-                if full < 1e-9 {
-                    0.0
-                } else {
-                    super::super::super::targeting::entities::distance(a.0, hit) / full
-                }
-            });
-            let nearest = entities
-                .iter()
-                .filter(|e| e.alive())
-                .filter_map(|e| entity_hit(a.0, b.0, e).map(|t| (t, e)))
-                .filter(|(t, _)| *t <= limit)
-                .min_by(|x, y| x.0.total_cmp(&y.0));
-            if let Some((t, e)) = nearest {
-                struck = Some(e.bounds);
-                let at = [0, 1, 2].map(|i| a.0[i] + (b.0[i] - a.0[i]) * t);
-                return Some(Impact {
-                    position: Point(at),
-                    kind: ImpactKind::Entity,
-                });
-            }
-            block_hit.map(|at| Impact {
-                position: Point(at),
-                kind: ImpactKind::Block,
-            })
-        },
-    );
-    let on_entity = matches!(
-        prediction.impact,
-        Some(Impact {
-            kind: ImpactKind::Entity,
-            ..
-        })
-    );
-    let path = if on_entity {
-        color("aiming-color", 0xffff_ffff)
-    } else {
+    if !at.iter().chain(&motion).all(|v| v.is_finite()) {
+        return;
+    }
+    let distance = super::super::super::targeting::entities::distance;
+    let mut points = Vec::new();
+    // The impact's point, the axis the cross lies across, and whether it is
+    // on an entity.
+    let mut hit: Option<([f64; 3], usize, bool)> = None;
+    for _ in 0..launch.steps.min(4096) {
+        let end: [f64; 3] = std::array::from_fn(|i| at[i] + motion[i]);
+        if !end.iter().all(|v| v.is_finite()) {
+            break;
+        }
+        let mut limit = 1.0;
+        if let Some((point, face)) = block(at, end) {
+            let full = distance(at, end);
+            limit = if full < 1e-9 {
+                0.0
+            } else {
+                distance(at, point) / full
+            };
+            let axis = face.iter().position(|&n| n != 0).unwrap_or(1);
+            hit = Some((point, axis, false));
+        }
+        let nearest = entities
+            .iter()
+            .filter(|e| e.alive())
+            .filter_map(|e| entity_hit(at, end, e).map(|t| (t, e)))
+            .filter(|(t, _)| *t <= limit)
+            .min_by(|x, y| x.0.total_cmp(&y.0));
+        if let Some((t, e)) = nearest {
+            let point = std::array::from_fn(|i| at[i] + (end[i] - at[i]) * t);
+            hit = Some((point, entity_face(point, e), true));
+        }
+        at = end;
+        points.push(Point(at));
+        for v in &mut motion {
+            *v *= launch.drag;
+        }
+        motion[1] -= launch.gravity;
+        if hit.is_some() || at[1] < -128.0 {
+            break;
+        }
+    }
+    let aiming = color("aiming-color", 0xffff_ffff);
+    let path = if matches!(hit, Some((_, _, true))) {
         color("trajectory-color", 0xffff_0000)
+    } else {
+        aiming
     };
-    // The first point sits at the eye; skip it so the arc does not cross
-    // the view.
-    for pair in prediction.points.windows(2).skip(1) {
+    for pair in points.windows(2) {
         out.push(Line {
             start: pair[0],
             end: pair[1],
@@ -244,29 +286,96 @@ pub fn lines(
             width: 1.5,
         });
     }
-    if let Some(bounds) = struck {
-        outline_box(
-            out,
-            Point(bounds.min),
-            Point(bounds.max),
-            color("target-color", 0xff00_00ff),
-            1.5,
-        );
-    } else if let Some(impact) = prediction.impact {
-        let [x, y, z] = impact.position.0;
-        outline_box(
-            out,
-            Point([x - 0.15, y - 0.15, z - 0.15]),
-            Point([x + 0.15, y + 0.15, z + 0.15]),
-            path,
-            1.5,
-        );
+    let (axis, marker) = match hit {
+        Some((_, axis, true)) => (axis, color("target-color", 0xff00_00ff)),
+        Some((_, axis, false)) => (axis, aiming),
+        None => (1, path),
+    };
+    if !points.is_empty() {
+        cross(out, at, axis, marker);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::targeting::entities::EntityClass;
+    use crate::targeting::filter::tests::entity;
+
+    /// A snowball thrown level along +z from an eye at 1.72: its points
+    /// after each tick are z 1.5, 2.985 and 4.455.
+    fn throw(
+        entities: &[EntityView],
+        block: impl FnMut([f64; 3], [f64; 3]) -> Option<([f64; 3], [i32; 3])>,
+    ) -> Vec<Line> {
+        let snowball = launch("snowball", None, false, Loaded::Empty).unwrap();
+        let mut out = Vec::new();
+        lines(
+            &Settings::default(),
+            snowball,
+            [0.0, 1.72, 0.0],
+            0.0,
+            0.0,
+            entities,
+            block,
+            &mut out,
+        );
+        out
+    }
+
+    /// The cross's colour, centre and the axes its arms run along.
+    fn cross_of(out: &[Line]) -> (u32, [f64; 3], Vec<usize>) {
+        let arms: Vec<_> = out.iter().filter(|l| l.width == 1.0).collect();
+        assert_eq!(arms.len(), 4, "{out:?}");
+        let mut axes: Vec<usize> = arms
+            .iter()
+            .map(|l| (0..3).find(|&i| l.start.0[i] != l.end.0[i]).unwrap())
+            .collect();
+        axes.dedup();
+        (arms[0].color, arms[0].end.0, axes)
+    }
+
+    #[test]
+    fn an_entity_hit_turns_the_path_red_and_the_cross_blue_across_its_face() {
+        let target = entity(EntityClass::Player, "a", [0.0, 0.0, 5.0]);
+        let out = throw(std::slice::from_ref(&target), |_, _| None);
+        let path: Vec<_> = out.iter().filter(|l| l.width == 1.5).collect();
+        // Points after ticks 1..3; the third step enters the grown box (z
+        // 4.4) and still runs its full length.
+        assert_eq!(path.len(), 2);
+        assert!(path.iter().all(|l| l.color == 0xffff_0000));
+        assert!((path[0].start.0[2] - 1.5).abs() < 1e-6);
+        let (color, at, axes) = cross_of(&out);
+        assert_eq!(color, 0xff00_00ff);
+        assert!((at[2] - path[1].end.0[2]).abs() < 1e-12 && at[2] > 4.4);
+        // Nearest the box's z face: the cross stands across z.
+        assert_eq!(axes, [0, 1]);
+    }
+
+    #[test]
+    fn a_block_hit_keeps_the_aiming_colour_and_stops_entities_behind_it() {
+        let behind = entity(EntityClass::Player, "a", [0.0, 0.0, 5.0]);
+        let wall = |a: [f64; 3], b: [f64; 3]| {
+            (a[2] < 3.0 && b[2] >= 3.0).then(|| {
+                let t = (3.0 - a[2]) / (b[2] - a[2]);
+                ([0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * t), [0, 0, -1])
+            })
+        };
+        let out = throw(std::slice::from_ref(&behind), wall);
+        assert!(
+            out.iter()
+                .filter(|l| l.width == 1.5)
+                .all(|l| l.color == 0xffff_ffff)
+        );
+        let (color, at, axes) = cross_of(&out);
+        // One full step past the wall, across its face.
+        assert_eq!(color, 0xffff_ffff);
+        assert!(at[2] > 4.4 && axes == [0, 1]);
+        // The ground's top face lays the cross flat.
+        let ground =
+            |a: [f64; 3], b: [f64; 3]| (b[2] > 2.0).then_some(([a[0], 1.5, a[2]], [0, 1, 0]));
+        assert_eq!(cross_of(&throw(&[], ground)).2, [0, 2]);
+    }
 
     #[test]
     fn crossbows_shoot_only_when_loaded() {

@@ -1660,15 +1660,24 @@ impl Runtime {
             alias.as_deref().map(|a| (a, color)),
         )
     }
-    /// ItemESP's tags for the frame's dropped items.
+    /// ItemESP's tags at `partial` of the tick: `groups` are kept between
+    /// ticks and advanced by a new tick's dropped `items`; `feet` is the
+    /// player's position.
     pub fn item_labels(
         &self,
-        items: &[super::modules::render::item_esp::Dropped],
+        groups: &mut super::modules::render::item_esp::Groups,
+        items: Option<&[super::modules::render::item_esp::Dropped]>,
+        feet: [f64; 3],
+        partial: f64,
     ) -> Vec<super::modules::render::item_esp::Label> {
         if !self.enabled(ModuleId::ItemEsp) {
+            groups.clear();
             return Vec::new();
         }
-        super::modules::render::item_esp::labels(&self.settings, items)
+        if let Some(items) = items {
+            groups.tick(&self.settings, items, feet);
+        }
+        groups.labels(&self.settings, feet, partial)
     }
     /// The local friend (when "Use Friends" is on) and enemy name lists.
     pub fn target_people(&self) -> super::targeting::filter::NameLists {

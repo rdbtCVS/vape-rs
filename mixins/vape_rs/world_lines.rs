@@ -339,15 +339,18 @@ pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> Contr
         with_client(&client, |runtime| runtime.trajectory_launch(&stack.item, use_ticks, loaded))
             .map(|l| l.with_shooter([movement.x, movement.y, movement.z], on_ground))
     });
-    let mut block = |a: [f64; 3], b: [f64; 3]| {
+    // The host's block clip for a segment: the hit point and face normal.
+    let clip = |a: [f64; 3], b: [f64; 3]| {
         let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         if length < 1e-9 {
             return None;
         }
-        game.clip_ray(a, d.map(|v| v / length), length).map(|hit| hit.point)
+        game.clip_ray(a, d.map(|v| v / length), length).map(|hit| (hit.point, hit.face))
     };
-    let trajectory = launch.map(|l| (l, &mut block as &mut dyn FnMut([f64; 3], [f64; 3]) -> Option<[f64; 3]>));
+    let mut block = |a: [f64; 3], b: [f64; 3]| clip(a, b).map(|(point, _)| point);
+    let mut faced = clip;
+    let trajectory = launch.map(|l| (l, &mut faced as crate::game::vape_rs::modules::render::trajectories::BlockClip<'_>));
     let (extra, query, props_wanted) = with_client(&client, |runtime| {
         (runtime.world_lines(&camera, &entities, &storage, trajectory), runtime.search_query(), runtime.props_wanted())
     });

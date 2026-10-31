@@ -14,8 +14,8 @@
 // above), anchored a block above the head's centre and scaled 0.003 x
 // distance per unit, so it stays the same size on screen.
 //
-// Differences: beds are found by a scan of the loaded blocks round the
-// player once a second (the reference's per-version scans), and the plate is
+// Differences: beds are the renderer's visible bed heads, surveyed every
+// half second (the reference's per-version scans), and the plate is
 // a square-cornered panel (the reference's rounded composite) with the
 // distance in the host font at 0.7 (the reference's smooth font at 1.2)
 // so it fits its 8-unit band. Ties in a layer keep the order the survey met
@@ -126,7 +126,7 @@ pub fn survey(
     }
     // `sortLayersByFrequency` (a stable sort).
     for layer in &mut layers {
-        layer.sort_by(|a, b| b.1.cmp(&a.1));
+        layer.sort_by_key(|e| std::cmp::Reverse(e.1));
     }
     layers
 }
