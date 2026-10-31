@@ -736,15 +736,23 @@ impl Strip {
         }
     }
     fn strip_head(&mut self, function: &syn::Ident, block: &mut syn::Block) {
-        for (name, statement) in &self.expected {
-            if function == name
-                && block.stmts.first().is_some_and(|actual| {
-                    canonical_statement(actual) == canonical_statement(statement)
-                })
-            {
-                block.stmts.remove(0);
-                self.removed += 1;
-            }
+        // Several HEAD hooks on one function stack in priority order, not
+        // manifest order: peel each expected one off the top until none match.
+        let mut remaining: Vec<&syn::Stmt> = self
+            .expected
+            .iter()
+            .filter(|(name, _)| function == name)
+            .map(|(_, statement)| statement)
+            .collect();
+        while let Some(index) = remaining.iter().position(|statement| {
+            block
+                .stmts
+                .first()
+                .is_some_and(|actual| canonical_statement(actual) == canonical_statement(statement))
+        }) {
+            remaining.remove(index);
+            block.stmts.remove(0);
+            self.removed += 1;
         }
     }
 }

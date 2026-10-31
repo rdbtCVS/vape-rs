@@ -100,6 +100,9 @@ registry! {
     KnockbackDelay => "combat.knockback-delay", "KnockbackDelay", "Utility", None, [];
     Backtrack => "blatant.backtrack", "BackTrack", "Utility", None, [];
     AntiDebuff => "render.anti-debuff", "AntiDebuff", "Render", None, [];
+    Scaffold => "blatant.scaffold", "Scaffold", "Utility", None, [];
+    InvWalk => "blatant.inv-walk", "InvWalk", "Other", None, [];
+    WindCharge => "utility.wind-charge", "WindCharge", "Utility", None, [];
 }
 
 impl ModuleId {
