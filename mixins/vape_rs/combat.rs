@@ -500,6 +500,7 @@ pub(super) fn clickers(game: &mut Game<'_>) {
             entity_hit,
             block_hit,
             sneaking,
+            hit_select: !right && entity_hit && crate::game::vape_hit_select::defers(game),
         };
         let actions = with_client(&client, |runtime| runtime.clicker_frame(right, &input));
         if actions.release {

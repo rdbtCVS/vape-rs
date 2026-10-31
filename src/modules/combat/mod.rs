@@ -1,6 +1,7 @@
 pub mod aim_assist;
 pub mod click_timing;
 pub mod clicker;
+pub mod hit_select;
 pub mod keep_sprint;
 pub mod kill_aura;
 pub mod knockback;

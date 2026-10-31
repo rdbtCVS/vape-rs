@@ -637,3 +637,43 @@ bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "m", ty = "&horizon_client::mobs::Mob", value = "m" },
 ]
+
+[[module]]
+id = "teams"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_teams"
+source = "teams.rs"
+
+# HitSelect: the click verdict before the host attacks (above remote-attack,
+# so a cancelled click skips it), and mode Normal's held-back use and block
+# hitting.
+[[module]]
+id = "hit-select"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_hit_select"
+source = "hit_select.rs"
+
+[[injection]]
+id = "hit-select-attack"
+target = "horizon_client::game::remote::Game<'_>::remote_start_attack"
+kind = "HEAD"
+cancellable = true
+priority = 110
+helper = "adapters/hit_select_attack.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "hit-select-use"
+target = "horizon_client::game::remote::Game<'_>::remote_use"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/hit_select_use.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "hit-select-continue-attack"
+target = "horizon_client::game::remote::Game<'_>::remote_continue_attack"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/hit_select_continue_attack.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
