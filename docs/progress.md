@@ -2317,3 +2317,43 @@ Open in this scope:
 - Dropped at the wrap-up and not started: the HUD font switch, HUD editor transparency, and the armor bar glow and rounding.
 
 Ledger: `target/ledger-updates/hud-client-debt.json` in the main checkout.
+
+## 2026-10-31: round 2–4 workers merged; ledger applied; status refreshed
+
+All nine workers finished their current items at the wrap-up order and were merged into main one at a time:
+
+| Worker | Branch | Merge |
+|---|---|---|
+| combat-a | t3/1e32141e | cdc0228 |
+| inventory | t3/e781b9a4 | 2da410b |
+| combat-b | t3/3acb15a0 | 578cbe0 |
+| render | t3/4e786919 | 5bba6ad |
+| inventory-utility-debt | t3/a66f4a9c | a410444 |
+| movement-b | t3/5cf7669a | 54350ef |
+| movement-a | t3/a1f24057 | 0828f06 |
+| client-foundation | t3/7064aa90 | 60332f7 |
+| hud-client-debt | t3/4dc0aab3 | d90e860 |
+
+Their worktrees and branches are removed (about 46 GB freed).
+
+Gates on merged main `d90e860` (`gates.sh --host`): fmt, Clippy `-D warnings` (all targets), workspace and host tests **895 passed / 0 failed**, payload-test, stage/audit with **64 hooks and 35 support modules** (horizon-mixins `0e9229d`), host check and host build.
+
+Ledger: the worker files render, movement-b, inventory-utility-debt, movement-a, client-foundation and hud-client-debt (target/ledger-updates/) were dry-run, their evidence paths checked in docs/evidence, then written. Counts are now 206 validated, 42 integrated, 36 implemented-core, 138 not-started, 9 blocked, 28 not-applicable-reviewed and 13 excluded-approved (472 rows). Status changes that lower or reclassify a row:
+- ESP Skeleton (mode and helper) → blocked: no player-model bone poses.
+- MotionBlur blocked → not-started: it has hook targets (decisions.md).
+- Throwpot Soup/Both → blocked: no per-stack consumable component.
+- Freelook's six rows blocked → integrated on the Freecam camera hooks; its 1st-person mode and the legacy Freecam controller → not-applicable-reviewed.
+
+Settings parity (`tools/settings_parity.py`, 99ca72a and 3ad3e2a):
+- It skips settings the reference registers only on other versions (`U(value, ForgeVersion.MC_x.<cmp>())`, target 26.3).
+- It reads a mode's default past its description and resolves submode fields to their labels. The AutoMace "default differs" was this artifact.
+- Result: 55 entries, no default or range differences. The remaining "missing setting" entries are all on integrated or blocked rows: Blink "Spawn fake", KillAura "Show target" and its colours, Reach "Misplace"/"Disadvantage", SilentAura's Break blocks, render and colour settings, and its AI settings (excluded).
+- A sweep of every open mode row found no other option whose owning setting is version-gated off.
+
+AntiBot: the 16 `module.antibot.mode.*` colour rows are not-applicable-reviewed (target/ledger-updates/coordinator-antibot-colors.json). They are options of "Your team color", registered only below 1.21.11 (AntiBot.java:611); on 26.3 the check uses the entity cache's player-list colour (AntiBot.java:484, 604–612), which the port detects. Evidence: the reference-text review, the parity tool and module.antibot's evidence in docs/evidence/combat-a-targetfilter-lan-guest/.
+
+Scenario rerun on merged main: the first batch died on `wgpu error: Out of Memory`. Other sessions' clients hold up to 6.4 GB of the 8 GB card. Before it died, render_sp passed 20/21; trajectories-bow-block failed because chat covered the arc. tools/render_scenario.py now hides chat (`chatVisibility 2`) while the bow is drawn. The batch was restarted with a runner that waits for 3 GB of free VRAM before each scenario; results follow in the next entry.
+
+Not done: the idle-machine performance run (load stays near 25), the re-pin (candidate 5062f225 is stale; Horizon main is about 1,450 commits ahead), and the LongJump/AntiFall/Step decision (the user's).
+
+Docs: docs/status.md rewritten for main `3ad3e2a`; README "What works today" lists the newly validated modules and names the integrated, blocked and unported ones separately.

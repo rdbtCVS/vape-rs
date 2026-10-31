@@ -14,14 +14,14 @@ A from-scratch recreation of the **Vape** Minecraft client as a native Rust mod 
 
 Tested in a real game (fresh test instances, single player and LAN):
 
-- **Combat:** AutoClicker, RightClicker, TriggerBot, JumpReset, WTap, Sprint, KeepSprint, Velocity, HitBoxes.
-- **Movement:** Speed, Fly, NoFall, NoSlowdown, InvWalk, Timer, SafeWalk, Scaffold (Legit), NoItemRelease, WindCharge.
-- **World / utility:** Anti-AFK, AutoFish, FastPlace, Backtrack, KnockbackDelay, Panic (F10).
-- **Inventory:** Refill, Throwpot, ThrowDebuff.
-- **Render:** Fullbright, Clear Water, NoHurtCam, ItemESP, Time Changer, Weather, AntiDebuff, Inventory Blur, NoClickDelay, NoJumpDelay.
+- **Combat:** AutoClicker, RightClicker, TriggerBot, JumpReset, WTap, Sprint, KeepSprint, Velocity, HitBoxes, BlockHit, HitSelect, HitSwap, ShieldBreaker, TargetFilter.
+- **Movement:** Speed, Fly, NoFall, NoSlowdown, InvWalk, Timer, SafeWalk, Scaffold (Legit), NoItemRelease, WindCharge, Freecam.
+- **World / utility:** Anti-AFK, AutoFish, FastPlace, Backtrack, KnockbackDelay, AutoPearl, PearlCatch, AutoTool, Panic (F10).
+- **Inventory:** Refill, Throwpot, ThrowDebuff, AutoHeal, AutoTotem, ChestSteal, InventoryManager, InvCleaner, AutoHotbar, ArmorSwitch.
+- **Render:** Fullbright, Clear Water, NoHurtCam, ItemESP, Time Changer, Weather, AntiDebuff, Inventory Blur, NoClickDelay, NoJumpDelay, ESP, Tracers, NameTags, Search, SpawnerFinder, StorageESP, Trajectories, Projectiles, Arrows, Health, Explosions, Indicators, BedPlates, Block Overlay, PropHunt, MurdererFinder.
 - **HUD:** Armor Status, Potion Status, Coords, FPS, Compass, Clock, Keystrokes, Reach Display, toggle notifications, with an in-game layout editor.
 
-Running in the game but not yet covered by a test scenario: AimAssist, KillAura, SilentAura, AutoHeal (Legit), AutoArmor, AutoTotem, ChestSteal, Parkour, Blink, FakeLag, Text GUI, Scoreboard, ESP, Tracers, Trajectories, NameTags, StorageESP, Search and other render modules, plus the click GUI's search/favorites, profiles and friends/enemies. AutoTool, InventoryManager, InvCleaner, AutoHotbar, ArmorSwitch, binds and macros are partly connected. Reach, Chams, XRay and MotionBlur need host support that the pinned Horizon does not offer yet. More modules are still being ported.
+Running in the game but not yet covered by a full test scenario: AimAssist, KillAura, SilentAura, AutoArmor, AutoMace, InventoryFill, Parkour, Blink, FakeLag, Freelook, Scaffold's GodBridge/TellyBridge, Text GUI, Scoreboard, Target Info, plus the click GUI's search/favorites, profiles, friends/enemies, binds and macros. AntiFireball and HitFlick are partly connected. Reach, Chams, XRay, ESP Skeleton and Throwpot's soup modes need host support that the pinned Horizon does not offer yet. CrystalAura, AutoAnchor, BedBreaker, Block-In, Clutch, MLG, AutoLadder and MotionBlur are still to be ported.
 
 Modules start disabled. F10 turns every active module off. AI behavior and the online product are intentionally not part of this project.
 
