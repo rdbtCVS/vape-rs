@@ -1828,3 +1828,4 @@ Still open in this scope:
 - ItemDataComparator: the Throwpot order isn't asserted in a host scenario.
 - InventoryActionGuard: no combat scenario.
 - ThrowDebuff orders nearest-first; the reference doesn't sort. Left to its owner.
+- Host gates: the host build above ran on `109d27c`. `5195a4f` and later change only docs and the AutoHeal scenario tool. On the coordinator's instruction, the post-merge host check and build are not run here; the coordinator runs `gates.sh --host` and these scenarios on main after the merge.
