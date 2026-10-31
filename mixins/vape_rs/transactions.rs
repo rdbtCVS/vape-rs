@@ -503,6 +503,9 @@ pub fn dispatch(game: &mut Game<'_>) {
             ThrowEffect::Use => super::vape_macros::use_once(game),
             ThrowEffect::Drop if game.remote.is_some() => game.remote_drop(false),
             ThrowEffect::Drop => game.drop_held(false),
+            ThrowEffect::SilentUse(slot) => {
+                silent_use(game, usize::from(slot), None);
+            }
             _ => {}
         }
     }
@@ -558,5 +561,94 @@ pub fn dispatch(game: &mut Game<'_>) {
             }
             _ => {}
         }
+    }
+}
+
+/// AutoHeal Silent's use: `CPacketHeldItemChange(slot)`, `sendUseItem`,
+/// `CPacketHeldItemChange(current)`. The server holds `slot` for this one
+/// `UseItem` (Horizon's own `remote_use_item`, which also starts the local
+/// use it predicts); the client's selection and shown hotbar never change.
+/// `look` is the yaw/pitch the use carries (Potions' looking down). Only a
+/// server keeps its carried slot apart from the shown one: the deprecated
+/// in-frame world gets nothing.
+fn silent_use(game: &mut Game<'_>, slot: usize, look: Option<(f32, f32)>) -> bool {
+    use horizon_client::first_person::Hand;
+    use horizon_protocol::packets::play::{self, Serverbound as S};
+    let held = game.inventory.get(slot).is_some_and(Option::is_some);
+    if slot >= 9 || !held || game.remote.is_none() {
+        return false;
+    }
+    let (selected, view) = (game.selected, (game.yaw, game.pitch));
+    game.send(S::SetCarriedItem(play::SetCarriedItem { slot: slot as i16 }));
+    game.selected = slot;
+    if let Some((yaw, pitch)) = look {
+        (game.yaw, game.pitch) = (yaw, pitch);
+    }
+    game.remote_use_item(Hand::Main);
+    game.selected = selected;
+    (game.yaw, game.pitch) = view;
+    game.send(S::SetCarriedItem(play::SetCarriedItem {
+        slot: selected as i16,
+    }));
+    if let Some(r) = game.remote.as_mut() {
+        r.carried = Some(selected);
+    }
+    true
+}
+
+thread_local! {
+    /// Potions' look for this motion packet, and the managed rotation it
+    /// replaced (restored at PostMotion).
+    static POTION_LOOK: std::cell::Cell<Option<((f32, f32), Option<(f32, f32)>)>> =
+        const { std::cell::Cell::new(None) };
+}
+fn motion_allowed(game: &Game<'_>) -> bool {
+    game.remote.is_some()
+        && game.title.is_none()
+        && game.player.as_ref().is_some_and(|p| p.health.health() > 0.0)
+}
+/// `auto-heal-pre-motion` (HEAD of `remote_send_state`): AutoHeal's
+/// `EventPreMotion`. Replace's window-0 SWAP goes out first (the server's
+/// player menu needs no screen; with a container open the server would
+/// ignore it); an armed potion makes this motion packet look down through
+/// the managed rotation, keeping its yaw.
+pub fn auto_heal_pre_motion(game: &mut Game<'_>) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    if !motion_allowed(game) || !with_client(&client, |r| r.auto_heal_potions()) {
+        return;
+    }
+    let Some(snapshot) = snapshot(game) else {
+        return;
+    };
+    let motion = with_client(&client, |r| r.auto_heal_pre_motion(&snapshot));
+    if let Some((from, button)) = motion.swap
+        && game.remote.as_ref().is_some_and(|r| r.menu.is_none())
+    {
+        game.remote_menu_ops(&[(Some(usize::from(from)), i32::from(button), Input::Swap)]);
+    }
+    if let Some(pitch) = motion.pitch {
+        use super::vape_combat_remote as remote;
+        let managed = remote::rotation((f32::INFINITY, 0.0));
+        let previous = managed.0.is_finite().then_some(managed);
+        let yaw = previous.map_or(game.yaw, |(yaw, _)| yaw);
+        remote::set_rotation(Some((yaw, pitch)));
+        POTION_LOOK.with(|l| l.set(Some(((yaw, pitch), previous))));
+    }
+}
+/// `auto-heal-post-motion` (RETURN of `remote_send_state`): AutoHeal's
+/// `EventPostMotion`. The armed potion is used silently with the look the
+/// motion packet sent, and the managed rotation goes back.
+pub fn auto_heal_post_motion(game: &mut Game<'_>) {
+    let look = POTION_LOOK.with(std::cell::Cell::take);
+    if let Some((_, previous)) = look {
+        super::vape_combat_remote::set_rotation(previous);
+    }
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    if !motion_allowed(game) {
+        return;
+    }
+    let now = std::time::Instant::now();
+    if let Some(slot) = with_client(&client, |r| r.auto_heal_post_motion(now)) {
+        silent_use(game, usize::from(slot), look.map(|(look, _)| look));
     }
 }

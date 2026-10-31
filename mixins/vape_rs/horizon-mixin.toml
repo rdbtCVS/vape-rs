@@ -673,3 +673,20 @@ kind = "HEAD"
 cancellable = true
 helper = "adapters/auto_totem_break.rs"
 bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "auto-heal-pre-motion"
+target = "horizon_client::game::remote::Game<'_>::remote_send_state"
+kind = "HEAD"
+helper = "adapters/auto_heal_pre_motion.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "auto-heal-post-motion"
+target = "horizon_client::game::remote::Game<'_>::remote_send_state"
+kind = "RETURN"
+helper = "adapters/auto_heal_post_motion.rs"
+bindings = [
+  { name = "value", ty = "()", value = "$value" },
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
