@@ -43,6 +43,11 @@ impl PotionView {
 #[derive(Clone, Debug)]
 pub enum Content {
     Lines,
+    /// The vanilla scoreboard sidebar moved to the panel; the host draws it.
+    Scoreboard {
+        width: f32,
+        height: f32,
+    },
     Clock {
         time: super::clock::ClockTime,
         digital: bool,
@@ -77,6 +82,12 @@ pub enum Content {
     /// Painted by the host from `text_gui::layout`; it needs live text
     /// measurement, so the generic command layout is empty.
     TextGui(super::text_gui::View),
+    /// Painted by the host from `target_info::layout`, like the Text GUI.
+    TargetInfo(super::target_info::View),
+    /// One left-aligned line at (5, 5.5), like `ReachDisplayHudFrame`.
+    Label {
+        text: String,
+    },
 }
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -554,7 +565,16 @@ impl HudPanel {
                     );
                 }
             }
-            Content::TextGui(_) => {}
+            Content::TextGui(_) | Content::TargetInfo(_) => {}
+            Content::Scoreboard { width, height } => {
+                // The host paints the sidebar itself over this box.
+                output.width = *width;
+                output.height = *height;
+            }
+            Content::Label { text } => {
+                output.width = output.width.max(measure(text) + 10.0);
+                output.text(5.0, 5.5, 1.0, text.clone(), color);
+            }
             Content::Compass { yaw } => {
                 let heading = heading(*yaw);
                 let start = heading - 70.0;

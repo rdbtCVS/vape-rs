@@ -84,3 +84,13 @@
 - The TAB bind view ("Hold TAB to view modules binds") is superseded rather than ported. The v4 module cards (`ClickGuiModuleCardComponent.getBindLabel`) and our module rows always show the bind, so there is nothing for TAB to reveal.
 - The blur background toggle is not ported. The host applies its menu blur whenever a mod screen asks for `menu_blur()`, and turning it off per setting needs a Horizon change. Recorded as a limitation, with no workaround.
 - Notifications are drawn by the core layout in the HUD pass. While the click GUI is open the GUI pass replaces the batch, so toasts resume when it closes.
+
+## 2026-10-31: HUD modules triage (HUD worker)
+
+- Freelook is blocked on Horizon. The camera rotation comes from `player_camera_entity()` and then `align_with_entity` in `game/perspective.rs`. There is no override point for it: a HEAD hook would have to copy the whole function, and a MODIFY_ARG on the borrowed `CameraEntity` cannot return a changed value. `turn_player` also serves the pad and aim paths. This needs a Horizon camera-rotation hook, and there is no workaround.
+- Motion Blur is blocked on Horizon, which needs a frame-accumulation (previous-frame blend) hook. The reference is limited to versions >= 1.17 and < 26.2.
+- Blockhit Animation (reference: 1.8.9 only) and Hit Color (reference: > 1.7.10 and < 1.16.5) are not-applicable-reviewed for 26.3.
+- Scoreboard and Inventory Blur are retained even though the reference limits them to < 1.20.6. Both are useful on modern versions, and the host draws a sidebar and a menu blur that we can hook.
+- Scoreboard is drawn by our HUD panel. It clones the board, blanks the score numbers unless Show score numbers is on, and paints the host's own `hud_overlays::sidebar` draws at the panel position. The `scoreboard-sidebar` HEAD hook cancels the vanilla sidebar only while the module is enabled. The reference text replacements (server IP, title) are not ported.
+- Inventory Blur cancels `menu_blur` on the survival/creative inventory with a radius. The radius is the client menu-blur setting when that is at least 1, and 5 otherwise, so the module still blurs when the vanilla option is off.
+- Panic default visibility (`setDefaultVisibility(false)`) stays open: our click GUI has no per-module visibility.

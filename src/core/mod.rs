@@ -107,6 +107,10 @@ pub struct Runtime {
     text_gui_clock: Option<std::time::Instant>,
     toasts: super::ui::notifications::Toasts,
     toast_clock: Option<std::time::Instant>,
+    target_info: super::ui::target_info::Tracker,
+    target_info_clock: Option<std::time::Instant>,
+    /// Reach Display: the last attack distance and when it landed.
+    reach_last: Option<(f32, std::time::Instant)>,
     bind_indicator_shown: bool,
     suppress_toggle_alerts: bool,
     pub gui: Gui,
@@ -330,6 +334,12 @@ impl Default for Runtime {
         for definition in super::ui::text_gui::definitions() {
             settings.define(definition).unwrap();
         }
+        for definition in super::ui::target_info::definitions() {
+            settings.define(definition).unwrap();
+        }
+        for definition in super::ui::scoreboard::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::ui::client_settings::definitions() {
             settings.define(definition).unwrap();
         }
@@ -469,6 +479,9 @@ impl Default for Runtime {
             text_gui_clock: None,
             toasts: Default::default(),
             toast_clock: None,
+            target_info: Default::default(),
+            target_info_clock: None,
+            reach_last: None,
             bind_indicator_shown: false,
             suppress_toggle_alerts: false,
             gui: Gui::default(),
@@ -2015,6 +2028,7 @@ impl Runtime {
         self.hud_state.update(snapshot);
         self.tick_text_gui();
         self.bind_indicator(snapshot);
+        self.tick_target_info(snapshot);
     }
     pub fn register_synthetic_click(&mut self, button: usize) {
         self.hud_state.click(button);
@@ -2071,6 +2085,10 @@ impl Runtime {
                     Some(content) => content,
                     None => continue,
                 },
+                ModuleId::TargetInfo => match self.target_info_content(&snapshot, preview) {
+                    Some(content) => content,
+                    None => continue,
+                },
                 ModuleId::Coordinates => super::ui::hud::Content::Coordinates {
                     layout: if self
                         .settings
@@ -2088,6 +2106,18 @@ impl Runtime {
                 },
                 ModuleId::Compass => super::ui::hud::Content::Compass { yaw: snapshot.yaw },
                 ModuleId::Fps => super::ui::hud::Content::Lines,
+                ModuleId::ReachDisplay => super::ui::hud::Content::Label {
+                    text: self.reach_display_text(),
+                },
+                ModuleId::Scoreboard => match snapshot.scoreboard {
+                    Some((width, height)) => super::ui::hud::Content::Scoreboard { width, height },
+                    // The GUI preview keeps a handle when no sidebar is shown.
+                    None if preview => super::ui::hud::Content::Scoreboard {
+                        width: 60.0,
+                        height: 40.0,
+                    },
+                    None => continue,
+                },
                 ModuleId::Clock => super::ui::hud::Content::Clock {
                     time: snapshot.clock,
                     digital: self.settings.get("hud.clock.type").and_then(Value::as_str)
@@ -2212,7 +2242,9 @@ impl Runtime {
                 | ModuleId::JumpReset
                 | ModuleId::KnockbackDelay
                 | ModuleId::Backtrack
-                | ModuleId::AntiDebuff => continue,
+                | ModuleId::AntiDebuff
+                | ModuleId::Health
+                | ModuleId::InventoryBlur => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {
@@ -2260,8 +2292,9 @@ impl Runtime {
                     ..
                 } => (70.0, 90.0),
                 Content::Coordinates { .. } => (0.0, 35.0),
-                Content::Lines => (50.0, 20.0),
-                Content::TextGui(_) => (0.0, 0.0),
+                Content::Lines | Content::Label { .. } => (50.0, 20.0),
+                Content::Scoreboard { width, height } => (*width, *height),
+                Content::TextGui(_) | Content::TargetInfo(_) => (0.0, 0.0),
             };
             panels.push(HudPanel {
                 content,

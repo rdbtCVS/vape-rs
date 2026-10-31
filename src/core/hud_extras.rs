@@ -3,9 +3,11 @@
 // `getDetailedSuffix`) and its show/hide animation.
 
 use super::super::ui::Snapshot;
+use super::super::ui::center_stack;
 use super::super::ui::client_settings::bind_text;
 use super::super::ui::hud::Content;
 use super::super::ui::notifications::{self, Kind};
+use super::super::ui::target_info::{self, Seen, Shown};
 use super::super::ui::text_gui::{self, Row, View, decimal};
 use super::{ModuleId, Runtime};
 use serde_json::{Value, json};
@@ -93,6 +95,81 @@ impl Runtime {
         self.toasts.update(elapsed);
         notifications::layout(&self.toasts, screen, measure)
     }
+    /// The tracked target's entity id, for the host to look up each frame.
+    pub fn target_info_id(&self) -> Option<i32> {
+        self.target_info.id()
+    }
+    /// `onPostAttack`: a living, non-armor-stand entity becomes the target.
+    pub fn target_info_attack(&mut self, seen: Seen) {
+        if self.enabled(ModuleId::TargetInfo) {
+            self.target_info.show(seen);
+        } else {
+            self.target_info.clear();
+        }
+    }
+    pub(super) fn tick_target_info(&mut self, snapshot: &Snapshot) {
+        let now = std::time::Instant::now();
+        let elapsed = self
+            .target_info_clock
+            .replace(now)
+            .map_or(0.0, |then| now.duration_since(then).as_secs_f32() * 1000.0)
+            .min(1000.0);
+        if !self.enabled(ModuleId::TargetInfo) || !snapshot.in_world {
+            self.target_info.clear();
+            return;
+        }
+        let hovered = self.hud_flag(&format!("{}.show-hovered", target_info::ID));
+        self.target_info.update(&snapshot.target, elapsed, hovered);
+    }
+    pub(super) fn target_info_content(
+        &self,
+        snapshot: &Snapshot,
+        preview: bool,
+    ) -> Option<Content> {
+        let flag = |k: &str| self.hud_flag(&format!("{}.{k}", target_info::ID));
+        let shown = Shown {
+            hits: flag("hits-comparator"),
+            pots: flag("pots-used-comparator"),
+            combo: flag("combo-counter"),
+            damage: flag("damage-comparator"),
+        };
+        self.target_info
+            .view(snapshot.target.own.as_ref(), preview, shown)
+            .map(Content::TargetInfo)
+    }
+    /// `ReachDisplayHudModule.onPostAttack`: the eye-to-hitbox distance of
+    /// an attack on the crosshair entity.
+    pub fn reach_display_attack(&mut self, distance: f32) {
+        if self.enabled(ModuleId::ReachDisplay) {
+            self.reach_last = Some((distance, std::time::Instant::now()));
+        }
+    }
+    /// `ReachDisplayHudFrame`: two decimals, back to 0.00 after 5 s.
+    pub(super) fn reach_display_text(&self) -> String {
+        let reach = match self.reach_last {
+            Some((d, at)) if at.elapsed().as_millis() < 5000 => d,
+            _ => 0.0,
+        };
+        format!("{reach:.2} blocks")
+    }
+    /// The centre-screen readouts (`ActiveModuleStackFrame`) for one frame.
+    pub fn center_stack_frame(
+        &self,
+        snapshot: &Snapshot,
+        screen: (f32, f32),
+        measure: impl Fn(&str, f32) -> f32,
+    ) -> Vec<text_gui::Draw> {
+        if !snapshot.in_world || !snapshot.show_hud {
+            return Vec::new();
+        }
+        let mut entries = Vec::new();
+        if self.enabled(ModuleId::Health)
+            && let Some((health, absorption)) = snapshot.health
+        {
+            entries.push(center_stack::health(health, absorption));
+        }
+        center_stack::layout(&entries, screen, measure)
+    }
     fn hud_number(&self, id: &str) -> f64 {
         self.settings
             .get(id)
@@ -105,6 +182,10 @@ impl Runtime {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string()
+    }
+    /// Scoreboard: whether the moved sidebar shows its score numbers.
+    pub fn scoreboard_numbers(&self) -> bool {
+        self.hud_flag(super::super::ui::scoreboard::SHOW_NUMBERS)
     }
     fn hud_flag(&self, id: &str) -> bool {
         self.settings
@@ -413,6 +494,37 @@ mod tests {
         assert_eq!(
             view(&r).custom,
             Some(("\u{a7}cHi".into(), text_gui::GUI_COLOR))
+        );
+    }
+
+    #[test]
+    fn reach_display_and_health_follow_their_modules() {
+        let mut r = Runtime::default();
+        r.reach_display_attack(2.5);
+        assert_eq!(r.reach_display_text(), "0.00 blocks"); // disabled: not recorded
+        r.set_enabled(ModuleId::ReachDisplay, true);
+        r.reach_display_attack(2.871);
+        assert_eq!(r.reach_display_text(), "2.87 blocks");
+        r.reach_last = Some((
+            3.0,
+            std::time::Instant::now() - std::time::Duration::from_secs(6),
+        ));
+        assert_eq!(r.reach_display_text(), "0.00 blocks");
+        let snapshot = Snapshot {
+            in_world: true,
+            show_hud: true,
+            health: Some((20.0, 0.0)),
+            ..Snapshot::default()
+        };
+        let measure = |s: &str, _: f32| s.len() as f32;
+        assert!(
+            r.center_stack_frame(&snapshot, (400.0, 300.0), measure)
+                .is_empty()
+        );
+        r.set_enabled(ModuleId::Health, true);
+        assert!(
+            !r.center_stack_frame(&snapshot, (400.0, 300.0), measure)
+                .is_empty()
         );
     }
 }

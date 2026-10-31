@@ -186,6 +186,25 @@ file = "crates/horizon-client/src/game.rs"
 name = "vape_camera"
 source = "camera.rs"
 
+# Inventory Blur: the vanilla menu background blur behind the survival,
+# creative and container screens, which 26.3 leaves unblurred.
+# Scoreboard: the vanilla sidebar is replaced by the movable HUD panel.
+[[injection]]
+id = "scoreboard-sidebar"
+target = "horizon_client::game::scoreboard::Game<'_>::draw_scoreboard"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/scoreboard.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+
+[[injection]]
+id = "inventory-blur"
+target = "horizon_client::game::Game<'_>::menu_blur"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/inventory_blur.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+
 [[injection]]
 id = "no-hurt-camera"
 target = "horizon_client::game::fov::Game<'_>::bob_matrix"

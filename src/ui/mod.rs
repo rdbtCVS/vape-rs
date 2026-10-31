@@ -1,3 +1,4 @@
+pub mod center_stack;
 pub mod client_settings;
 pub mod clock;
 pub mod gui;
@@ -5,6 +6,8 @@ pub mod hud;
 pub mod hud_state;
 pub mod notifications;
 pub mod resource_names;
+pub mod scoreboard;
+pub mod target_info;
 pub mod text_gui;
 
 #[derive(Clone, Debug, Default)]
@@ -20,6 +23,12 @@ pub struct Snapshot {
     pub effects: Vec<hud::PotionView>,
     pub in_world: bool,
     pub show_hud: bool,
+    /// Target Info: what the host saw this frame.
+    pub target: target_info::Feed,
+    /// Health: the player's health and absorption.
+    pub health: Option<(f32, f32)>,
+    /// Scoreboard: the size of the sidebar the host would draw, if any.
+    pub scoreboard: Option<(f32, f32)>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

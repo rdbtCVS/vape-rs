@@ -53,6 +53,11 @@ registry! {
     ArmorStatus => "hud.armor", "Armor Status", "HUD", Some((330.0, 100.0)), [];
     PotionEffects => "hud.potions", "Potion Effects", "HUD", Some((240.0, 180.0)), [];
     TextGui => "hud.text-gui", "Text GUI", "HUD", Some((4000.0, 2.0)), [];
+    TargetInfo => "hud.target-info", "Target Info", "HUD", Some((200.0, 240.0)), [];
+    ReachDisplay => "hud.reach-display", "Reach Display", "HUD", Some((8.0, 64.0)), [];
+    Health => "render.health", "Health", "Render", None, [];
+    InventoryBlur => "render.inventory-blur", "Inventory Blur", "Render", None, [];
+    Scoreboard => "hud.scoreboard", "Scoreboard", "HUD", Some((560.0, 160.0)), [];
     AutoArmor => "inventory.auto-armor", "AutoArmor", "Inventory", None, [];
     AutoTotem => "inventory.auto-totem", "AutoTotem", "Inventory", None, [];
     Refill => "inventory.refill", "Refill", "Inventory", None, [];
