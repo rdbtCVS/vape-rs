@@ -52,6 +52,7 @@ pub enum Owner {
     Scaffold,
     WindCharge,
     NoFall,
+    AutoTotem,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

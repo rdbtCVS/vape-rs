@@ -210,6 +210,8 @@ pub struct Vitals {
     pub effects: Vec<String>,
     /// The player is using an item (eating, drawing a bow).
     pub using_item: bool,
+    /// The camera's yaw and pitch, degrees.
+    pub view: (f32, f32),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Click {

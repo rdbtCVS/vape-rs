@@ -376,16 +376,26 @@ def run(resources):
         assert poll(lambda: screen() == 'inventory', 20), screen()
         session.call('wait', '8')
         session.call('key', 'escape', 'tap')
-        finish(AS, 'switch-interrupted', before, 40)
+        partial = finish(AS, 'switch-interrupted', before, 40)
         assert not ground()
+        worn = {e['part']: e.get('item') for e in partial['armor']}
+        assert None not in worn.values(), worn
         session.call('key', 'u', 'tap')
         inv = finish(AS, 'switch-resumed', before)
         armor = {e['part']: e.get('item') for e in inv['armor']}
-        # A complete set of one material either way (the rerun reads the
-        # worn material from the first worn piece).
-        kinds = {v.split('_')[0] for v in armor.values() if v}
-        assert len(kinds) == 1 and None not in armor.values(), armor
-        checks['switch_interrupted'] = {'armor_after_rerun': armor}
+        # The rerun reads the worn material from the first worn piece (the
+        # helmet) and needs the whole other set in slots 9-44, as the
+        # reference's hasEquippedArmor/findArmorSlots do: an untouched iron
+        # set switches to diamond; after a completed helmet swap the iron
+        # chest, legs and feet are worn, not stored, so it turns off
+        # without a click.
+        if all(v.startswith('minecraft:iron_') for v in worn.values()):
+            assert all(v.startswith('minecraft:diamond_') for v in armor.values()), armor
+        else:
+            assert worn['head'].startswith('minecraft:diamond_'), worn
+            assert armor == worn and slots(inv) == slots(partial), (armor, worn)
+        checks['switch_interrupted'] = {'armor_after_interrupt': worn,
+                                        'armor_after_rerun': armor}
 
         session.capture('final')
         (session.root / 'assertions.json').write_text(

@@ -275,6 +275,7 @@ fn vitals(game: &Game<'_>) -> Vitals {
             .map(|e| unprefixed(&e.id))
             .collect(),
         using_item: game.using.is_some(),
+        view: (game.yaw, game.pitch),
     }
 }
 
@@ -360,20 +361,7 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     let Some(current) = snapshot(game) else {
         return false;
     };
-    if !current.screen_open
-        || current.session != request.session
-        || current.container_id != request.container_id
-        || current.revision != request.revision
-    {
-        return false;
-    }
-    let Some(slot) = current.slot(request.slot) else {
-        return false;
-    };
-    if slot.item.as_ref().map(|i| &i.fingerprint) != request.expected.as_ref() {
-        return false;
-    }
-    if current.carried.as_ref().map(|i| &i.fingerprint) != request.expected_carried.as_ref() {
+    if !current.screen_open || !current_matches(&current, request) {
         return false;
     }
     let input = match request.click {
@@ -396,6 +384,69 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     // slots/carried stack for remote ContainerClick packets.
     game.menu_ops(&[(Some(usize::from(request.slot)), button, input)])
 }
+/// The request still names this session, menu, revision and slot contents.
+fn current_matches(current: &Snapshot, request: &Request) -> bool {
+    current.session == request.session
+        && current.container_id == request.container_id
+        && current.revision == request.revision
+        && current
+            .slot(request.slot)
+            .is_some_and(|slot| slot.item.as_ref().map(|i| &i.fingerprint) == request.expected.as_ref())
+        && current.carried.as_ref().map(|i| &i.fingerprint) == request.expected_carried.as_ref()
+}
+/// AutoTotem's silent swap: with no screen the click goes to the player
+/// menu (window 0) through the remote menu engine, which predicts it and
+/// sends the ordinary `ContainerClick`; the server's player menu needs no
+/// open screen. A shown inventory screen takes the ordinary path.
+fn submit_silent(game: &mut Game<'_>, request: &Request) -> bool {
+    if game.screen == Screen::Inventory {
+        return submit(game, request);
+    }
+    let Some(current) = snapshot(game) else {
+        return false;
+    };
+    if current.screen_open
+        || current.container_id != 0
+        || request.click != Click::SwapOffhand
+        || !current_matches(&current, request)
+    {
+        return false;
+    }
+    let ops = [(Some(usize::from(request.slot)), 40, Input::Swap)];
+    if game.remote.is_some() {
+        game.remote_menu_ops(&ops)
+    } else {
+        false
+    }
+}
+/// `closeInventory` of a silent session (`closeScreen`): the player menu's
+/// `ContainerClose`, or the player's own inventory screen if one was shown
+/// (`close_screen`). A container's menu replaced the player menu: nothing to
+/// close.
+fn silent_close(game: &mut Game<'_>, close_screen: bool) {
+    if game.remote.as_ref().is_none_or(|r| r.menu.is_some()) {
+        return;
+    }
+    match game.screen {
+        Screen::Inventory if close_screen => {
+            game.close_container();
+            game.screen = Screen::Playing;
+            game.capture(true);
+        }
+        Screen::Inventory => {}
+        _ => game.remote_close_container(),
+    }
+}
+
+/// AutoTotem's silent open holds attack, use and block breaking (only on
+/// the window's own game, not the integrated server's).
+pub fn input_held(game: &Game<'_>) -> bool {
+    if game.serving.is_some() || game.options.dedicated.is_some() {
+        return false;
+    }
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    with_client(&client, |r| r.auto_totem_input_held())
+}
 
 // Dispatch on frames so an open inventory menu can advance while the
 // world simulation is paused. Scheduling uses monotonic time in the runtime.
@@ -416,12 +467,21 @@ pub fn dispatch(game: &mut Game<'_>) {
         && with_client(&client, |r| !r.gui.open);
     let snapshot = allowed.then(|| snapshot(game)).flatten();
     let Some(snapshot) = snapshot else {
-        with_client(&client, |r| {
+        let owed = with_client(&client, |r| {
             r.cancel_inventory();
             r.cancel_throws();
+            r.take_silent_close()
         });
+        // A cancelled silent session's server-side close; a screen the user
+        // opened stays.
+        if owed {
+            silent_close(game, false);
+        }
         return;
     };
+    if with_client(&client, |r| r.take_silent_close()) {
+        silent_close(game, false);
+    }
     // Hotbar use sequences (Throwpot, ThrowDebuff, AutoHeal) through the
     // ordinary selected-slot, use and drop paths; only while playing.
     let playing = game.screen == Screen::Playing;
@@ -471,6 +531,12 @@ pub fn dispatch(game: &mut Game<'_>) {
                     with_client(&client, |r| r.inventory_rejected());
                 }
             }
+            InventoryEffect::SilentRequest(request) => {
+                if !submit_silent(game, &request) {
+                    with_client(&client, |r| r.inventory_rejected());
+                }
+            }
+            InventoryEffect::SilentClose => silent_close(game, true),
             InventoryEffect::OpenInventory if game.screen == Screen::Playing => {
                 game.screen = Screen::Inventory;
                 game.capture(false);

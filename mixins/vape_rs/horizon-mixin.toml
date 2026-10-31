@@ -637,3 +637,29 @@ bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "m", ty = "&horizon_client::mobs::Mob", value = "m" },
 ]
+
+# AutoTotem's silent open holds the attack, use and block-break clicks
+# (onClickMouse, onRightClickMouse, onSendClickBlock) on the remote paths.
+[[injection]]
+id = "auto-totem-attack"
+target = "horizon_client::game::remote::Game<'_>::remote_start_attack"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/auto_totem_attack.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "auto-totem-use"
+target = "horizon_client::game::remote::Game<'_>::remote_use"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/auto_totem_use.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "auto-totem-break"
+target = "horizon_client::game::remote::Game<'_>::remote_continue_attack"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/auto_totem_break.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]

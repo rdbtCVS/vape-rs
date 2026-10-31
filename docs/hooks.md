@@ -52,6 +52,9 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `fly-move` | `horizon_client::motion::MotionWorld<'_,'_,'_>::move_self` | Cancellable HEAD (library crate). Substitutes Fly's per-tick movement vector. |
 | `send-state` | `horizon_client::game::remote::Game<'_>::remote_send_state` | NoFall/Fly pre-motion: AntiCheat's MovePlayerStatus true/false pair and the ground value for this send; Step's recognised step (Speed stage, 0.45 timer; the reference's two extra positions are not sent: 26.3 kicks a second position in one client tick). |
 | `send-state-ground` | `remote_send_state`, argument 2 of `r.position_sender.update` | MODIFY_ARG (`require = 1`, `ordinal = 0`). Replaces the sent `on_ground` with the pre-motion value when set. |
+| `auto-totem-attack` | `horizon_client::game::remote::Game<'_>::remote_start_attack` | Cancellable HEAD (`adapters/auto_totem_attack.rs`, binds `game`), ahead of `remote-attack`. While AutoTotem's Silent open holds input (`suppressInput`: the session plus one "Silent move delay"), the attack click returns false (no swing, no attack); `remote-attack` steps aside for the same hold. |
+| `auto-totem-use` | `horizon_client::game::remote::Game<'_>::remote_use` | Cancellable HEAD (`adapters/auto_totem_use.rs`). The same hold cancels the use click (no item use, block place or entity interaction). |
+| `auto-totem-break` | `horizon_client::game::remote::Game<'_>::remote_continue_attack` | Cancellable HEAD (`adapters/auto_totem_break.rs`). The same hold cancels held-attack block breaking. Movement keys (forward, back, left, right, jump, sprint) are held through the movement writer (owner `AutoTotem`, priority 5). |
 
 ## Support modules
 

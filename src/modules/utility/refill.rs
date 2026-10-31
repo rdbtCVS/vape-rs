@@ -60,6 +60,20 @@ impl Refill {
         self.done = false;
         self.queued.clear();
     }
+    /// Every update while Refill runs, as the reference's per-tick `onTick`
+    /// (its delay only paces clicks): the player inventory being shown marks
+    /// the run as opened, and once it is no longer shown the run is
+    /// finished. Returns whether a step is due regardless of the click delay
+    /// (finishing: close and disable).
+    pub fn observe(&mut self, snapshot: &Snapshot) -> bool {
+        if snapshot.is_player_inventory {
+            self.shown = true;
+        } else if self.shown && !self.done {
+            self.queued.clear();
+            self.done = true;
+        }
+        self.done
+    }
     pub fn step(&mut self, snapshot: &Snapshot, options: &Options) -> Vec<Effect> {
         if self.gate.interrupted(snapshot) {
             self.cancel();
@@ -369,6 +383,30 @@ mod tests {
             !first.contains(&Effect::OpenInventory) && !second.contains(&Effect::OpenInventory)
         );
         assert!([first, second].concat().contains(&Effect::Disable));
+        assert!(!refill.active());
+    }
+    #[test]
+    fn a_close_inside_the_first_delay_finishes_without_reopening() {
+        let mut refill = Refill::default();
+        let mut snap = snapshot();
+        snap.screen_open = false;
+        snap.is_player_inventory = false;
+        assert_eq!(
+            refill.step(&snap, &Options::default()),
+            vec![Effect::OpenInventory]
+        );
+        // Shown for a few updates while the click delay runs, then closed
+        // by the player before any delayed step saw it.
+        snap.screen_open = true;
+        snap.is_player_inventory = true;
+        assert!(!refill.observe(&snap));
+        snap.screen_open = false;
+        snap.is_player_inventory = false;
+        assert!(refill.observe(&snap), "finishing is not paced by the delay");
+        assert_eq!(
+            refill.step(&snap, &Options::default()),
+            vec![Effect::Disable]
+        );
         assert!(!refill.active());
     }
     #[test]

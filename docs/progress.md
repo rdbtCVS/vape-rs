@@ -1286,3 +1286,52 @@ captured from a fresh fast build of `545ca54` in a fresh isolated-home
 session (`target/scenarios/readme-gui-vvbo88if`, 1920x1080 offscreen, GUI
 scale 2, creative). They show layout only; no module is enabled and no
 parity claim follows from them.
+
+## 2026-10-31: inventory (worker round 2)
+
+Fixed or ported:
+- Refill: when the player closed the inventory inside the first click delay, Refill reopened it. Now `Refill::observe` runs every update, so finishing (close and disable) isn't paced by the delay. Test: `a_close_inside_the_first_delay_finishes_without_reopening`.
+- AutoTotem "Silent open" and "Silent move delay":
+  - The swap happens with no screen shown.
+  - Movement, use, attack and break are held for the session plus one delay, through three new HEAD hooks (`auto-totem-use`, `auto-totem-attack`, `auto-totem-break`; see hooks.md).
+- ChestSteal "Check in menu" now defaults to off. AutoHeal's hidden "Inventory Only" is not ported (decisions.md).
+- InventoryManager / InvCleaner: the earlier commits are listed in decisions.md:
+  - `d831f4e`: best armor
+  - `4c1e905`: idles without a profile
+  - `38949b6`: AutoHotbar any material
+
+Validation:
+- Gates:
+  - fmt clean
+  - all-target Clippy `-D warnings` clean
+  - 216 lib + 3 integration tests pass
+  - payload-test passes (216)
+  - the fast host build passes, and stage/audit removes exactly 46 hooks and 29 support modules
+- Host scenarios: three, all in survival on fresh isolated homes. Captures were inspected.
+- `tools/inventory_planners_scenario.py`: 10/10 cases pass (`inv-plan-8y1g__lh`). Every case checks that item counts are conserved, nothing stays on the cursor, the selected slot is unchanged, the screen ends closed and the module turns off.
+  - InvCleaner: drops 4 rotten flesh, 1 harmful splash potion, 1 stone sword and 5 sticks.
+  - InvCleaner, interrupted with Escape: 3 thrown, 5 left, with no reopen.
+  - InvCleaner, user cursor stack: it waits, and the 2 held flint never drop.
+  - InvCleaner, item picked up mid-run: the picked-up items are cleaned in the same run.
+  - InventoryManager: it equips armor and drops junk. With a full inventory, the stone sword displaced from slot 19 is kept, not lost.
+  - AutoHotbar: puts the rules' items in their hotbar slots; with a user cursor stack it waits.
+  - ArmorSwitch: switches there and back. When interrupted, only the head is swapped, and the rerun changes nothing.
+- `tools/inventory_scenario.py` (`inv-rec-opt5z12g`):
+  - Refill interrupted: 0 hotbar soups.
+  - Refill complete: 3 soups on the hotbar, 2 left in main.
+  - ChestSteal interrupt and reopen: 1 item taken, then 6.
+  - AutoTotem equip: totem in the offhand, 1 left in main.
+- `tools/inventory_parity_scenario.py` (`inv-parity-ophwsw3r`):
+  - ChestSteal Best only: takes the diamond helmet and 32 cobblestone, leaves the stone sword (worse than the held diamond sword) and closes the chest.
+  - AutoTotem Silent open:
+    - The screen stays `playing` throughout, with W and the use key held.
+    - The hold lasts 0.486 s (30 samples), and no snowballs are thrown during it.
+    - The totem is equipped at 0.327 s, inside the 0.26–0.746 s window.
+    - Walking (0.118) and throwing resume afterwards.
+- Evidence is in docs/evidence/inventory-r2-{planners,recovery,parity}/.
+
+Open:
+- InventoryFill has no host scenario. The control socket can't hold a mouse button across frames in a container screen: `mouse` requires the playing screen and never sets `physical_buttons`, and `drag-at`/`click-at` send the press and release in one event batch. It stays integrated.
+- AutoHotbar "Only best" scores items with our own categories, not the reference's per-class comparators (food nutrition×saturation, the potion per-effect amplifier compare, attack-speed and fire-aspect terms). The comparator helper rows stay below validated.
+- AutoTotem's non-silent screen does not yet cancel the player's own clicks while AutoTotem has the inventory open (the reference's `onWindowClick`; decisions.md).
+- AutoArmor's Delay range is out of scope for this round.
