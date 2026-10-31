@@ -69,7 +69,7 @@ Unconnected groundwork present in source (no module uses it yet):
 - Current tree: **108 runtime lib tests** pass; fmt and Clippy (all
   targets, warnings denied) pass; exact native stage/audit passes with **33
   hooks (32 HEAD + 1 MODIFY_ARG) and 18 support modules (no owned state)** on
-  published horizon-mixins `07dab17`; host check and fast build pass. The
+  published horizon-mixins `0e9229d`; host check and fast build pass. The
   emitted-payload and audit test suites were not rerun for the latest batch.
 - **Clickers/Reach/blatant batch**
   ([clickers-reach-blatant-compile.json](evidence/clickers-reach-blatant-compile.json)):
@@ -165,8 +165,8 @@ the interface-font text.
    already calls), HitSwap/AutoMace (TriggerBot's cooldown bypass) and the
    remaining combat rows. A shared rotation owner is needed once more than
    AimAssist turns the view.
-2. **Movement / packets:** KeepSprint (blocked: Horizon's remote attack path
-   has no client-side slowdown to change; an upcoming Horizon update adds it),
+2. **Movement / packets:** KeepSprint (unblocked by the 2026-10-31 re-pin:
+   Horizon #3251 applies the attacker's 0.6 slowdown on the remote attack path),
    InvWalk (unblocked: record GUI-time keys at the `Game::tick` HEAD and
    re-run `controlled_simulation_tick` with them from a cancellable HEAD;
    `self.keys` stays filled behind non-chat screens), NoSlowdown's sprint re-enable, AutoLadder,
@@ -207,8 +207,8 @@ the interface-font text.
 
 ## Reproduction and resources
 
-Horizon is pinned to `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main at 2026-10-29 22:01, untagged); Minecraft 26.3 / protocol 777. horizon-mixins is
-published main `07dab17387480ac03829584d9d1ee9912c9bb515`, unpatched. See compatibility.json and README.md for commands.
+Horizon is pinned to `8f91f896a5d47d034318569940e775d8bd854bd6` (main at 2026-10-31 04:49, untagged); Minecraft 26.3 / protocol 777. horizon-mixins is
+published main `0e9229d88d7b6ab18add048de680d873f04cd9b5` (0.6.0), unpatched. See compatibility.json and README.md for commands.
 
 Prepared resource directory located for this workspace:
 

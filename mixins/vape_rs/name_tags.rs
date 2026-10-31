@@ -1,4 +1,4 @@
-use super::{Game, NameTag};
+use super::{Game, NameTag, NAME_TAG_UNIT};
 use crate::game::vape_rs::core::with_client;
 use crate::game::vape_rs::inventory::item_limit::HeldItem;
 use crate::game::vape_rs::modules::render::{item_esp::Dropped, name_tags::Subject};
@@ -158,7 +158,7 @@ pub(crate) fn geometry(
         let scale = extra.scale.max(0.01);
         let start = see_through.len();
         let text_alpha = ((255.0 * extra.alpha).round() as u32).clamp(4, 255);
-        patches.extend(game.name_tag_quads((extra.at - camera) / scale, &extra.lines, text_alpha, true, 2, 0, see_through));
+        patches.extend(game.name_tag_quads((extra.at - camera) / scale, &extra.lines, text_alpha, true, 2, 0, NAME_TAG_UNIT, see_through));
         for v in &mut see_through[start..] {
             v.pos = (glam::Vec3::from_array(v.pos) * scale as f32).to_array();
         }
@@ -188,14 +188,14 @@ pub(crate) fn geometry(
         if tag.discrete {
             game.mark_translucent_entity(out.len(), "minecraft:name_tag");
             let light = vertex_light(tag.light);
-            patches.extend(game.name_tag_quads(o, &tag.lines, FADED, true, 0, light, out));
+            patches.extend(game.name_tag_quads(o, &tag.lines, FADED, true, 0, light, NAME_TAG_UNIT, out));
             continue;
         }
         let lit = (tag.light >> 4).max(2) << 4 | (tag.light & 15).max(2);
         game.mark_entity(out.len(), "minecraft:name_tag");
         let light = vertex_light(lit);
-        patches.extend(game.name_tag_quads(o, &tag.lines, 0xFF, false, 0, light, out));
-        patches.extend(game.name_tag_quads(o, &tag.lines, FADED, true, 2, 0, see_through));
+        patches.extend(game.name_tag_quads(o, &tag.lines, 0xFF, false, 0, light, NAME_TAG_UNIT, out));
+        patches.extend(game.name_tag_quads(o, &tag.lines, FADED, true, 2, 0, NAME_TAG_UNIT, see_through));
     }
     game.map_patches.extend(patches);
     ControlFlow::Break(())

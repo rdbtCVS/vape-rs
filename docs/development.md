@@ -11,13 +11,13 @@ cargo run -p xtask --locked --offline -- payload-test
 
 The AST packer reads conventional Rust module files under src and emits one source-only payload plus a content-hash source map under target. The emitted payload's tests compile in an isolated Cargo fixture with its committed lockfile. The runtime uses serde_json 1.0.151 and the native clock adapter uses chrono, both already declared and locked in the pinned host; staging verifies that contract and never injects a dependency.
 
-The mixin tool is pinned to published, unpatched horizon-mixins main (`07dab17`, compatibility.json), the same commit the `.hnmod` names, so the launcher builds exactly what development stages. The published tool can't add a field to `Game<'_>`, so the runtime is owned per thread by the `client-owner` support module; only the window thread's client Game uses it.
+The mixin tool is pinned to published, unpatched horizon-mixins main (`0e9229d`, compatibility.json), the same commit the `.hnmod` names, so the launcher builds exactly what development stages. The published tool can't add a field to `Game<'_>`, so the runtime is owned per thread by the `client-owner` support module; only the window thread's client Game uses it.
 
 For native staging, review the pinned mixin sources before building them:
 
 ```sh
 git clone https://github.com/horizon-rust/horizon-mixins target/upstream/horizon-mixins
-git -C target/upstream/horizon-mixins checkout --detach 07dab17387480ac03829584d9d1ee9912c9bb515
+git -C target/upstream/horizon-mixins checkout --detach 0e9229d88d7b6ab18add048de680d873f04cd9b5
 cargo +1.95.0 fetch --locked --manifest-path target/upstream/horizon-mixins/Cargo.toml
 cargo run -p xtask --locked --offline -- stage ../horizon
 cargo fetch --locked --manifest-path target/horizon/modded/Cargo.toml
@@ -77,7 +77,7 @@ mkdir -p ~/vape_rs && cd ~/vape_rs && unzip /path/to/vape_rs-0.1.0-dev.hnmod
 horizon-launcher native-build ~/vape_rs --trust-native-code
 ```
 
-The launcher builds the game on Horizon `cc7bcbf` (the bundle pins it; the first build downloads Rust and takes 20 to 30 minutes) and points its "Native mods" instance at the result. Native mods run with your full OS privileges; read the source before trusting it. Settings are kept in the instance's `native-mods/vape-rs` folder. Only the Linux x86-64 build route has been exercised; Windows and macOS are untested.
+The launcher builds the game on Horizon `8f91f89` (the bundle pins it; the first build downloads Rust and takes 20 to 30 minutes) and points its "Native mods" instance at the result. Native mods run with your full OS privileges; read the source before trusting it. Settings are kept in the instance's `native-mods/vape-rs` folder. Only the Linux x86-64 build route has been exercised; Windows and macOS are untested.
 
 ## Tracking work
 

@@ -72,3 +72,9 @@
 - **Not ported (recorded as open, not dropped):** Reach Misplace; HitBoxes' interact-at hit-vector clamp; NoSlowdown's sprint re-enable; NoFall's `L(1)`/jump-key detail; RightClicker's use claim and offhand whitelist; and Reach/HitBoxes picks for LAN guests.
 - **GUI text uses Horizon's interface font.** The reference draws its GUI in a smooth font. Scaling the bitmap game font by fractional GUI scales looked poor, so the GUI now uses Geist, the font Horizon already bundles for its own overlays, through `ui_theme::Ui`. The theme's measure and draw functions are crate-private, so the `vape_smooth_text` support module exposes them as `Ui` methods. No font file is added to this repository. The runtime layout stays painter-independent and uses a per-character advance estimate for truncation and caret placement; the painter measures exactly. The HUD still uses the game font.
 - **GUI scale applies on release.** Rescaling while dragging moved the slider under the cursor, so the layout only takes the new scale once the drag ends.
+
+## 2026-10-31: re-pin to Horizon main 8f91f89 and horizon-mixins 0.6.0
+
+- **Pinned to Horizon main `8f91f896a`** (2,292 commits after `cc7bcbf`; Minecraft 26.3 / protocol 777 unchanged) and **published horizon-mixins main `0e9229d`** (0.6.0: named hooks, bundle crates/data, post-build steps; unpatched), at the user's request. Still an untagged main commit; choose a tagged release before a public build.
+- **Drift:** `game/mod_input.rs` was deleted with the Wasm code mods (hashed, never hooked; hash dropped). `name_tag_quads` gained a `unit` argument, which the NameTags copy now passes. All 36 hook targets resolved unchanged.
+- **KeepSprint is unblocked:** Horizon #3251 applies the attacker's 0.6 speed cut and sprint stop on the remote attack path (`attack_strength::ATTACKER_SLOWDOWN`), which the module can now change.

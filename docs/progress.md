@@ -847,3 +847,13 @@ Validation: fmt, Clippy -D warnings, 118 lib tests, payload test, stage/audit
 scenario: Repel's hurt-time flush itself (unit test only); Blink fake player
 still not ported; blink inbound delay differs from the reference (critical
 packets pass).
+
+## 2026-10-31: re-pin to Horizon main 8f91f89, horizon-mixins 0e9229d
+
+User request: bump the pins to the latest remote main.
+
+- compatibility.json and the mixin manifest name Horizon `8f91f896a5d47d034318569940e775d8bd854bd6` and horizon-mixins `0e9229d88d7b6ab18add048de680d873f04cd9b5`; source hashes refreshed; the deleted `game/mod_input.rs` hash removed.
+- `mixins/vape_rs/name_tags.rs` passes the new `unit` argument (`NAME_TAG_UNIT`) to `name_tag_quads`.
+- KeepSprint's Horizon dependency (remote-attack slowdown, #3251) is now in the pin.
+
+Validation ([repin-main-2026-10-31.json](evidence/repin-main-2026-10-31.json)): fmt, all-target Clippy `-D warnings`, 118 lib tests and the payload test pass; stage/audit (36 hooks, 22 support modules) pass; host check and fast build pass. Fresh-home scenarios on the new executable: smoke 27/27, LAN 16/16, inbound hold/replay (LAN) 27/27.

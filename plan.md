@@ -41,7 +41,7 @@ Do not delete the Java reference repository. The finished vape-rs distribution m
 Observed reference revisions:
 
 - Vape-v4: `3d600a48106822755cea2d633062e5ab1f383d48`, project version `4.21.43`.
-- Local Horizon at planning: `e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083`. Current pin (2026-10-29): `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (Horizon main; previously Nightly `9669600`); see docs/decisions.md.
+- Local Horizon at planning: `e1b2b0b2fdf5962a30fb5de31b0c1bd6829d9083`. Current pin (2026-10-31): `8f91f896a5d47d034318569940e775d8bd854bd6` (Horizon main; previously main `cc7bcbf` and Nightly `9669600`); see docs/decisions.md.
 - Local launcher's default horizon-mixins pin: `0500ff24aa5933fca95a877ef41125353c4b4fe3`.
 - The native template's demonstrated Horizon pin is older: `028f60881678a9a0e3e198f693a82858fa475c76`. Its selectors are examples, not validated selectors for the local Horizon revision.
 

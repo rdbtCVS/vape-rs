@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **33 hooks (32 HEAD + 1 MODIFY_ARG), 18 support modules, no owned state**. Horizon `cc7bcbf4e508c1484dd4ae14741d78a8fbe745d1` (main, 2026-10-29); published, unpatched horizon-mixins main `07dab17387480ac03829584d9d1ee9912c9bb515`, the pin the `.hnmod` names.
+Current audited configuration: **33 hooks (32 HEAD + 1 MODIFY_ARG), 18 support modules, no owned state**. Horizon `8f91f896a5d47d034318569940e775d8bd854bd6` (main, 2026-10-31); published, unpatched horizon-mixins main `07dab17387480ac03829584d9d1ee9912c9bb515`, the pin the `.hnmod` names.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers and modules, rejects any owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
