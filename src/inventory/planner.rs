@@ -135,6 +135,7 @@ pub(crate) mod tests {
             score: 0.0,
             healing: None,
             harmful_splash: false,
+            meta: Default::default(),
         }
     }
     fn snapshot(at: Instant) -> Snapshot {
@@ -159,6 +160,7 @@ pub(crate) mod tests {
             is_player_inventory: true,
             is_chest: false,
             chest_title_standard: true,
+            vitals: Default::default(),
             observed: at,
         }
     }

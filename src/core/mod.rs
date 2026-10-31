@@ -1,4 +1,5 @@
 pub mod automation;
+pub mod inventory_extra;
 pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
@@ -67,6 +68,7 @@ pub struct Runtime {
     macro_lease: Option<Lease>,
     macro_selected: Option<u8>,
     inventory_schedule: inventory_runtime::Scheduler,
+    inventory_extra: inventory_extra::Planners,
     settings: Settings,
     document: Document,
     storage: Option<Profiles>,
@@ -335,7 +337,10 @@ impl Default for Runtime {
         {
             settings.define(definition).unwrap();
         }
-        for definition in inventory_runtime::definitions() {
+        for definition in inventory_runtime::definitions()
+            .into_iter()
+            .chain(inventory_extra::definitions())
+        {
             settings
                 .define(definition)
                 .expect("static inventory definition");
@@ -415,6 +420,7 @@ impl Default for Runtime {
             macro_lease: None,
             macro_selected: None,
             inventory_schedule: Default::default(),
+            inventory_extra: Default::default(),
             settings,
             document: Document::default(),
             storage: None,
@@ -484,10 +490,11 @@ impl Runtime {
             .get_mut(&module)
             .expect("registered module")
             .enabled = enabled;
-        if matches!(
+        if (matches!(
             module,
             ModuleId::AutoArmor | ModuleId::AutoTotem | ModuleId::Refill | ModuleId::ChestSteal
-        ) && !enabled
+        ) || inventory_extra::MODULES.contains(&module))
+            && !enabled
         {
             self.cancel_inventory();
         }
@@ -2130,6 +2137,10 @@ impl Runtime {
                 | ModuleId::AutoTotem
                 | ModuleId::Refill
                 | ModuleId::ChestSteal
+                | ModuleId::InventoryManager
+                | ModuleId::InvCleaner
+                | ModuleId::AutoHotbar
+                | ModuleId::ArmorSwitch
                 | ModuleId::FastPlace
                 | ModuleId::Fullbright
                 | ModuleId::ClearWater

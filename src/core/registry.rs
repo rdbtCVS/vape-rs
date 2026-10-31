@@ -100,6 +100,10 @@ registry! {
     KnockbackDelay => "combat.knockback-delay", "KnockbackDelay", "Utility", None, [];
     Backtrack => "blatant.backtrack", "BackTrack", "Utility", None, [];
     AntiDebuff => "render.anti-debuff", "AntiDebuff", "Render", None, [];
+    InventoryManager => "inventory.inventory-manager", "InventoryManager", "Inventory", None, [];
+    InvCleaner => "inventory.inv-cleaner", "InvCleaner", "Inventory", None, [];
+    AutoHotbar => "inventory.auto-hotbar", "AutoHotbar", "Inventory", None, [];
+    ArmorSwitch => "inventory.armor-switch", "ArmorSwitch", "Inventory", None, [];
 }
 
 impl ModuleId {

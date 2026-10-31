@@ -211,6 +211,7 @@ mod tests {
             score: 0.0,
             healing,
             harmful_splash: false,
+            meta: Default::default(),
         }
     }
     fn snapshot() -> Snapshot {
@@ -236,6 +237,7 @@ mod tests {
             is_player_inventory: true,
             is_chest: false,
             chest_title_standard: false,
+            vitals: Default::default(),
             observed: std::time::Instant::now(),
         }
     }

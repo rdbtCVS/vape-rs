@@ -4,7 +4,8 @@ use super::super::{Game, Screen};
 use crate::game::vape_rs::{
     core::with_client,
     inventory::types::{
-        ArmorSlot, Click, Fingerprint, Healing, Item, ItemClass, Request, Slot, SlotRole, Snapshot,
+        ArmorSlot, Click, Fingerprint, Healing, Item, ItemClass, ItemMeta, PotionEffect, Request,
+        Slot, SlotRole, Snapshot, Vitals,
     },
 };
 use horizon_client::{brewing, items::ItemStack, menu::Input};
@@ -121,6 +122,75 @@ fn stack(game: &Game<'_>, stack: &ItemStack) -> Item {
         score: score(stack, info),
         healing,
         harmful_splash,
+        meta: meta(game, &id, stack, info),
+    }
+}
+fn unprefixed(id: &str) -> String {
+    id.strip_prefix("minecraft:").unwrap_or(id).to_string()
+}
+/// Copies the decoded components rule matching reads. Potion effects come
+/// from PotionContents (base potion definition plus custom effects).
+fn meta(
+    game: &Game<'_>,
+    id: &str,
+    stack: &ItemStack,
+    info: Option<&horizon_client::items::ItemInfo>,
+) -> ItemMeta {
+    let potion_item = matches!(
+        id,
+        "minecraft:potion" | "minecraft:splash_potion" | "minecraft:lingering_potion"
+    );
+    let mut effects = Vec::new();
+    if potion_item {
+        if let Some(definition) = stack.potion().and_then(brewing::potion) {
+            effects.extend(definition.effects.iter().map(|(e, duration, amplifier)| {
+                PotionEffect {
+                    id: unprefixed(e),
+                    amplifier: *amplifier,
+                    duration: *duration,
+                }
+            }));
+        }
+        effects.extend(
+            stack
+                .custom_potion_effects()
+                .into_iter()
+                .map(|(e, duration, amplifier)| PotionEffect {
+                    id: unprefixed(&e),
+                    amplifier,
+                    duration,
+                }),
+        );
+    }
+    let block = info.and_then(|i| i.block);
+    let items = game.res.items();
+    // Tool score: the best speed against one representative block of each
+    // vanilla tool family (pickaxe/axe/shovel/hoe).
+    let mining_speed = [
+        "minecraft:stone",
+        "minecraft:oak_log",
+        "minecraft:dirt",
+        "minecraft:hay_block",
+    ]
+    .iter()
+    .map(|b| items.mining_speed(Some(stack), b))
+    .fold(1.0_f32, f32::max);
+    ItemMeta {
+        custom_name: stack.custom_name(),
+        effects,
+        thrown_potion: matches!(
+            id,
+            "minecraft:splash_potion" | "minecraft:lingering_potion"
+        ),
+        food: info.and_then(|i| i.food),
+        block: block.is_some(),
+        hardness: block.map(|state| game.res.facts().get(state).hardness),
+        enchantments: stack
+            .enchantments()
+            .iter()
+            .map(|(e, level)| (e.to_string(), *level))
+            .collect(),
+        mining_speed,
     }
 }
 fn slot(game: &Game<'_>, index: usize, role: SlotRole, value: Option<&ItemStack>) -> Slot {
@@ -151,6 +221,31 @@ fn revision(game: &Game<'_>, slots: &[Slot], carried: Option<&Item>) -> u32 {
     });
     let h = fold_item(h, carried);
     (h ^ (h >> 32)) as u32
+}
+
+fn vitals(game: &Game<'_>) -> Vitals {
+    let Some(player) = game.player.as_ref() else {
+        return Vitals::default();
+    };
+    let max_health = player
+        .attributes
+        .lookup(player.attributes.key("minecraft:max_health").as_ref())
+        .and_then(|h| player.attributes.instance(&h).ok())
+        .map_or(20.0, |i| i.cached_value() as f32);
+    Vitals {
+        health: player.health.health(),
+        max_health,
+        selected: game.selected.min(8) as u8,
+        on_ground: player.ground.on_ground,
+        effects: game
+            .potions
+            .effects
+            .list
+            .iter()
+            .map(|e| unprefixed(&e.id))
+            .collect(),
+        using_item: game.using.is_some(),
+    }
 }
 
 /// Copies the host's actual player/menu slots; it never predicts acceptance.
@@ -221,6 +316,7 @@ pub fn snapshot(game: &Game<'_>) -> Option<Snapshot> {
         is_player_inventory: screen_open && !is_chest,
         is_chest,
         chest_title_standard,
+        vitals: vitals(game),
         observed: std::time::Instant::now(),
     };
     out.validate().ok()?;
@@ -254,13 +350,21 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
         Click::Pickup => Input::Pickup,
         Click::SwapOffhand => Input::Swap,
         Click::QuickMove => Input::QuickMove,
-        Click::Throw => Input::Throw,
+        Click::Throw | Click::ThrowStack => Input::Throw,
+        Click::SwapHotbar(_) => Input::Swap,
+    };
+    let button = match request.click {
+        Click::SwapOffhand => 40,
+        Click::ThrowStack => 1,
+        Click::SwapHotbar(n) if n < 9 => i32::from(n),
+        Click::SwapHotbar(_) => return false,
+        _ => 0,
     };
     // Game slot ids are intentionally preserved: menu_ops translates them to
     // each concrete local/remote menu's authoritative menu index, predicts
     // only through Horizon's verified engine, and serializes state/changed
     // slots/carried stack for remote ContainerClick packets.
-    game.menu_ops(&[(Some(usize::from(request.slot)), if request.click == Click::SwapOffhand { 40 } else { 0 }, input)])
+    game.menu_ops(&[(Some(usize::from(request.slot)), button, input)])
 }
 
 // Dispatch on frames so an open inventory menu can advance while the

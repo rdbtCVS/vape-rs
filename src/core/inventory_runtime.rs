@@ -70,18 +70,12 @@ impl Scheduler {
     fn release(&mut self) {
         self.clear();
     }
-    fn choose(&mut self, enabled: [bool; 4]) -> Option<ModuleId> {
-        let modules = [
-            ModuleId::ChestSteal,
-            ModuleId::AutoArmor,
-            ModuleId::Refill,
-            ModuleId::AutoTotem,
-        ];
+    fn choose(&mut self, modules: &[(ModuleId, bool)]) -> Option<ModuleId> {
         for offset in 0..modules.len() {
             let index = (usize::from(self.cursor) + offset) % modules.len();
-            if enabled[index] {
+            if modules[index].1 {
                 self.cursor = ((index + 1) % modules.len()) as u8;
-                return Some(modules[index]);
+                return Some(modules[index].0);
             }
         }
         None
@@ -231,12 +225,17 @@ impl Runtime {
     fn inventory_step_owned(&mut self, snapshot: &Snapshot) -> Vec<InventoryEffect> {
         let combat_blocked = self.combat_blocked;
         let module = self.inventory_schedule.active().or_else(|| {
-            self.inventory_schedule.choose([
-                self.enabled(ModuleId::ChestSteal),
-                self.enabled(ModuleId::AutoArmor),
-                self.enabled(ModuleId::Refill),
-                self.enabled(ModuleId::AutoTotem),
-            ])
+            let modules: Vec<_> = [
+                ModuleId::ChestSteal,
+                ModuleId::AutoArmor,
+                ModuleId::Refill,
+                ModuleId::AutoTotem,
+            ]
+            .into_iter()
+            .chain(super::inventory_extra::MODULES)
+            .map(|module| (module, self.enabled(module)))
+            .collect();
+            self.inventory_schedule.choose(&modules)
         });
         let Some(module) = module else {
             return Vec::new();
@@ -248,8 +247,10 @@ impl Runtime {
         let now = snapshot.observed;
         self.inventory_schedule.select(module, now);
         if self.inventory_schedule.stalled(now) {
-            let owned_screen =
-                self.auto_armor.opened() || self.auto_totem.opened() || self.refill.opened();
+            let owned_screen = self.auto_armor.opened()
+                || self.auto_totem.opened()
+                || self.refill.opened()
+                || self.inventory_extra.opened();
             self.cancel_inventory();
             return if owned_screen && snapshot.screen_open {
                 vec![InventoryEffect::CloseInventory]
@@ -327,6 +328,9 @@ impl Runtime {
                     self.refill.active(),
                 )
             }
+            module if super::inventory_extra::MODULES.contains(&module) => {
+                self.extra_step(module, snapshot)
+            }
             _ => unreachable!("inventory module registry"),
         };
         if let Some(effect) = effect {
@@ -348,6 +352,7 @@ impl Runtime {
         self.auto_totem.cancel();
         self.refill.cancel();
         self.chest_steal.cancel();
+        self.inventory_extra.cancel();
         self.inventory_schedule.clear();
     }
     /// The backend calls this when `submit` rejects a stale request; no
@@ -356,13 +361,13 @@ impl Runtime {
         self.cancel_inventory();
     }
 
-    fn inventory_bool(&self, key: &str, default: bool) -> bool {
+    pub(super) fn inventory_bool(&self, key: &str, default: bool) -> bool {
         self.settings
             .get(key)
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(default)
     }
-    fn inventory_list(&self, key: &str) -> BTreeSet<String> {
+    pub(super) fn inventory_list(&self, key: &str) -> BTreeSet<String> {
         self.settings
             .get(key)
             .and_then(serde_json::Value::as_array)
@@ -372,7 +377,7 @@ impl Runtime {
             .map(str::to_owned)
             .collect()
     }
-    fn inventory_delay(&self, key: &str, default: (u64, u64)) -> (u64, u64) {
+    pub(super) fn inventory_delay(&self, key: &str, default: (u64, u64)) -> (u64, u64) {
         self.settings
             .get(key)
             .and_then(serde_json::Value::as_array)
@@ -487,6 +492,7 @@ mod tests {
             is_player_inventory: open,
             is_chest: false,
             chest_title_standard: true,
+            vitals: Default::default(),
             observed: at,
         }
     }

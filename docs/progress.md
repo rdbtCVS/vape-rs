@@ -857,3 +857,13 @@ User request: bump the pins to the latest remote main.
 - KeepSprint's Horizon dependency (remote-attack slowdown, #3251) is now in the pin.
 
 Validation ([repin-main-2026-10-31.json](evidence/repin-main-2026-10-31.json)): fmt, all-target Clippy `-D warnings`, 118 lib tests and the payload test pass; stage/audit (36 hooks, 22 support modules) pass; host check and fast build pass. Fresh-home scenarios on the new executable: smoke 27/27, LAN 16/16, inbound hold/replay (LAN) 27/27.
+
+## 2026-10-31: inventory worker, arrangement planners (InventoryManager, InvCleaner, AutoHotbar, ArmorSwitch)
+
+- Snapshot additions (`mixins/vape_rs/transactions.rs`): per-item `ItemMeta` (custom name, potion contents, splash/lingering flag, food, block, hardness, enchantments, mining speed) and player `Vitals` (health, max health, selected slot, ground, effects, using item). `Click::Throw`/`ThrowStack` map to `Input::Throw` (button 0/1) and `Click::SwapHotbar(n)` maps to `Input::Swap`.
+- `src/inventory/rules.rs`: InventoryManager rule model (matchers, categories, conditions, presets, slot and inventory filters, profiles). The JSON shape follows the reference's.
+- `src/inventory/session.rs`: shared click session (open inventory, open wait, one gated click per snapshot, close wait, close). `src/inventory/arrange.rs`: shared armor and placement helpers.
+- Planners: `inventory_manager.rs`, `inv_cleaner.rs`, `auto_hotbar.rs`, `armor_switch.rs` in `src/modules/utility/`. Each step re-plans from the snapshot.
+- Runtime: `src/core/inventory_extra.rs` maps settings to planner options and steps to scheduler outcomes. The round-robin scheduler takes a module slice, so the four modules share the container claim, the stall watchdog and the gate with ChestSteal, AutoArmor, Refill and AutoTotem. On Key runs disable themselves when finished; ArmorSwitch always does. The reference "Activation" mode is stored as `<module>.trigger`, because `.activation` is the generic bind mode.
+
+Validation: fmt, all-target Clippy `-D warnings`, 131 lib tests and the payload test pass; stage/audit (36 hooks, 22 modules) pass; host check reports 0 errors. No game scenario has run yet.
