@@ -1611,3 +1611,12 @@ The first merged run (20261031-185834) was made at a load average of about 15, w
   - Fix: the click now runs inside the window, as the later Select-first-hit check already did.
 
 Both fixes change only scenario timing; the checks themselves are unchanged.
+
+Ledger: target/ledger-updates/clicker-movement-debt.json is applied. Every check in the five evidence results passed (18, 42, 34, 19 and 26). The ledger now has:
+- validated: 90
+- implemented-core: 64
+- integrated: 37
+- not-started: 246
+- excluded-approved: 13
+- blocked: 12
+- not-applicable-reviewed: 10
