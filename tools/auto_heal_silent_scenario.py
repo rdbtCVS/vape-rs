@@ -106,7 +106,7 @@ def run(resources):
         # The server holds slot 1 again: a right click throws a snowball and
         # nothing else is used.
         session.call('look', '0', '-30')
-        session.call('mouse', 'right', 'tap')
+        session.call('mouse', 'right', 'click')
         assert poll(lambda: inventory()['counts'].get('minecraft:snowball') == 15, 20), \
             inventory()['counts']
         command('data get entity @s SelectedItemSlot')

@@ -683,10 +683,7 @@ bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *s
 
 [[injection]]
 id = "auto-heal-post-motion"
-target = "horizon_client::game::remote::Game<'_>::remote_send_state"
-kind = "RETURN"
+target = "horizon_client::game::native_hooks::Game<'_>::native_tick"
+kind = "HEAD"
 helper = "adapters/auto_heal_post_motion.rs"
-bindings = [
-  { name = "value", ty = "()", value = "$value" },
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-]
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
