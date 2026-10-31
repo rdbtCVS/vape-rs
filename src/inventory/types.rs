@@ -43,6 +43,49 @@ pub struct Item {
     pub score: f32,
     pub healing: Option<Healing>,
     pub harmful_splash: bool,
+    /// Host-decoded display and component facts used by rule matching.
+    pub meta: ItemMeta,
+}
+/// One decoded potion effect: unnamespaced effect id (`instant_health`),
+/// zero-based amplifier and duration in ticks.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PotionEffect {
+    pub id: String,
+    pub amplifier: i32,
+    pub duration: i32,
+}
+/// Bounded item facts copied by the host from Horizon's decoded components.
+/// Nothing here is guessed from an item-id suffix except where noted by the
+/// host bridge.
+#[derive(Clone, Debug, Default)]
+pub struct ItemMeta {
+    /// `custom_name` as plain text, when the stack was renamed.
+    pub custom_name: Option<String>,
+    /// Potion contents (base potion plus custom effects) of potion items.
+    pub effects: Vec<PotionEffect>,
+    /// `minecraft:splash_potion` or `minecraft:lingering_potion`.
+    pub thrown_potion: bool,
+    /// `food` component: nutrition and saturation modifier.
+    pub food: Option<(u32, f32)>,
+    /// The item places a block.
+    pub block: bool,
+    /// Block destroy-time hardness of the placed block, when known.
+    pub hardness: Option<f32>,
+    /// Enchantments (namespaced id, level).
+    pub enchantments: Vec<(String, u32)>,
+    /// Fastest `tool` rule speed (1.0 for items without a tool component).
+    pub mining_speed: f32,
+}
+impl ItemMeta {
+    pub fn enchantment(&self, id: &str) -> u32 {
+        self.enchantments
+            .iter()
+            .find(|(e, _)| e == id || e.strip_prefix("minecraft:") == Some(id))
+            .map_or(0, |(_, level)| *level)
+    }
+    pub fn has_effect(&self, id: &str) -> bool {
+        self.effects.iter().any(|e| e.id == id)
+    }
 }
 impl Item {
     pub fn durability_used(&self) -> u16 {
@@ -78,6 +121,8 @@ pub struct Snapshot {
     pub is_player_inventory: bool,
     pub is_chest: bool,
     pub chest_title_standard: bool,
+    /// Player facts the healing and throwing planners read.
+    pub vitals: Vitals,
     /// Monotonic time the host copied this state; bounds transaction waits.
     pub observed: Instant,
 }
@@ -139,12 +184,30 @@ impl Snapshot {
             .find(|s| s.role == SlotRole::Hotbar(index))
     }
 }
+/// Player state copied with the inventory snapshot.
+#[derive(Clone, Debug, Default)]
+pub struct Vitals {
+    pub health: f32,
+    pub max_health: f32,
+    /// Selected hotbar slot (0..9).
+    pub selected: u8,
+    pub on_ground: bool,
+    /// Active status effects, unnamespaced (`speed`, `regeneration`).
+    pub effects: Vec<String>,
+    /// The player is using an item (eating, drawing a bow).
+    pub using_item: bool,
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Click {
     Pickup,
     SwapOffhand,
     QuickMove,
+    /// Drop one item from the slot (`THROW`, button 0).
     Throw,
+    /// Drop the whole stack (`THROW`, button 1; Ctrl+Q in a menu).
+    ThrowStack,
+    /// Number-key swap with hotbar slot n (`SWAP`, button n).
+    SwapHotbar(u8),
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Request {

@@ -427,7 +427,7 @@ source = "motion_flags.rs"
 
 [[injection]]
 id = "no-slowdown"
-target = "horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick"
+target = "horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick_with_sprint_window"
 kind = "HEAD"
 helper = "adapters/no_slowdown.rs"
 bindings = [{ name = "world", ty = "&mut crate::motion::MotionWorld<'_, '_, '_>", value = "&mut *self" }]

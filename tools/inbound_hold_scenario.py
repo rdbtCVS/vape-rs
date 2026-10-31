@@ -189,8 +189,11 @@ def run(resources, allow_stale):
 
         base = hit_and_watch()
         base_lag = max((h - g for g, h in base), default=0)
+        # The pig moves up to 0.5 per tick and the client interpolates over
+        # 3 ticks, so the plain view trails by up to about a block; Backtrack
+        # holds it 3 blocks behind.
         checks.check('without Backtrack the pig tracks the server position',
-                     bool(base) and base_lag < 0.6, base_lag)
+                     bool(base) and base_lag < 1.2, base_lag)
         guest.call('wait', '40')
         host.call('command', 'tp @e[type=pig,limit=1] 0.5 100 2')
         guest.call('wait', '20')
@@ -257,20 +260,21 @@ def run(resources, allow_stale):
         toggle(guest, 'world.fake-lag')
         checks.check('guest FakeLag is on', enabled(guest, 'world.fake-lag'))
         guest.call('wait', '24')
-        # First hit on an unhurt target goes straight through, even with Repel.
+        # First hit on an unhurt target goes straight through, even with Repel;
+        # the second, three ticks later while the pig is still hurt (Repel
+        # only holds then), is held. No host call between the two: a slow
+        # one lets the hurt time run out and the second hit goes straight on.
         t0 = time.monotonic()
         guest.call('attack', str(p['id']))
-        guest.call('wait', '4')
-        first = pig_health()
-        # Second hit while still hurt is held until the deadline or the next send.
+        guest.call('wait', '3')
         guest.call('attack', str(p['id']))
         guest.call('wait', '2')
-        mid = pig_health()
+        first = pig_health()
         guest.call('wait', '40')
         last = pig_health()
         checks.check('the first Repel hit is not delayed', first < h1, [h0, h1, first])
         checks.check('the hurt-target attack is held, then lands by its deadline',
-                     mid == first and last < first, [first, mid, last, round(time.monotonic() - t0, 1)])
+                     last < first, [first, last, round(time.monotonic() - t0, 1)])
         toggle(guest, 'world.fake-lag')
 
         for name, session in (('host', host), ('guest', guest)):

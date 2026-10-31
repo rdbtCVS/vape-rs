@@ -43,7 +43,7 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `entity-pick` | `horizon_client::game::Game<'_>::mob_hit` | Cancellable HEAD. Reach and HitBoxes replicate the host pick with a longer ray and inflated boxes; creative, serving and dedicated keep the host pick. Uses `try_with_client` so a held runtime lock falls through. |
 | `remote-attack` | `horizon_client::game::remote::Game<'_>::remote_start_attack` | Reach's post-attack bookkeeping on the remote (and single-player) path; `auto-tool-attack` covers the local path. |
 | `timer-advance` | `horizon_client::clock::FixedStep::advance` | Cancellable HEAD (library crate). Re-runs the clock once on elapsed time scaled by the Timer speed the frame adapter set, guarded against re-entry. |
-| `no-slowdown` | `horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick` | HEAD (library crate). Clears the item-use slowdown for the player NoSlowdown's tick marked. |
+| `no-slowdown` | `horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick_with_sprint_window` | HEAD (library crate). Clears the item-use slowdown for the player NoSlowdown's tick marked. |
 | `fly-move` | `horizon_client::motion::MotionWorld<'_,'_,'_>::move_self` | Cancellable HEAD (library crate). Substitutes Fly's per-tick movement vector. |
 | `send-state` | `horizon_client::game::remote::Game<'_>::remote_send_state` | NoFall/Fly pre-motion: AntiCheat's MovePlayerStatus true/false pair and the ground value for this send. |
 | `send-state-ground` | `remote_send_state`, argument 2 of `r.position_sender.update` | MODIFY_ARG (`require = 1`, `ordinal = 0`). Replaces the sent `on_ground` with the pre-motion value when set. |
@@ -74,6 +74,11 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_overlay` | `crates/horizon-client/src/game/fov.rs` | `mixins/vape_rs/overlay.rs` |
 | `vape_remote_tab` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/remote_tab.rs` |
 | `vape_esp_outline` | `crates/horizon-client/src/game/glowing.rs` | `mixins/vape_rs/esp_outline.rs` |
+
+Inventory worker (2026-10-31), no new hooks:
+
+- `vape_transactions::dispatch`, in `client-frame`, runs the use-sequence executor (`Runtime::throw_frame`) for Throwpot, ThrowDebuff and AutoHeal Legit. Its effects use the host's own paths: `Game.selected`, `vape_macros::use_once`, and `remote_drop`/`drop_held`.
+- The same dispatch runs InventoryFill on `Screen::Inventory` screens. It reads the physical Shift keys and the left button, finds the hovered slot with `Game::slot_at`, and shift-clicks it with `menu_ops`.
 
 The runtime source is deterministically expanded from src/lib.rs. The published tool can't add a field to `Game<'_>`, so `vape_client_owner` keeps one Arc<Mutex<Runtime>> per thread behind the same `__horizon_mixins_vape_rs_client` accessor. Only the window thread's client Game uses it; hooks return before using it on a server or dedicated Game, and that thread drops its unused runtime when it ends. Adapters release runtime borrows before calling host actions. Session generations invalidate stale entity, slot, container and hook observations. Transient state never enters local profiles.
 

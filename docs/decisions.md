@@ -86,3 +86,20 @@
 - **MurdererFinder and PropHunt are in World**, because the GUI has no Minigames frame. The MurdererFinder callout is blocked: there is no chat-send path. PropHunt drops the reference's 0..256 y bound (worlds go from -64 to 320).
 - **SpawnerFinder's label** sits at y-0.25 inside the block, as in the reference.
 - **Limits recorded as open:** skeleton ESP needs bone poses that the host does not expose. Equipment items draw without enchantment glint. Arrows draws a filled triangle. The Explosions fill draws through walls. XRay and Chams are blocked: they need chunk-mesher and entity-render hooks that the pinned host does not offer, so they are not worked around.
+## 2026-10-31: inventory worker, use sequences, InventoryFill, Refill and AutoTotem extras
+
+- **Use sequences are one executor.** Throwpot, ThrowDebuff and AutoHeal Legit share `src/core/throw_runtime.rs`, which holds the hotbar, use and container claims at priority 150. That is above the inventory planners and AutoFish (100) and below macros (200). Effects go through the host's ordinary paths: the selected slot, one use press (`vape_macros::use_once`) and the held-item drop.
+  - A manual slot change, an opened screen, a lost claim or disabling the module abandons the sequence without restoring the slot.
+  - None of the three rotates, so they do not need the shared rotation owner. The player aims, as with the reference's non-rotating modes.
+- **Soup and "Throw bowls".** The reference presses use once. A server with instant soup turns the stew into a bowl, and the bowl is then dropped. On vanilla, stew must be held to eat, so one press does not eat it. The drop runs only when the held item really is a bowl, which means vanilla keeps the stew rather than throwing food away.
+- **ThrowDebuff matching.** Potions match by decoded effect id (instant_damage, weakness, poison, slowness) or by a custom name that contains the debuff's name. The reference matches by display name. Matching on effect ids is the same intent in a locale-independent form.
+- **AutoHeal is in the "Hidden" category,** as in the reference (`Category.HIDDEN`). It is reachable by bind and config, and the GUI search does not list it.
+  - Its Silent mode and Potions option need silent held-item and rotation packets. Horizon has no such API, so Silent notifies once and does nothing. This is blocked, not emulated.
+  - Bowl Mode and Replace use the shared click session, which clicks only inside the player inventory screen. Bowl handling therefore runs only while the inventory is open; Replace opens the inventory itself, as the reference does.
+- **InventoryFill** runs in the existing `client-frame` dispatch. While Shift and the left button are physically held over a container screen, it shift-clicks the hovered slot (`Game::slot_at`) at the CPS rate, with the reference's 80 % "remember the slot" roll. It takes the container claim at priority 90 only for the duration of each click.
+- **Refill double-click.** The reference sometimes sends a second shift-click on the same slot. We queue it with a 20 % chance and send it only when the source slot still holds a healing item and the hotbar still has an empty slot. A no-op click would be rejected by the gate's revision check anyway, so this sends only clicks that change something.
+- **AutoTotem extras.**
+  - "Random slot" picks uniformly among the totem slots.
+  - "Extra randomization" is the reference's `computeDelay`: a normal centred on the range with sd range/4, clamped to the range, plus an 18 % chance of a long pause of max(120, 1.25·range) to max(350, 3.25·range) ms.
+  - "Show totem count" computes the reference's count and colour (`Runtime::totem_count_display`). Nothing draws it yet, because the reference shows it in the active-module stack frame and that frame has no port here.
+  - "Silent open" and "Silent move delay" are not registered. `menu_ops` sends server clicks only while `Screen::Inventory` is shown, so clicking the player inventory with no screen open needs a Horizon API. This is blocked; there is no workaround.

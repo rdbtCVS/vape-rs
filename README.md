@@ -9,7 +9,8 @@ A from-scratch recreation of the **Vape** Minecraft client as a native Rust mod 
 - **HUD:** seven widgets with an in-game layout editor.
 - **Combat:** AimAssist (Simple mode), TriggerBot, Velocity, clickers, Reach, HitBoxes, AutoArmor, AutoTotem (partial).
 - **Movement:** Sprint, SafeWalk, Parkour (experimental), Speed, LongJump, Fly, NoFall, NoSlowdown, Step, WTap, AntiFall.
-- **World / utility:** AutoTool, Refill, ChestSteal, FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Fullbright, Clear Water, NoHurtCam, StorageESP (partial), Panic.
+- **Inventory:** Refill, ChestSteal, Throwpot, ThrowDebuff, AutoHeal (Legit), AutoTotem (partial), InventoryManager/InvCleaner/AutoHotbar/ArmorSwitch (untested).
+- **World / utility:** AutoTool, FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Fullbright, Clear Water, NoHurtCam, StorageESP (partial), Panic.
 - **Client:** click GUI (Right Shift), module settings and key binding, local profiles, friends/enemies, macros.
 
 Modules start disabled. F10 turns every active module off. AI behavior and the online product are intentionally not part of this project.

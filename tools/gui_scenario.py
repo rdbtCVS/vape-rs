@@ -15,8 +15,12 @@ from native_session import NativeSession
 COMBAT, RENDER = (30, 38), (30, 58)
 FRIENDS, PROFILES = (30, 172), (30, 192)
 GEAR, HUD_EDITOR = (94, 16), (107, 232)
-# A frame in the first column: header 6..26, body from y=26.
+# A frame in the first column: header 6..26, body from y=26, 20-unit rows.
 FIRST_ROW, FIRST_DOTS = (160, 36), (221, 36)
+# Fullbright is the Render frame's fourth row (after AntiDebuff, Clear Water
+# and ESP); its inline settings open below it.
+FB = 60
+FULLBRIGHT_ROW, FULLBRIGHT_DOTS = (160, 36 + FB), (221, 36 + FB)
 CREATE, IMPORT, PROFILE_FIELD, SUBMIT = (150, 36), (203, 36), (170, 54), (221, 54)
 # With the name entry closed, profile rows are 18 apart from y=47 and an open
 # row menu lists Save, Rename, Export and Delete under that row.
@@ -57,16 +61,16 @@ def run(resources):
         # Category frame: a row toggles, the dots expand inline settings.
         click(RENDER)
         capture('render-frame')
-        click(FIRST_ROW)
+        click(FULLBRIGHT_ROW)
         capture('module-enabled')
         assert session.saved()['modules']['render.fullbright']['enabled'] is True
-        click(FIRST_DOTS)
+        click(FULLBRIGHT_DOTS)
         capture('settings')
-        click((180, 91))  # Mode opens its choice list below the row.
-        click((170, 121))
+        click((180, 91 + FB))  # Mode opens its choice list below the row.
+        click((170, 121 + FB))
         capture('choice-setting')
         assert session.saved()['settings']['render.fullbright.mode'] == 'gamma'
-        click((180, 73))
+        click((180, 73 + FB))
         key('g')
         capture('binding')
         assert session.saved()['settings']['render.fullbright.binds'] == ['KeyG']
@@ -150,10 +154,10 @@ def run(resources):
         click(ENEMY)
         capture('enemy-added')
         assert session.saved()['enemies'][0]['name'] == 'rival'
-        click((220, 108))  # enemies list first: rival's remove cross
+        click((220, 82))  # enemies list first: rival's remove cross
         capture('enemy-removed')
         assert not session.saved()['enemies']
-        click((204, 108))  # then alice's target toggle
+        click((208, 82))  # then alice's target toggle, moved up into its row
         capture('friend-target')
         assert session.saved()['friends'][0]['target'] is False
         click(FRIENDS)
