@@ -123,6 +123,9 @@ pub struct ModuleView {
     pub category: String,
     pub enabled: bool,
     pub favorite: bool,
+    /// `Mod.isVisible`: hidden modules leave their category frame except
+    /// in the hidden-module edit mode.
+    pub visible: bool,
 }
 #[derive(Clone, Debug)]
 pub struct PersonView {
@@ -164,12 +167,23 @@ pub enum Action {
     /// `addMacro`, so it moves last); `None` adds one.
     UpsertMacro(Option<usize>, Macro),
     RemoveMacro(usize),
+    /// The edit mode's checkbox: flip `Mod.setVisibility`.
+    Visibility(String),
     /// Persist frame positions, visibility and collapse state (`ui.frames`).
     Layout(Value),
     /// Save the current configuration now (the header's sync button).
     Sync,
     Close,
 }
+/// "MUST BE BOUND" or "USE VIA BIND" over a module row; it clears
+/// `STATUS_TIMEOUT_MS` after the pointer leaves the row.
+#[derive(Clone, Debug)]
+struct RowStatus {
+    id: String,
+    text: &'static str,
+    left: Option<std::time::Instant>,
+}
+const STATUS_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(2000);
 /// The pending profile name entry under the Profiles frame's buttons.
 #[derive(Clone, Debug, PartialEq)]
 enum ProfileInput {
@@ -195,6 +209,10 @@ enum Hit {
     Toggle(String),
     Expand(String),
     Favorite(String),
+    /// The category header's "Edit hidden modules" icon or "Done" label.
+    EditHidden,
+    /// An edit-mode row's 20-wide checkbox strip.
+    Visibility(String),
     Focus(String, Rect),
     Edit(String, Value, Rect),
     Choice(String, Vec<String>, Rect),
@@ -394,6 +412,11 @@ pub struct Gui {
     dragging_hud: Option<(String, f32, f32)>,
     /// The module whose settings are expanded under its row.
     pub selected: Option<String>,
+    /// `ClientSettings.moduleSearchActive`: every category frame lists its
+    /// hidden modules with a visibility checkbox.
+    pub edit_hidden: bool,
+    /// `ModuleComponent.statusText` for a bind-only module clicked in the GUI.
+    row_status: Option<RowStatus>,
     pub status: String,
     pub multi_bind: bool,
     pub user_scale: f32,
@@ -445,6 +468,8 @@ impl Default for Gui {
             hud_group: "All",
             dragging_hud: None,
             selected: None,
+            edit_hidden: false,
+            row_status: None,
             status: String::new(),
             multi_bind: false,
             user_scale: 1.0,
@@ -488,6 +513,45 @@ impl Default for Gui {
     }
 }
 impl Gui {
+    /// `ModuleComponentToggleClickHandler` for a `requiresBind` module:
+    /// the row shows why it did not toggle and highlights its bind.
+    pub fn refuse_toggle(&mut self, id: &str, bound: bool) {
+        self.row_status = Some(RowStatus {
+            id: id.into(),
+            text: if bound {
+                "USE VIA BIND"
+            } else {
+                "MUST BE BOUND"
+            },
+            left: None,
+        });
+    }
+    #[cfg(test)]
+    pub fn row_status_text(&self, id: &str) -> Option<&'static str> {
+        self.row_status
+            .as_ref()
+            .filter(|s| s.id == id)
+            .map(|s| s.text)
+    }
+    /// Starts the status timeout once the pointer leaves the row.
+    fn age_row_status(&mut self) {
+        let Some(status) = &mut self.row_status else {
+            return;
+        };
+        let over = self.hits.iter().any(|(rect, hit)| {
+            matches!(hit, Hit::Toggle(id) if *id == status.id) && rect.contains(self.hover)
+        });
+        if over {
+            status.left = None;
+        } else if status
+            .left
+            .get_or_insert_with(std::time::Instant::now)
+            .elapsed()
+            > STATUS_TIMEOUT
+        {
+            self.row_status = None;
+        }
+    }
     /// Restores `ui.frames`; an older single-window `ui.window` is ignored,
     /// and a document without frames (an imported profile) keeps the
     /// current layout rather than closing the frame it was loaded from.
@@ -883,6 +947,7 @@ mod tests {
                     category: "Render".into(),
                     enabled: false,
                     favorite: false,
+                    visible: true,
                 },
                 ModuleView {
                     id: "combat.sprint".into(),
@@ -890,6 +955,7 @@ mod tests {
                     category: "Combat".into(),
                     enabled: false,
                     favorite: false,
+                    visible: true,
                 },
             ],
             values: json!({}),
@@ -929,6 +995,72 @@ mod tests {
         // Collapsing hides the rows.
         click(&mut gui, &view, (122.0 + FRAME_WIDTH - 6.0, 16.0));
         assert!(click(&mut gui, &view, row).is_empty());
+    }
+    #[test]
+    fn edit_mode_lists_hidden_modules_behind_a_visibility_checkbox() {
+        let mut gui = Gui {
+            open: true,
+            ..Gui::default()
+        };
+        let mut view = view();
+        view.values = json!({"client.search-bar": "Integrated"});
+        view.modules[0].visible = false;
+        click(&mut gui, &view, (30.0, 6.0 + NAV_HEADER_HEIGHT + 30.0));
+        let row = (150.0, 6.0 + HEADER_HEIGHT + 10.0);
+        // The hidden module leaves its frame until the edit mode.
+        assert!(click(&mut gui, &view, row).is_empty());
+        let edit = (122.0 + FRAME_WIDTH - 22.0, 16.0);
+        gui.pointer(edit);
+        assert!(click(&mut gui, &view, edit).is_empty() && gui.edit_hidden);
+        // Only the 20-wide strip flips visibility; the rest of the row is inert.
+        assert!(click(&mut gui, &view, row).is_empty());
+        assert_eq!(
+            click(&mut gui, &view, (130.0, row.1)),
+            vec![Action::Visibility("render.fullbright".into())]
+        );
+        // Collapsing the frame leaves the edit mode.
+        click(&mut gui, &view, (122.0 + FRAME_WIDTH - 6.0, 16.0));
+        assert!(!gui.edit_hidden);
+    }
+    #[test]
+    fn the_colour_popup_rainbow_switch_toggles_without_closing_it() {
+        let mut gui = Gui {
+            open: true,
+            ..Gui::default()
+        };
+        let mut view = view();
+        let color = "render.fullbright.color";
+        view.definitions = vec![Definition::new(
+            color,
+            "Color",
+            Kind::Color,
+            json!(0xffff_0000u32),
+        )];
+        view.values = json!({"client.search-bar": "Integrated", color: 0xffff_0000u32,
+            "render.fullbright.color.rainbow": false});
+        click(&mut gui, &view, (30.0, 6.0 + NAV_HEADER_HEIGHT + 30.0));
+        gui.selected = Some("render.fullbright".into());
+        let centre = |gui: &Gui, wanted: &dyn Fn(&Hit) -> bool| {
+            let (Rect(x, y, w, h), _) = gui.hits.iter().rev().find(|(_, hit)| wanted(hit)).unwrap();
+            (x + w / 2.0, y + h / 2.0)
+        };
+        gui.frame(&view, (400.0, 300.0));
+        let row = centre(&gui, &|hit| matches!(hit, Hit::Color(id, _) if id == color));
+        assert!(click(&mut gui, &view, row).is_empty());
+        assert_eq!(gui.open_color.as_deref(), Some(color));
+        gui.frame(&view, (400.0, 300.0));
+        let switch = centre(
+            &gui,
+            &|hit| matches!(hit, Hit::Cycle(id, _) if id == "render.fullbright.color.rainbow"),
+        );
+        assert_eq!(
+            click(&mut gui, &view, switch),
+            vec![Action::Set(
+                "render.fullbright.color.rainbow".into(),
+                json!(true)
+            )]
+        );
+        assert_eq!(gui.open_color.as_deref(), Some(color));
     }
     #[test]
     fn header_search_lists_matching_modules_in_the_navigation_frame() {
@@ -1136,6 +1268,7 @@ mod tests {
                     category: category.into(),
                     enabled: false,
                     favorite: false,
+                    visible: true,
                 })
             })
             .collect();

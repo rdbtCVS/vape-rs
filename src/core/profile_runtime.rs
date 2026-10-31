@@ -434,6 +434,10 @@ impl Runtime {
                 .as_bool()
                 .unwrap_or(false)
                 && self.mode(module) != BindingMode::Hold;
+            // A hidden module's saved state is skipped.
+            if next && !self.visible(module) {
+                continue;
+            }
             self.set_enabled(module, next);
             enabled += usize::from(next);
         }
@@ -551,15 +555,18 @@ mod tests {
         let scratch = Scratch::new();
         scratch.seed(
             json!({"schema": 1, "modules": {"hud.coordinates": {"enabled": true},
-            "blatant.fly": {"enabled": true, "favorite": true}}}),
+            "render.fullbright": {"enabled": true, "favorite": true}}}),
         );
         let r = scratch.runtime();
         // No profiles yet: the live state becomes Modern PVP with its own
         // favorites, and the second built-in is seeded beside it.
         assert_eq!(r.active_profile().as_deref(), Some("Modern PVP"));
-        assert!(on(&r, ModuleId::Coordinates) && on(&r, ModuleId::Fly));
+        assert!(on(&r, ModuleId::Coordinates) && on(&r, ModuleId::Fullbright));
         let modern = scratch.file("Modern%20PVP.json");
-        assert_eq!(modern["modules"]["blatant.fly"]["favorite"], json!(true));
+        assert_eq!(
+            modern["modules"]["render.fullbright"]["favorite"],
+            json!(true)
+        );
         assert_eq!(
             modern["modules"]["combat.trigger-bot"]["favorite"],
             Value::Null
@@ -567,7 +574,7 @@ mod tests {
 
         // With profiles already on disk, it migrates to "Default".
         let scratch = Scratch::new();
-        scratch.seed(json!({"schema": 1, "modules": {"blatant.fly": {"enabled": true}}}));
+        scratch.seed(json!({"schema": 1, "modules": {"render.fullbright": {"enabled": true}}}));
         std::fs::create_dir(scratch.0.join("profiles")).unwrap();
         std::fs::write(scratch.0.join("profiles/one.json"), br#"{"schema":1}"#).unwrap();
         std::fs::write(scratch.0.join("profiles/Default.json"), br#"{"schema":1}"#).unwrap();
@@ -577,9 +584,9 @@ mod tests {
             r.ordered_profiles().unwrap(),
             ["Default 2", "Default", "one"]
         );
-        assert!(on(&r, ModuleId::Fly));
+        assert!(on(&r, ModuleId::Fullbright));
         assert_eq!(
-            scratch.file("Default%202.json")["modules"]["blatant.fly"]["enabled"],
+            scratch.file("Default%202.json")["modules"]["render.fullbright"]["enabled"],
             json!(true)
         );
     }
@@ -588,22 +595,25 @@ mod tests {
     fn switching_captures_the_active_profile_and_keeps_global_values() {
         let scratch = Scratch::new();
         let mut r = scratch.runtime();
-        r.set_enabled(ModuleId::Fly, true);
-        r.set_setting("blatant.fly.speed", json!(3.0)).ok();
+        r.set_enabled(ModuleId::Fullbright, true);
+        r.set_setting("render.fullbright.mode", json!("gamma")).ok();
         r.set_setting("client.toggle-alerts", json!(true)).unwrap();
         r.set_setting("client.profile-alerts", json!(true)).unwrap();
         r.switch_profile("classic pvp").unwrap();
         assert_eq!(r.active_profile().as_deref(), Some("Classic PVP"));
-        assert!(!on(&r, ModuleId::Fly));
+        assert!(!on(&r, ModuleId::Fullbright));
         // Global values survive; per-profile ones reset to the target's.
         assert_eq!(r.settings().get("client.toggle-alerts"), Some(&json!(true)));
         let modern = scratch.file("Modern%20PVP.json");
-        assert_eq!(modern["modules"]["blatant.fly"]["enabled"], json!(true));
+        assert_eq!(
+            modern["modules"]["render.fullbright"]["enabled"],
+            json!(true)
+        );
         // Toggle alerts stay quiet; the switch shows one profile alert.
         let toasts: Vec<_> = r.toasts.iter().map(|t| t.title.clone()).collect();
         assert_eq!(toasts, ["Profile swap to \u{a7}6Classic PVP"]);
         r.switch_profile("Modern PVP").unwrap();
-        assert!(on(&r, ModuleId::Fly));
+        assert!(on(&r, ModuleId::Fullbright));
         assert_eq!(r.toasts.iter().last().unwrap().message, "1 modules enabled");
         // Switching to the active profile does nothing.
         let before = r.toasts.iter().count();
@@ -618,14 +628,14 @@ mod tests {
         let mut r = scratch.runtime();
         r.set_setting("client.profile-auto-load", json!(false))
             .unwrap();
-        r.set_enabled(ModuleId::Fly, true);
+        r.set_enabled(ModuleId::Fullbright, true);
         r.set_enabled(ModuleId::Coordinates, true);
         r.switch_profile("Classic PVP").unwrap();
-        assert!(on(&r, ModuleId::Fly) && on(&r, ModuleId::Coordinates));
+        assert!(on(&r, ModuleId::Fullbright) && on(&r, ModuleId::Coordinates));
         r.flush().unwrap();
         drop(r);
         let r = scratch.runtime();
-        assert!(!on(&r, ModuleId::Fly));
+        assert!(!on(&r, ModuleId::Fullbright));
         assert!(on(&r, ModuleId::Coordinates));
     }
 
@@ -633,7 +643,7 @@ mod tests {
     fn create_rename_delete_follow_the_profiles_page() {
         let scratch = Scratch::new();
         let mut r = scratch.runtime();
-        r.set_enabled(ModuleId::Fly, true);
+        r.set_enabled(ModuleId::Fullbright, true);
         r.create_profile("  Mine  ").unwrap();
         assert_eq!(r.active_profile().as_deref(), Some("Mine"));
         assert_eq!(
@@ -641,7 +651,7 @@ mod tests {
             ["Mine", "Modern PVP", "Classic PVP"]
         );
         assert_eq!(
-            scratch.file("Mine.json")["modules"]["blatant.fly"]["enabled"],
+            scratch.file("Mine.json")["modules"]["render.fullbright"]["enabled"],
             json!(true)
         );
         r.create_profile("mine").unwrap();
@@ -692,14 +702,14 @@ mod tests {
 
         // Right click: the saved states of another profile, values kept.
         // Classic PVP is active, so it follows the live state too.
-        r.set_enabled(ModuleId::Fly, true);
+        r.set_enabled(ModuleId::Fullbright, true);
         r.create_profile("Flying").unwrap();
         r.switch_profile("Modern PVP").unwrap();
-        assert!(!on(&r, ModuleId::Fly));
+        assert!(!on(&r, ModuleId::Fullbright));
         r.set_enabled(ModuleId::AimAssist, true);
         r.apply_profile_states("Flying").unwrap();
         assert_eq!(r.active_profile().as_deref(), Some("Modern PVP"));
-        assert!(on(&r, ModuleId::Fly) && !on(&r, ModuleId::AimAssist));
+        assert!(on(&r, ModuleId::Fullbright) && !on(&r, ModuleId::AimAssist));
     }
 
     #[test]

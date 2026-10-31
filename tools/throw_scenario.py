@@ -20,7 +20,8 @@ def item_id(stack):
 
 def run(resources):
     with NativeSession(resources, 'inventory-throw-') as session:
-        session.seed({'schema': 1, 'modules': {}, 'settings': {
+        # ThrowDebuff is hidden by default; unhide it as the GUI would.
+        session.seed({'schema': 1, 'modules': {'inventory.throw-debuff': {'visible': True}}, 'settings': {
             'inventory.throw-pot.binds': ['KeyK'],
             'inventory.throw-pot.type': 'pots',
             'inventory.throw-debuff.binds': ['KeyL'],

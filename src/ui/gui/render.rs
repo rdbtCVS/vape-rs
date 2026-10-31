@@ -83,6 +83,18 @@ const PLUS: [&str; 5] = ["  #  ", "  #  ", "#####", "  #  ", "  #  "];
 const ARROW: [&str; 5] = ["  #  ", "   # ", "#####", "   # ", "  #  "];
 const IMPORT: [&str; 5] = ["  #  ", "  #  ", "# # #", " ### ", "  #  "];
 const CROSS: [&str; 5] = ["#   #", " # # ", "  #  ", " # # ", "#   #"];
+/// `newedit` and `newhide`: the category header's hidden-module edit icon,
+/// crossed out once the frame hides something.
+const PENCIL: [&str; 7] = [
+    "     # ", "    ###", "   ### ", "  ###  ", " ###   ", "##     ", "#      ",
+];
+const HIDE: [&str; 7] = [
+    "#      ", " ####  ", " ##  # ", "#  #  #", " #  ## ", "  #### ", "      #",
+];
+/// `ThemeColors` bind highlight: label, fill and empty-bind icon.
+const HIGHLIGHT_TEXT: u32 = 0xffffa054;
+const HIGHLIGHT_FILL: u32 = 0x33ec812c;
+const STATUS_SHADOW: u32 = 0xff101010;
 
 fn icon_for(name: &str) -> &'static [&'static str] {
     match name {
@@ -101,6 +113,26 @@ fn icon_for(name: &str) -> &'static [&'static str] {
     }
 }
 /// `ColorUtil.getContrastingGray(accent, 45, 240)` for enabled-row text.
+/// `ModuleComponent.renderStatusTooltip`: a dark box over the name with a
+/// pointer leaning right. The pointer's triangles (tips 4 and 24 above the
+/// row, clipped to it) are painted as 2-pixel slices; `Paint` has no
+/// triangle primitive.
+fn status_box(l: &mut Layout, x: f32, y: f32, text: &str, color: u32) {
+    let width = text_advance(text, ROW_SCALE) + 10.0;
+    l.fill(Rect(x, y, width, ROW_HEIGHT), INSET);
+    let pointer = x + width - 1.0;
+    let bottom = y + ROW_HEIGHT;
+    for slice in 0..(ROW_HEIGHT / 2.0) as usize {
+        let rise = slice as f32 * 2.0 + 1.0;
+        let top = bottom - rise - 1.0;
+        l.fill(
+            Rect(pointer + 1.0, top, 7.0 * (1.0 - rise / 44.0), 2.0),
+            STATUS_SHADOW,
+        );
+        l.fill(Rect(pointer, top, 7.0 * (1.0 - rise / 24.0), 2.0), INSET);
+    }
+    l.row_label(x + 6.0, y, ROW_HEIGHT, text, color, ROW_SCALE, Align::Left);
+}
 fn contrast(color: u32) -> u32 {
     let [r, g, b] = [16, 8, 0].map(|s| ((color >> s) & 0xff) as f32);
     if r * 0.299 + g * 0.587 + b * 0.114 > 150.0 {
@@ -326,6 +358,7 @@ impl Gui {
     }
     pub fn frame(&mut self, view: &View, viewport: (f32, f32)) -> Frame {
         self.viewport = viewport;
+        self.age_row_status();
         self.scale = self
             .user_scale
             .clamp(0.5, 2.0)
@@ -474,6 +507,9 @@ impl Gui {
             l.hit(Rect(x, y, FRAME_WIDTH, header), Hit::Drag(name.into()));
             l.icon(x + 6.0, y + 6.5, 1.0, icon_for(name), FG);
             l.row_label(x + 17.0, y, header, name, FG, TITLE_SCALE, Align::Left);
+            if CATEGORIES.contains(&name) {
+                self.edit_header(view, l, name, rect, header);
+            }
             if name != HUD {
                 l.icon(
                     x + FRAME_WIDTH - 12.0,
@@ -502,17 +538,70 @@ impl Gui {
         self.panel_rects.push((name.into(), rect));
         rect
     }
+    /// `ModuleCategoryFrameHeader`: on a hovered frame the pencil (or, with
+    /// hidden modules, the crossed-out eye and their count) enters the
+    /// hidden-module edit mode, whose "Done" label leaves it.
+    fn edit_header(&self, view: &View, l: &mut Layout, name: &str, rect: Rect, header: f32) {
+        let (x, y) = (rect.0, rect.1);
+        // The reference's 16-wide icon button would overlap our collapse
+        // target, so the icon sits in the 8 units left of it.
+        let button = Rect(x + FRAME_WIDTH - 26.0, y, 8.0, header);
+        if self.edit_hidden {
+            let half = text_advance("Done", TITLE_SCALE) / 2.0;
+            l.row_label(
+                button.0 - half,
+                y,
+                header,
+                "Done",
+                FG,
+                ROW_SCALE,
+                Align::Left,
+            );
+            l.hit(
+                Rect(button.0 - half - 2.0, y, half * 2.0 + 4.0, header),
+                Hit::EditHidden,
+            );
+            return;
+        }
+        // Registered unhovered too: the hits come from the last frame, and a
+        // click at the button implies the header is under the pointer.
+        l.hit(button, Hit::EditHidden);
+        if !rect.contains(self.hover) {
+            return;
+        }
+        let hidden = view
+            .modules
+            .iter()
+            .filter(|m| m.category == name && !m.visible)
+            .count();
+        if hidden > 0 {
+            let count = hidden.to_string();
+            l.row_label(
+                button.0 - 1.0,
+                y,
+                header,
+                &count,
+                TEXT,
+                TITLE_SCALE,
+                Align::Right,
+            );
+        }
+        let icon = if hidden > 0 { &HIDE } else { &PENCIL };
+        l.icon(button.0 + 0.5, y + 7.5, 1.0, icon, FG);
+    }
     /// A frame's content, drawn from `top`; returns its full height.
     fn body(&self, view: &View, l: &mut Layout, name: &str, x: f32, top: f32) -> f32 {
         match name {
             NAV => self.nav_body(view, l, x, top),
-            "Favorites" => self.module_list(view, l, x, top, |m| m.favorite),
+            "Favorites" => self.module_list(view, l, x, top, false, |m| m.favorite),
             "Friends" => self.friends_body(view, l, x, top),
             "Profiles" => self.profiles_body(view, l, x, top),
             "Macros" => self.macros_body(view, l, x, top),
             "Settings" => self.settings(view, l, x, top, |d| d.id.starts_with("client.")),
             HUD => self.hud_body(view, l, x, top),
-            category => self.module_list(view, l, x, top, |m| m.category == category),
+            category => self.module_list(view, l, x, top, self.edit_hidden, |m| {
+                m.category == category && (m.visible || self.edit_hidden)
+            }),
         }
     }
     /// A frame's unscrolled height with every expanded row shown.
@@ -612,7 +701,7 @@ impl Gui {
         }
         l.fill(Rect(x, top + 14.0, FRAME_WIDTH, 0.5), OUTLINE);
         let group = self.hud_group;
-        16.0 + self.module_list(view, l, x, top + 16.0, |m| match group {
+        16.0 + self.module_list(view, l, x, top + 16.0, false, |m| match group {
             "Favorite" => m.favorite && m.category == "HUD",
             "All" => m.category == "HUD",
             group => m.category == group,
@@ -652,7 +741,7 @@ impl Gui {
     /// (blatant) modules only on an exact name match; Category.HIDDEN never.
     fn search_results(&self, view: &View, l: &mut Layout, x: f32, top: f32) -> f32 {
         let query = self.search.to_lowercase();
-        self.module_list(view, l, x, top, |m| {
+        self.module_list(view, l, x, top, false, |m| {
             let name = m.name.to_lowercase();
             match m.category.as_str() {
                 "Other" => name == query,
@@ -751,13 +840,18 @@ impl Gui {
         l: &mut Layout,
         x: f32,
         top: f32,
+        edit: bool,
         filter: impl Fn(&ModuleView) -> bool,
     ) -> f32 {
         let mut modules: Vec<_> = view.modules.iter().filter(|m| filter(m)).collect();
         modules.sort_by_key(|m| m.name.to_lowercase());
         let mut y = top;
         for module in &modules {
-            y += self.module_row(view, l, x, y, module);
+            y += if edit {
+                self.edit_row(l, x, y, module)
+            } else {
+                self.module_row(view, l, x, y, module)
+            };
         }
         if modules.is_empty() {
             l.row_label(
@@ -790,21 +884,32 @@ impl Gui {
             l.fill(row, background);
         }
         l.hit(row, Hit::Toggle(m.id.clone()));
-        l.row_label(
-            x + 6.0,
-            y,
-            ROW_HEIGHT,
-            &m.name,
-            color,
-            ROW_SCALE,
-            Align::Left,
-        );
+        let status = self
+            .row_status
+            .as_ref()
+            .filter(|s| s.id == m.id)
+            .map(|s| s.text);
+        if let Some(status) = status {
+            status_box(l, x, y, status, color);
+        } else {
+            l.row_label(
+                x + 6.0,
+                y,
+                ROW_HEIGHT,
+                &m.name,
+                if m.visible { color } else { FAINT },
+                ROW_SCALE,
+                Align::Left,
+            );
+        }
         let accent = if m.enabled { color } else { MUTED };
-        l.icon(x + FRAME_WIDTH - 9.0, y + 7.5, 1.0, &DOTS, accent);
-        l.hit(
-            Rect(x + FRAME_WIDTH - 16.0, y, 16.0, ROW_HEIGHT),
-            Hit::Expand(m.id.clone()),
-        );
+        if status.is_none() {
+            l.icon(x + FRAME_WIDTH - 9.0, y + 7.5, 1.0, &DOTS, accent);
+            l.hit(
+                Rect(x + FRAME_WIDTH - 16.0, y, 16.0, ROW_HEIGHT),
+                Hit::Expand(m.id.clone()),
+            );
+        }
         let mut right = x + FRAME_WIDTH - 16.0;
         if expanded {
             l.icon(
@@ -829,7 +934,29 @@ impl Gui {
                     .collect()
             })
             .unwrap_or_default();
-        if !binds.is_empty() {
+        if status.is_some() {
+            // `BindableInputComponent.setHighlighted`: the orange bind box.
+            let label = binds.join("+");
+            let width = if label.is_empty() {
+                10.0
+            } else {
+                text_advance(&label, SMALL_SCALE) + 5.0
+            };
+            l.fill(Rect(right - width, y + 5.0, width, 10.0), HIGHLIGHT_FILL);
+            if label.is_empty() {
+                l.icon(right - 7.5, y + 7.5, 1.0, &PLUS, FAVORITE);
+            } else {
+                l.row_label(
+                    right - 2.5,
+                    y,
+                    ROW_HEIGHT,
+                    &label,
+                    HIGHLIGHT_TEXT,
+                    SMALL_SCALE,
+                    Align::Right,
+                );
+            }
+        } else if !binds.is_empty() {
             l.row_label(
                 right - 1.0,
                 y,
@@ -850,6 +977,57 @@ impl Gui {
             } else {
                 0.0
             }
+    }
+    /// A module row in the hidden-module edit mode: the visibility checkbox
+    /// strip replaces toggling, settings, favourite and bind.
+    fn edit_row(&self, l: &mut Layout, x: f32, y: f32, m: &ModuleView) -> f32 {
+        let row = Rect(x, y, FRAME_WIDTH, ROW_HEIGHT);
+        let hovered = row.contains(self.hover) && l.clip.contains(self.hover);
+        let (background, color) = if m.enabled {
+            (Some(ACCENT), contrast(ACCENT))
+        } else if hovered {
+            (Some(PRESSED), FG)
+        } else {
+            (None, TEXT)
+        };
+        if let Some(background) = background {
+            l.fill(row, background);
+        }
+        let strip = Rect(x, y, 20.0, ROW_HEIGHT);
+        l.fill(strip, INSET);
+        let inset = |by: f32| {
+            Rect(
+                x + 7.0 + by,
+                y + 7.0 + by,
+                20.0 - (7.0 + by) * 2.0,
+                ROW_HEIGHT - (7.0 + by) * 2.0,
+            )
+        };
+        if m.visible {
+            l.fill(inset(0.0), ACCENT);
+            l.fill(inset(0.5), INSET);
+            l.fill(inset(1.0), ACCENT);
+        } else {
+            l.fill(inset(0.0), OUTLINE);
+            l.fill(inset(0.5), INSET);
+        }
+        l.hit(strip, Hit::Visibility(m.id.clone()));
+        l.row_label(
+            x + 26.0,
+            y,
+            ROW_HEIGHT,
+            &m.name,
+            if m.visible { color } else { FAINT },
+            ROW_SCALE,
+            Align::Left,
+        );
+        if m.enabled {
+            l.fill(
+                Rect(x + 20.0, y + ROW_HEIGHT - 0.5, FRAME_WIDTH - 20.0, 0.5),
+                OUTLINE,
+            );
+        }
+        ROW_HEIGHT
     }
     /// Inline value components on the darker inset, as the reference's
     /// expanded module.
@@ -1122,7 +1300,7 @@ impl Gui {
         }
         if let (Some(id), Some((_, rect))) = (&self.open_color, color) {
             let value = view.values[id].as_u64().unwrap_or(0) as u32;
-            let popup = Rect(rect.0, rect.1 + rect.3, rect.2, 58.0);
+            let popup = Rect(rect.0, rect.1 + rect.3, rect.2, 72.0);
             l.rounded(
                 Rect(popup.0 - 0.5, popup.1 - 0.5, popup.2 + 1.0, popup.3 + 1.0),
                 OUTLINE,
@@ -1156,6 +1334,33 @@ impl Gui {
                     Rect(track.0, row.1, track.2, row.3),
                     Hit::ColorChannel(id.clone(), channel, track),
                 );
+            }
+            // The colour's "<name> rainbow" switch.
+            let rainbow = format!("{id}.rainbow");
+            let on = view.values.get(&rainbow).and_then(Value::as_bool);
+            if let Some(on) = on {
+                let row = Rect(popup.0 + 5.0, popup.1 + 59.0, popup.2 - 10.0, 10.0);
+                l.row_label(
+                    row.0,
+                    row.1,
+                    row.3,
+                    "Rainbow",
+                    MUTED,
+                    FIELD_SCALE,
+                    Align::Left,
+                );
+                let track = Rect(row.0 + row.2 - 14.0, row.1 + 1.0, 14.0, 8.0);
+                l.rounded(track, if on { ACCENT } else { TRACK });
+                l.fill(
+                    Rect(
+                        if on { track.0 + 7.5 } else { track.0 + 1.5 },
+                        track.1 + 1.5,
+                        5.0,
+                        5.0,
+                    ),
+                    FG,
+                );
+                l.hit(row, Hit::Cycle(rainbow, vec![json!(false), json!(true)]));
             }
         }
     }
