@@ -41,7 +41,7 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `entity-pick` | `horizon_client::game::Game<'_>::mob_hit` | Cancellable HEAD. Reach and HitBoxes replicate the host pick with a longer ray and inflated boxes; creative, serving and dedicated keep the host pick. Uses `try_with_client` so a held runtime lock falls through. |
 | `remote-attack` | `horizon_client::game::remote::Game<'_>::remote_start_attack` | Reach's post-attack bookkeeping on the remote (and single-player) path; `auto-tool-attack` covers the local path. |
 | `timer-advance` | `horizon_client::clock::FixedStep::advance` | Cancellable HEAD (library crate). Re-runs the clock once on elapsed time scaled by the Timer speed the frame adapter set, guarded against re-entry. |
-| `no-slowdown` | `horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick` | HEAD (library crate). Clears the item-use slowdown for the player NoSlowdown's tick marked. |
+| `no-slowdown` | `horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick_with_sprint_window` | HEAD (library crate). Clears the item-use slowdown for the player NoSlowdown's tick marked. |
 | `fly-move` | `horizon_client::motion::MotionWorld<'_,'_,'_>::move_self` | Cancellable HEAD (library crate). Substitutes Fly's per-tick movement vector. |
 | `send-state` | `horizon_client::game::remote::Game<'_>::remote_send_state` | NoFall/Fly pre-motion: AntiCheat's MovePlayerStatus true/false pair and the ground value for this send. |
 | `send-state-ground` | `remote_send_state`, argument 2 of `r.position_sender.update` | MODIFY_ARG (`require = 1`, `ordinal = 0`). Replaces the sent `on_ground` with the pre-motion value when set. |

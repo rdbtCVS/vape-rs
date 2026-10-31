@@ -857,3 +857,29 @@ User request: bump the pins to the latest remote main.
 - KeepSprint's Horizon dependency (remote-attack slowdown, #3251) is now in the pin.
 
 Validation ([repin-main-2026-10-31.json](evidence/repin-main-2026-10-31.json)): fmt, all-target Clippy `-D warnings`, 118 lib tests and the payload test pass; stage/audit (36 hooks, 22 support modules) pass; host check and fast build pass. Fresh-home scenarios on the new executable: smoke 27/27, LAN 16/16, inbound hold/replay (LAN) 27/27.
+
+## 2026-10-31: validation — GUI reruns, movement scenario, NoSlowdown hook fix
+
+Validation worker (branch `worker/validation`, pin 8f91f89 / 0e9229d).
+
+- GUI scenarios rerun on the re-pinned build, all pass: gui 11, text editor 6
+  (private display), HUD editor 9, binding capture 2, HUD detail 7, profiles
+  6, corrupt profile 2, lifecycle 7 ([validation-gui.json](evidence/validation-gui.json)).
+  `gui_scenario.py` coordinates follow the Render frame order and Friends rows.
+- `tools/movement_scenario.py`: fresh survival home on the integrated
+  server; each module toggled through its bind. Timer (client/server tick
+  ratio 1.0 / 2.0 / 1.0), Fly (rise, hover, Speed 0.5, gravity back), NoFall
+  Normal (13-block drop 10 -> 0) and AntiCheat (10 -> 1, the reference's
+  3-block status pairs), Speed Bhop (15.2 vs walk 8.5 blocks per 40 ticks,
+  hops) and AntiCheat B (16.8), LongJump (7.6 vs sprint jump 3.6, toggles
+  off), Step (climbs a 1-block wall), AntiFall (lowest 142.4 vs 116 off;
+  lagback zeroes horizontal motion only, as the reference, so on this
+  vanilla-like server the player bobs below the edge), NoSlowdown, Anti-AFK
+  (acts after the 10 s delay, stays put), no kick. Distances are scaled by
+  the client ticks that really passed. **52/52**
+  ([validation-movement.json](evidence/validation-movement.json)).
+- Bug fixed: NoSlowdown had no effect after the re-pin (shield walk 1.24 on
+  and off). Its hook targeted `MotionWorld::controlled_simulation_tick`, which
+  the pinned `game.rs` no longer calls; it now targets
+  `controlled_simulation_tick_with_sprint_window` (off 1.23 / on 6.32 / walk
+  6.18 blocks per 30 ticks).
