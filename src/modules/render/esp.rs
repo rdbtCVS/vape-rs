@@ -61,7 +61,8 @@ fn person_color(settings: &Settings, entity: &EntityView, people: &impl People) 
     if people.enemy(&entity.name) && boolean(settings, "enemies.use-color", true) {
         return Some(color(settings, "enemies.color", 0xfff4_4242));
     }
-    None
+    // TargetFilter's "Recolor visuals" (`ClientSettings.resolveTeamColor`).
+    people.team_color(entity).map(|c| 0xff00_0000 | c)
 }
 
 pub fn definitions() -> Vec<Definition> {
@@ -481,6 +482,8 @@ pub fn tracers(
     // Farthest first, so nearer tracers draw on top.
     selected.sort_by(|a, b| b.2.total_cmp(&a.2));
     for (e, color, _) in selected {
+        // A player's team colour replaces every other tracer colour.
+        let color = people.team_color(e).map_or(color, |c| 0xff00_0000 | c);
         let eye_height = (e.bounds.max[1] - e.bounds.min[1]) * 0.85;
         let end = Point([e.position[0], e.position[1] + eye_height, e.position[2]]);
         let (width, outlined) = if !highlight {

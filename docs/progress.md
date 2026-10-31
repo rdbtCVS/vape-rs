@@ -1729,3 +1729,99 @@ Open, from the worker: HUD text still uses the host bitmap font (a cross-HUD dec
 - README "What works today" now lists only scenario-validated modules as tested. Integrated and partly connected modules are named separately. LongJump, Step and AntiFall are no longer advertised.
 - New finding: 37 category-level reference classes have no ledger rows. Most are modules ModManager never registers (LongJump, AntiFall, Step, Strafe, Phase, Regen, OmniSprint, PotionSaver, AntiFML, DiscardedBlink, KnockbackTest, SelfDestruct, debug modules). The port ships LongJump, AntiFall and Step (compile-only, 2026-10-30) although the reference GUI never shows them. Open: decide whether to track them as extras or drop them for fidelity.
 - Tests: docs only; no code changed. Gates for main `97dbaa7` are in the hud-modules entry above.
+
+## 2026-10-31: combat part A (worker round 2)
+
+Worker combat-a, branch `t3/1e32141e`. Main `97dbaa7` and the docs-only `8203df1` are merged in.
+
+Changed files:
+- Pure modules:
+  - `src/modules/combat/hit_select.rs` (new)
+  - `src/modules/combat/block_hit.rs` (new)
+  - `src/modules/combat/hit_flick.rs` (new)
+  - `src/modules/utility/target_filter.rs` (new)
+  - small edits: `rotation.rs` (`Managed::tick_by`), `silent_aura.rs` (controller hand-off), `clicker.rs` (AutoClicker holds entity clicks that HitSelect would cancel), `blatant/outbound.rs`, `render/esp.rs` (TargetFilter recolour) and `targeting/filter.rs`
+- Runtime glue: `src/core/combat_extra.rs`, `combat_runtime.rs`, `mod.rs`, `registry.rs` and `hud_extras.rs`.
+- Host side:
+  - five new hooks and three support modules: `mixins/vape_rs/hit_select.rs`, `block_hit.rs`, `teams.rs` and the `adapters/` entries
+  - edits to `aura.rs`, `combat.rs`, `packets.rs` and `horizon-mixin.toml`
+- Scenario tool: `tools/combat_a_scenario.py`.
+
+Feature results (ledger updates in `target/ledger-updates/combat-a.json`):
+
+| Feature | Rows | Status |
+|---|---|---|
+| HitSelect | `module.hitselect`, both modes (Normal, Right-click use cancel), helpers `module.wtapsprintresetmode` (with its KB reduction and Critical hits modes) and `module.wtaprightclickusecancelmode` | validated |
+| BlockHit | `module.blockhit`, modes Manual/Predict/Auto/Lag, helpers `module.manualblockhitmode`, `predictblockhitmode`, `autoblockhitmode`, `lagblockhitmode` and `blockhitmode` | validated |
+| TargetFilter | `module.antibot` (TargetFilter), helper `module.antibotentitycache` | validated |
+| HitFlick | `module.hitflick`, helper `module.hitflickadaptiverotationcontroller` | implemented-core |
+
+How each landed:
+- **HitSelect** uses the reference wtap-package classes for its modes. It cancels through:
+  - `hit-select-attack` (cancellable HEAD on `remote_start_attack`, priority 110)
+  - `hit-select-use`
+  - `hit-select-continue-attack`
+- **BlockHit**:
+  - On 26.3 it blocks with the off-hand shield (see decisions).
+  - `block-hit-mouse` covers Manual and Auto.
+  - `block-hit-send` covers Lag's held release-use queue.
+  - Predict's damage notice comes from the inbound damage and entity events.
+- **TargetFilter**:
+  - Modes: Teams by server and Teams by color. Colours are detected from the player list, which is the reference's 26.3 path.
+  - It is wired into the shared target filter, so KillAura, SilentAura, AimAssist and TriggerBot all honour it.
+  - It recolours ESP.
+- **HitFlick (pure port only)**:
+  - Implemented: the flick phases, the adaptive controller speeds read on every update, and the managed rotation shared with SilentAura.
+  - It shares the primary action claim with BlockHit Lag, and FakeLag Repel yields to either.
+  - Not hooked in the host, and the aura passes an empty view, so it never leaves Idle in the host.
+
+Scenarios. Each ran in fresh isolated homes through `tools/native_session.py`, on this branch's host builds of the work in progress. Each `build.json` records `source_dirty: true`: the HitSelect and TargetFilter runs on `574e57d`, the BlockHit runs on `bd28e42`. Those changes were committed as `bd28e42` and `e2efab5`; none of the runs postdate HitFlick `fa4aa29` or the merges. Evidence is in `docs/evidence/`:
+
+| Evidence dir | Checks | What it shows |
+|---|---|---|
+| `combat-a-hitselect-normal-sp` | 9/9 | Normal cancels most clicks inside the invulnerability window; a cancelled click still swings |
+| `combat-a-hitselect-rcuc-sp` | 9/9 | Right-click use cancel drops clicks on the invulnerable cow, without a swing |
+| `combat-a-hitselect-kb-sp` | 9/9 | KB reduction: every click after the received knockback goes through |
+| `combat-a-hitselect-crit-sp` | 9/9 | Critical hits: clicks while rising after the knockback are cancelled |
+| `combat-a-blockhit-manual-sp` | 10/10 | Manual |
+| `combat-a-blockhit-auto-sp` | 12/12 | Auto |
+| `combat-a-blockhit-lag-lan-guest` | 12/12 | Lag on a LAN guest: the held release-use stalls the guest on the host |
+| `combat-a-blockhit-predict-lan-guest` | 11/11 | Predict on a LAN guest |
+| `combat-a-targetfilter-lan-guest` (plus `-lan-host`) | 20/20 | KillAura spares a same-team host and attacks one in another team; Teams by color detects red `#FF5555`, spares a red host and attacks a blue one; ESP captures |
+
+Gates on head `5ed4f97`:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all --check` | ok |
+| Clippy `-D warnings` | clean |
+| `cargo test --workspace --locked --offline` | 238 + 1 + 4 + 0 passed, 0 failed |
+| payload-test | 238 passed |
+| stage + audit | ok: 49 hooks (47 HEAD + 2 MODIFY_ARG) and 32 support modules, original AST restored; this branch adds 5 hooks and 3 modules to main's 44/29 |
+| host check | not run on this branch: the queued locked job was stopped at the coordinator's request; the coordinator runs `gates.sh --host` (host check and build) and these scenarios on main after the merge |
+| host build | not run on this branch (same reason) |
+
+Limits and open items in this scope:
+- HitFlick host side:
+  - the physical (`play_mouse`) and synthetic (`attack_once`) attack intercepts, which are the reference attack-cancellation adapters
+  - Blink's packet hold
+  - the `set_sprinting` cancel
+  - the forward and sprint key owner
+  - a scenario
+- `module.physicalattackcancellationadapter` and `module.syntheticattackcancellationadapter` stay not-started. In the reference they serve HitSwap and AutoMace (combat-b) and HitFlick's intercepts.
+- Not started:
+  - SilentAura: the Ring and Box render modes, Show target, Target color and Attack color, Break blocks (with its whitelist, items and delay), Kiss rotation and `onSyntheticAttack`, plus `module.silentauraaimjitter` and `module.silentauraentityidcomparator`
+  - KillAura's Show target, Target color and Attack color
+  - AimAssist's Adaptive mode, with `module.aimassisttargetingsubmodule` and `module.aimassistworkerthread`
+  - the riding-packet and third-person rotation in the combat rotation claim
+- TargetFilter:
+  - The Invalid Player Spawn notification is not ported.
+  - The scenario exercised KillAura only. The other three consumers share the filter and have unit tests.
+  - The 16 "Your team color" rows (`module.antibot.mode.*`), Auto-Detect and `module.antibotstatetracker` are legacy-only (< 1.21.11). They are left at not-started for a not-applicable review.
+- BlockHit:
+  - ItemMacroAction's BlockHit interaction is not ported.
+  - The 0.25 s shield warm-up limits Predict.
+- The primary action claim is two OR'd flags, not a shared claim object.
+- The header on line 3 of docs/hooks.md still gives the old 38/25 count; the current count is in the note at its end.
+
+Next: the HitFlick host intercepts, which would also give the attack-cancellation adapters a host side for combat-b, then the SilentAura render modes.

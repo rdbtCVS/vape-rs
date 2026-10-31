@@ -53,6 +53,11 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `fly-move` | `horizon_client::motion::MotionWorld<'_,'_,'_>::move_self` | Cancellable HEAD (library crate). Substitutes Fly's per-tick movement vector. |
 | `send-state` | `horizon_client::game::remote::Game<'_>::remote_send_state` | NoFall/Fly pre-motion: AntiCheat's MovePlayerStatus true/false pair and the ground value for this send; Step's recognised step (Speed stage, 0.45 timer; the reference's two extra positions are not sent: 26.3 kicks a second position in one client tick). |
 | `send-state-ground` | `remote_send_state`, argument 2 of `r.position_sender.update` | MODIFY_ARG (`require = 1`, `ordinal = 0`). Replaces the sent `on_ground` with the pre-motion value when set. |
+| `hit-select-attack` | `horizon_client::game::remote::Game<'_>::remote_start_attack` | Cancellable HEAD, priority 110 (before `remote-attack`). HitSelect's `EventClickMouse`: a cancelled attack click does nothing (returns false: no instant block break); a passed one runs `ClientSettings.applyAttackEffects`. |
+| `hit-select-use` | `horizon_client::game::remote::Game<'_>::remote_use` | Cancellable HEAD. HitSelect Normal holds back use and right clicks until the next tick (`EventRightClickMouse`/`EventPlayerUseItem`). |
+| `hit-select-continue-attack` | `horizon_client::game::remote::Game<'_>::remote_continue_attack` | Cancellable HEAD. HitSelect Normal holds back block hitting (`EventSendClickBlockToController`). |
+| `block-hit-mouse` | `horizon_client::game::Game<'_>::play_mouse` | Cancellable HEAD, priority 90 (after `mouse-bind`). BlockHit's `EventMouseButton`: Manual's block at an attack press; Auto/Predict swallow a use press while attacking with a sword. |
+| `block-hit-send` | `horizon_client::game::remote::Game<'_>::send` | Cancellable HEAD, priority 90 (after `outbound-packet`, the reference's LOWEST). BlockHit Lag holds the release-use packet and what follows it until its delay ends or the target is lost; the held packets go out through the session, past the hooks. |
 
 ## Support modules
 
@@ -84,6 +89,9 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_overlay` | `crates/horizon-client/src/game/fov.rs` | `mixins/vape_rs/overlay.rs` |
 | `vape_remote_tab` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/remote_tab.rs` |
 | `vape_esp_outline` | `crates/horizon-client/src/game/glowing.rs` | `mixins/vape_rs/esp_outline.rs` |
+| `vape_teams` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/teams.rs` |
+| `vape_hit_select` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/hit_select.rs` |
+| `vape_block_hit` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/block_hit.rs` |
 
 Inventory worker (2026-10-31), no new hooks:
 
@@ -103,3 +111,7 @@ Live entity snapshots come from `vape_combat::snapshot`: alive `Game::mobs` (rem
 Movement keys have one writer: `vape_input_delays::movement`, called from `client-tick` before local and remote movement, and from `client-frame` on screen/pause/unfocused frames. It reads the host's canonical key set and toggle mappings, resolves the per-tick requests from Sprint and Parkour (`vape_parkour::edge_ahead` answers the host collision query) through `core::movement_input::Writer`, and writes only the axes that differ from the user's state, or that it owned and must hand back. Host events reach the writer through the two key-capture adapters above. Host scenarios: docs/evidence/postmerge-validation.json.
 
 KillAura and SilentAura run from `client-tick` through `vape_aura::tick`, after TriggerBot: snapshots from `vape_combat::snapshot`, attacks by entity id through `vape_combat_remote::attack` (on a server: `Attack`, `remote_player_attack`, attack-strength reset, swing and `Punch`, in the host's order and respecting `miss_time`; locally `attack_mob` and the swing), misses through `vape_combat_remote::miss`. The shared rotation claim and managed rotation live in the runtime (`core/combat_runtime.rs`, `modules/combat/rotation.rs`).
+
+### 2026-10-31: combat part A (worker round 2) counts
+
+With the combat part A branch (`t3/1e32141e`) on main `97dbaa7`, stage and audit count **49 hooks (47 HEAD + 2 MODIFY_ARG) and 32 support modules**. The branch adds five hooks (`hit-select-attack`, `hit-select-use`, `hit-select-continue-attack`, `block-hit-mouse`, `block-hit-send`) and three support modules (`vape_teams`, `vape_hit_select`, `vape_block_hit`), all listed in the tables above. The header count at the top of this file predates both.
