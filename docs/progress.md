@@ -1721,3 +1721,62 @@ Gates on merged main (`gates.sh --host`): fmt, Clippy `-D warnings`, tests 431 p
 Scenarios on merged main, each in a fresh isolated home: hud_detail 8/8, weather_modes 13/13, hud_editor 9/9, hud_modes 5/5, hud_readouts 7/7 and no_hurt_camera 7/7. The first no_hurt_camera run failed 5/7 at load average 10–12: with the module off, the first capture after the hit already fell past the ten-tick tilt (frame differences 1.49, 0.18, 0.22, 0.29, 0.33, against 21.15, 20.89, 15.09, 6.13, 1.67 on an immediate rerun). The scenario now measures the module-off pass up to three times when it misses the window. Every attempt stays in measurements.json, and the module-on passes are still checked once against the module-off peak. It passed 7/7 on the next run. Post-merge evidence: docs/evidence/main-hud-modules-{layouts,weather-modes,no-hurt-camera}.
 
 Open, from the worker: HUD text still uses the host bitmap font (a cross-HUD decision shared with hud-client); localization, the HUD editor's transparency and the armor bar's glow are not ported.
+
+## 2026-10-31: Movement B (worker round 2)
+
+Branch `t3/5cf7669a` (worker movement-b), merged with main 97dbaa7. Scope was AutoPearl, PearlCatch, Freecam, Freelook, FakeLag Latency/Dynamic, Blink, InvWalk, FastPlace, Strafe and the movement validation debt. The wrap-up order stopped the round after Freelook's host integration.
+
+Changed files:
+- Pearls: `src/modules/utility/{auto_pearl,pearl_catch}.rs`, `src/core/pearl_runtime.rs`, `mixins/vape_rs/pearls.rs`, `mixins/vape_rs/adapters/pearl_{use,throw}_item.rs`, `tools/pearl_scenario.py`.
+- The shared rotation claim: `src/core/rotation_runtime.rs`, `src/modules/combat/rotation.rs` (it absorbs `src/modules/movement/rotation.rs`), `src/modules/combat/silent_aura.rs`, `src/modules/movement/wind_charge.rs`, `src/core/combat_runtime.rs`.
+- Freecam: `src/modules/render/freecam.rs`, `src/core/freecam_runtime.rs`, `mixins/vape_rs/freecam.rs`, `mixins/vape_rs/adapters/freecam_{camera,turn,body}.rs`, `mixins/vape_rs/adapters/no_hurt_camera.rs`, `mixins/vape_rs/input_delays.rs`, `src/core/movement_input.rs`, `tools/freecam_scenario.py`.
+- Freelook: `src/modules/render/freelook.rs`, `src/core/freelook_runtime.rs`, plus the Freecam camera, turn and tick hooks.
+- Shared, small edits: `src/core/{mod,registry,movement_runtime}.rs`, `mixins/vape_rs/{horizon-mixin.toml,world_actions.rs,adapters/tick.rs}`, `tools/world_movement_scenario.py`, `compatibility.json`, `docs/hooks.md`, `docs/decisions.md`.
+
+Feature IDs, in `target/ledger-updates/movement-b.json` (21 rows):
+- validated: module.autopearl, its aggro and on-bind modes, and its helpers (module.autopearlaimlock, autopearlrotationcontroller, autopearlpointrotationcontroller, autopearltrackedpearl); module.pearlcatch with its upward and current-aim modes; module.freecam, module.freecamcontroller, module.freecammoderncontroller.
+- integrated: module.freelookhudmodule with its hold, toggle, 3rd-person, forward and backward modes. The hooks are wired and the host check and build compile them; there is no host scenario.
+- not-applicable-reviewed:
+  - module.freecamlegacycontroller: the reference picks it only on 1.8.9 and 1.7.10.
+  - module.freelookhudmodule.mode.1st-person: the reference builds the Perspective value but never adds it, so it cannot be chosen.
+
+Host scenarios, each in a fresh isolated home with HORIZON_SERVER_THREAD=1. The LAN runs use two owned local processes. Evidence is in docs/evidence/movement-b-{pearls,freecam}/.
+- `tools/pearl_scenario.py`:
+  - AutoPearl Aggro over LAN: 11/11 (`pearl-lan-guest-result.json`). The host throws a real pearl, the guest throws after it, the server takes one pearl and the guest lands near the host's landing.
+  - AutoPearl On bind over LAN: 11/11 (`ap-on-bind-guest-result.json`). With no pearl flying, the bind disables the module. After the host throws, the guest selects its pearl, aims visibly, throws once, teleports 44 blocks and the module disables itself.
+  - PearlCatch Upward visible 9/9, Upward silent 10/10 and Current aim 10/10 (`pc-*-result.json`, captures `pearl-catch-*.png`).
+- World-movement regression after the rotation claim moved: 28/28, visible 6/6 (`world-movement-*-regression-result.json`).
+- `tools/freecam_scenario.py`:
+  - Defaults 11/11 (`defaults-result.json`). The first run was 10/11: the start-frame check counted 16647 body pixels against a threshold that was too high. The check now reads the head covering the view (body > 5000 and changed > 150000), and the rerun passed 11/11 (`run-all.log`, `run-defaults-rerun.log`).
+  - Spawn Fake off 6/6, Move Fake 6/6.
+  - The captures were inspected:
+    - on enable, the camera is inside the head of the body left behind;
+    - backed off, the body stands in front of the red wall;
+    - after a 180 degree turn the lime wall shows while the player's yaw stays 0;
+    - after the disable the view is back at the player.
+- The Freecam and pearl runs above predate Freelook: Freelook's commit then changed the Freecam camera, turn and tick hooks, so that each asks Freecam first and then Freelook. They have not been rerun on a host build of this head. The coordinator runs `tools/freecam_scenario.py` and `tools/pearl_scenario.py` on main after the merge.
+
+Gates, on 237ee3f (main 97dbaa7 merged):
+- `cargo fmt --all --check`: ok.
+- `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`: ok.
+- `cargo test --workspace --locked --offline`: 264 + 1 + 4 + 0 passed, 0 failed. Freelook adds `modules::render::freelook` (7) and `core::freelook_runtime` (3).
+- payload-test: 264 passed.
+- stage + audit: 49 hooks and 31 support modules, original AST restored. This branch adds pearl-use-item, pearl-throw-item, freecam-camera, freecam-turn and freecam-body, plus vape_pearls and vape_freecam.
+- host check: exit 0, 80 warnings. All point at the staged `game.rs`; they are dead-code lints and private-interface lints of the same kind as `input_delays`.
+- host build: not run by this worker. A queued build was stopped at the coordinator's request to shorten the lock queue; the coordinator runs `gates.sh --host` (host check and build) after the merge.
+
+Limits:
+- Freelook has no host scenario. The control socket's state does not report the camera type, so a scenario would have to judge the third-person view and the camera turn from captures. It stays integrated.
+- Freecam's Spawn Fake draws the real player body instead of a fake entity (docs/decisions.md).
+- The legacy controller and Freelook's 1st Person are not applicable.
+
+Unfinished in this scope (statuses unchanged):
+- Freelook's host scenario and validation.
+- FakeLag Latency and Dynamic.
+- Blink: outgoing-only and the fake player.
+- InvWalk: the key byte and the text-field check.
+- The FastPlace scenario.
+- LAN validation of LongJump, NoFall and Parkour.
+- Strafe.
+
+Next: a Freelook capture scenario (bind held, a turn, the third-person view, the player's yaw unchanged, and the perspective back on release), then the items above.
