@@ -11,6 +11,7 @@
 // "Keep open" the chest closes when the queue is done or the inventory is
 // full.
 use super::super::super::inventory::{
+    arrange::java_sort,
     planner::{Gate, Outcome},
     rules::{Category, weapon_damage},
     types::{ArmorSlot, Click, Item, Request, SlotRole, Snapshot},
@@ -368,44 +369,6 @@ fn compare(from: Option<u16>, a: u16, b: u16) -> Ordering {
         .partial_cmp(&(distance(from, b) + 1.0))
         .unwrap_or(Ordering::Equal)
 }
-/// `List.sort` as `TimSort` runs it on fewer than 32 elements: the leading
-/// run (reversed if descending), then binary insertion. A single chest
-/// (27 slots) always takes this path. For 32 or more, Java merges runs
-/// instead (and may give up midway on this comparator); this keeps the
-/// insertion path there too.
-fn java_sort(list: &mut [u16], cmp: impl Fn(&u16, &u16) -> Ordering) {
-    let len = list.len();
-    if len < 2 {
-        return;
-    }
-    // `countRunAndMakeAscending`.
-    let mut run = 2;
-    if cmp(&list[1], &list[0]) == Ordering::Less {
-        while run < len && cmp(&list[run], &list[run - 1]) == Ordering::Less {
-            run += 1;
-        }
-        list[..run].reverse();
-    } else {
-        while run < len && cmp(&list[run], &list[run - 1]) != Ordering::Less {
-            run += 1;
-        }
-    }
-    // `binarySort`.
-    for start in run..len {
-        let pivot = list[start];
-        let (mut left, mut right) = (0, start);
-        while left < right {
-            let mid = (left + right) / 2;
-            if cmp(&pivot, &list[mid]) == Ordering::Less {
-                right = mid;
-            } else {
-                left = mid + 1;
-            }
-        }
-        list[left..=start].rotate_right(1);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

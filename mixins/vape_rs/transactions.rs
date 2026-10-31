@@ -211,6 +211,16 @@ fn meta(
         mining_speed,
         armor_points: modifier_sum(info, "minecraft:armor"),
         armor_toughness: modifier_sum(info, "minecraft:armor_toughness"),
+        mainhand_modifiers: info.map_or(0.0, |i| {
+            i.modifiers
+                .iter()
+                .filter(|(.., slot)| slot == "mainhand")
+                .map(|(_, _, amount, ..)| *amount as f32)
+                .sum()
+        }),
+        first_modifier: info
+            .and_then(|i| i.modifiers.first())
+            .map_or(0.0, |(_, _, amount, ..)| *amount as f32),
         tool: info.is_some_and(|i| i.tool_damage_per_block.is_some()),
     }
 }

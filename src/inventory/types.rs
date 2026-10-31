@@ -73,7 +73,8 @@ pub struct ItemMeta {
     pub effects: Vec<PotionEffect>,
     /// `minecraft:splash_potion` or `minecraft:lingering_potion`.
     pub thrown_potion: bool,
-    /// `food` component: nutrition and saturation modifier.
+    /// `food` component: nutrition and saturation (points, the component's
+    /// `saturation`).
     pub food: Option<(u32, f32)>,
     /// The item places a block.
     pub block: bool,
@@ -87,6 +88,13 @@ pub struct ItemMeta {
     /// the item's default modifiers, any slot group.
     pub armor_points: f32,
     pub armor_toughness: f32,
+    /// Summed amounts of the item's default modifiers in the `mainhand`
+    /// slot group: attack damage plus attack speed for vanilla weapons and
+    /// tools.
+    pub mainhand_modifiers: f32,
+    /// Amount of the first of the item's default modifiers (attack damage
+    /// for vanilla tools).
+    pub first_modifier: f32,
     /// The item has a `tool` component.
     pub tool: bool,
 }

@@ -51,6 +51,11 @@ HOTBAR_RULES = [
     {'slot': 0, 'item': 'minecraft:diamond_sword', 'anyMaterial': True, 'onlyBest': True},
     {'slot': 1, 'item': 'minecraft:golden_apple'},
     {'slot': 8, 'item': 'minecraft:cobblestone'},
+    # One rule per remaining "Only best" comparator (case 8b).
+    {'slot': 2, 'item': 'minecraft:iron_pickaxe', 'anyMaterial': True, 'onlyBest': True},
+    {'slot': 3, 'item': 'minecraft:bow', 'onlyBest': True},
+    {'slot': 4, 'item': 'minecraft:splash_potion', 'onlyBest': True},
+    {'slot': 5, 'item': 'minecraft:golden_carrot', 'anyMaterial': True, 'onlyBest': True},
 ]
 
 
@@ -339,6 +344,32 @@ def run(resources):
         assert hotbar[1] == 'minecraft:golden_apple', hotbar
         assert hotbar[8] == 'minecraft:cobblestone', hotbar
         checks['hotbar_cursor'] = {'held': held, 'hotbar': hotbar}
+
+        # 8b. AutoHotbar "Only best" per item class: pickaxes by their first
+        # attribute modifier (iron beats the faster golden one), bows by the
+        # bow score (Power II), splash potions by amplifier (Swiftness II),
+        # food by nutrition x saturation (golden carrot beats the more
+        # filling pumpkin pie).
+        swift = 'minecraft:splash_potion[potion_contents={potion:"minecraft:%s"}]'
+        before = setup([
+            ('hotbar.2', 'minecraft:stone_pickaxe', 1),
+            ('inventory.0', 'minecraft:golden_pickaxe', 1),
+            ('inventory.1', 'minecraft:iron_pickaxe', 1),
+            ('inventory.2', 'minecraft:bow', 1),
+            ('inventory.3', 'minecraft:bow[enchantments={power:2}]', 1),
+            ('inventory.4', swift % 'swiftness', 1),
+            ('inventory.5', swift % 'strong_swiftness', 1),
+            ('inventory.6', 'minecraft:pumpkin_pie', 4),
+            ('inventory.7', 'minecraft:golden_carrot', 3),
+        ])
+        session.call('key', 'n', 'tap')
+        inv = finish(AH, 'hotbar-comparators', before)
+        bar = {e['slot']: (e.get('item'), e.get('components', '')) for e in inv['hotbar']}
+        assert bar[2][0] == 'minecraft:iron_pickaxe', bar
+        assert bar[3][0] == 'minecraft:bow' and 'power' in bar[3][1], bar
+        assert bar[4][0] == 'minecraft:splash_potion' and 'strong_swiftness' in bar[4][1], bar
+        assert bar[5][0] == 'minecraft:golden_carrot', bar
+        checks['hotbar_comparators'] = {'hotbar': bar}
 
         # 9. ArmorSwitch: iron worn, diamond stored, full inventory; the sets
         # trade places piece by piece, then switch back.

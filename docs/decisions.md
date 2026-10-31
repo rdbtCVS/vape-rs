@@ -178,3 +178,14 @@
   - A container opened during a session ends it without a close of its own (the container's close puts the server back on the player menu). The reference just waits in that case.
   - **Open:** the reference's `onWindowClick` also cancels the player's own clicks while an AutoTotem-opened (non-silent) inventory screen is shown. That is not ported. Silent sessions have no screen to click, so it doesn't apply to them.
 - **Refill watches its screen on every update**, as the reference's per-tick `onTick` does; the click delay paces only the clicks. Seeing the player inventory once marks the run as opened. The first update without it finishes the run (close if a screen is open, then disable), with no delay wait. Before this, a user close inside the first click delay went unseen, and Refill reopened the inventory (host scenario `inventory_scenario.py`, "Refill interrupted").
+- **AutoHotbar "Only best"** uses the reference's `registerComparators` table, keyed by the rule item's class. The class names follow the reference, not 26.x's item classes:
+  - Swords and axes: `InventoryManagerPrimaryItemScoreComparator`. Score: summed `mainhand` attribute modifiers (attack damage plus attack speed) + the sharpness bonus + 0.01 per Fire Aspect level.
+  - Pickaxes and shovels: `BowSlotComparator`. Score: the first attribute modifier's amount + the sharpness bonus.
+  - Bows: `InventoryManagerSecondaryItemScoreComparator`. Score: the bow score, InventoryManager's "Best overall".
+  - Potions: `ArmorSlotComparator`. Amplifier comparisons summed over the effects both potions share. This is not transitive, so `java_sort` (now in `inventory/arrange.rs`) reproduces Java's insertion path.
+  - Food: `FoodSlotComparator`. Nutrition × the food component's `saturation` (points).
+  - Hoes, armor, blocks and other items have no comparator: "Only best" takes the first match.
+- AutoHotbar's candidate list follows `findBestMatchingSlot`. It starts with the target if it matches, then every untouched matching slot in player-menu order (armor, main, hotbar, offhand); the crafting grid isn't in the snapshot. The list is sorted ascending and reversed, so the last of equal bests in menu order wins. A target that compares equal to the best stays, and is not marked touched.
+- AutoHotbar keeps `touchedSlots` for the whole run: settled targets, both ends of each move, and top-up sources. Slots count as touched once their click is issued.
+  - Top-ups take untouched, non-armor slots of the same stack kind that match the rule.
+  - **Deviation:** the reference's `findOverflowSlots` also accepts other matching kinds ("Any material" blocks). Its MOVE then swaps the two stacks instead of topping up. Moves stay number-key swaps, where the reference uses a shift-click into the first empty hotbar slot and a three-click MOVE onto an occupied one.
