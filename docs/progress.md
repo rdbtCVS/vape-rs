@@ -919,3 +919,41 @@ Pinned Horizon 8f91f896a / horizon-mixins 0e9229d, fresh isolated homes.
   per server tick whatever movement packets arrive, so neither can change
   its clock here. Host-limited, not validated.
 - Evidence: docs/evidence/validation-combat.json, validation-pvp.json.
+
+## 2026-10-31: validation — render/legit frames, inbound hold rerun, Time Changer and AntiDebuff fixes
+
+Pinned Horizon 8f91f896a / horizon-mixins 0e9229d, fresh isolated homes.
+
+- `tools/legit_render_scenario.py` (integrated server, frames from the host's
+  own screenshots): **40/40** (`legit-render-8bkfza5i`).
+  - Time Changer hour 0: the client reads 18000 while the server stays at
+    6002. Sky luma goes 185 -> 8 -> 189, and the server's time is back after.
+  - Weather Raining under a clear server sky: sky luma 189 -> 93 -> 190. The
+    server's weather stays clear.
+  - Fullbright in a sealed room at midnight. Night Vision: luma 8.5 -> 70 -> 8.3.
+    Gamma (relaunched with the mode): 8.3 -> 87 -> 8.2.
+  - Clear Water under water: frame diff 20.5 on, 2.1 after a fresh dive.
+  - AntiDebuff (Remove Effects on): slowness, nausea and blindness leave the
+    client list, and walking goes back to 6.33 from 2.53 blocks per 30 ticks.
+    Disabled, new debuffs stay and slow again.
+  - ItemESP: diff 2.47 for an item behind a wall, 0.0 after.
+  - NameTags (animals): diff 1.32 for a still cow, 0.10 after.
+- Fixed: Time Changer left the forced time in place after disable. The modern
+  server only sends the clock when it jumps, so the module kept writing over
+  the only copy. It now tracks the real clock beside the written one and
+  restores it on disable (`mixins/vape_rs/legit.rs`).
+- Fixed: AntiDebuff removed slowness from the effect list, but the speed
+  attribute modifier stayed (the server's attribute sync re-adds it), so
+  walking stayed slow. The modifier is now stripped every tick while the
+  module is on (`mixins/vape_rs/legit.rs`).
+- `tools/inbound_hold_scenario.py` (LAN host plus a vape-rs guest): **27/27**
+  (`hold-guest-p1v7oao5`) after the packet-tick reorder.
+  - Blink Bi-directional, including the teleport flush and a reconnect with
+    nothing replayed.
+  - Backtrack: the pig is 3.42 behind its server position while held, 0.31
+    without, and released at once on disable.
+  - FakeLag Repel: the first hit is not delayed; the hit on a hurt target is
+    held and lands by its deadline.
+  - Test fixes: the Backtrack baseline now allows interpolation lag (< 1.2),
+    and the Repel check is timed on two attacks three ticks apart.
+- Evidence: docs/evidence/validation-legit-render.json, validation-hold.json.
