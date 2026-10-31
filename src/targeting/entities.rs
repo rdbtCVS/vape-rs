@@ -90,6 +90,8 @@ pub struct EntityView {
     pub blocking: bool,
     /// Head yaw and pitch, when the host tracks them.
     pub look: Option<(f32, f32)>,
+    /// Motion per tick (`motionX/Y/Z`); zero where the host keeps none.
+    pub motion: [f64; 3],
 }
 
 impl EntityView {

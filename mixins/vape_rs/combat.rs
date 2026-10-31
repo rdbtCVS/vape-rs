@@ -88,6 +88,7 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
             vehicle: Some(mob.id) == game.riding,
             blocking: e.blocking,
             look: Some((mob.head_yaw, mob.head_pitch)),
+            motion: [mob.velocity.x, mob.velocity.y, mob.velocity.z],
         });
     }
     if let Some(host) = &game.lan {
@@ -113,6 +114,9 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
                 // The guest's model carries its raised shield (lan_update_models).
                 blocking: host.models.get(&guest.conn).is_some_and(|m| m.extra.blocking),
                 look: Some((guest.head_yaw, guest.pitch)),
+                // The host keeps no guest velocity; a remote player's motion
+                // only follows velocity packets in the reference too.
+                motion: [0.0; 3],
             });
         }
     }
@@ -172,6 +176,8 @@ pub(super) fn aim_assist(game: &mut Game<'_>) {
     let partial = game.clock.fraction();
     let current = [player.position.x, player.position.y, player.position.z];
     let previous = [game.previous_position.x, game.previous_position.y, game.previous_position.z];
+    let motion = [player.velocity.x, player.velocity.y, player.velocity.z];
+    let (on_ground, eye_height) = (player.ground.on_ground, f64::from(player.dimensions.eye_height));
     let strafe = f32::from(u8::from(game.keys.contains(&winit::keyboard::KeyCode::KeyA)))
         - f32::from(u8::from(game.keys.contains(&winit::keyboard::KeyCode::KeyD)));
     // The crosshair is on a block when the block hit is nearer than any mob.
@@ -196,6 +202,9 @@ pub(super) fn aim_assist(game: &mut Game<'_>) {
         movement_locked: with_client(&client, |runtime| runtime.movement_input_locked()),
         sensitivity: game.settings.sensitivity,
         elapsed_ms: 0,
+        motion,
+        on_ground,
+        eye_height,
     };
     let (x, y) = with_client(&client, |runtime| {
         if runtime.enabled(ModuleId::AimAssist) { runtime.aim_assist_frame(frame) } else { (0.0, 0.0) }
