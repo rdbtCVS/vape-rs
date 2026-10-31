@@ -400,7 +400,9 @@ def relaunch(session, changes):
 def run(resources, allow_stale):
     with NativeSession(resources, 'movement-', allow_stale=allow_stale) as session:
         checks = Checks(session.root)
-        session.seed({'schema': 1, 'modules': {},
+        # The blatant modules are hidden by default; unhide them as the GUI would.
+        hidden = ('blatant.timer', 'blatant.fly', 'blatant.speed')
+        session.seed({'schema': 1, 'modules': {m: {'visible': True} for m in hidden},
                       'settings': {**{f'{m}.binds': [k] for m, k in BINDS.items()}, **SETTINGS}})
         session.launch(creative=True)
         session.call('chat', '/gamemode survival')
