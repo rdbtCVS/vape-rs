@@ -213,8 +213,12 @@ impl Runtime {
     }
     /// FakeLag's Repel mode yields to Lag's primary-action claim
     /// (`controlClaim.isClaimed()`: flush and hold nothing).
-    pub(super) fn fake_lag_yields(&self) -> bool {
+    /// BlockHit's Lag holds the primary action claim.
+    pub(super) fn block_hit_claimed(&self) -> bool {
         self.combat_extra.block_hit.claimed()
+    }
+    pub(super) fn fake_lag_yields(&self) -> bool {
+        (self.combat_extra.block_hit.claimed() || self.hit_flick_claimed())
             && self.enabled(ModuleId::FakeLag)
             && self
                 .settings

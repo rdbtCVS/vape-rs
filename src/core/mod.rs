@@ -2402,7 +2402,8 @@ impl Runtime {
                 | ModuleId::InventoryBlur
                 | ModuleId::TargetFilter
                 | ModuleId::HitSelect
-                | ModuleId::BlockHit => continue,
+                | ModuleId::BlockHit
+                | ModuleId::HitFlick => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

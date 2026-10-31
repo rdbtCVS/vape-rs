@@ -129,6 +129,7 @@ registry! {
     TargetFilter => "utility.target-filter", "TargetFilter", "Utility", None, [];
     HitSelect => "combat.hit-select", "HitSelect", "Combat", None, [];
     BlockHit => "combat.block-hit", "BlockHit", "Combat", None, [];
+    HitFlick => "combat.hit-flick", "HitFlick", "Combat", None, [];
 }
 
 impl ModuleId {

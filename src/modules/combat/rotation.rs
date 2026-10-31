@@ -318,6 +318,17 @@ impl Managed {
         updates: u32,
         mut speed: impl FnMut() -> Step,
     ) -> bool {
+        self.tick_by(view, sensitivity, updates, |_| speed())
+    }
+    /// `tick` with a speed that reads the managed rotation before each
+    /// update (`getSpeed` sees the controller's current rotation).
+    pub fn tick_by(
+        &mut self,
+        view: (f32, f32),
+        sensitivity: f64,
+        updates: u32,
+        mut speed: impl FnMut(&Self) -> Step,
+    ) -> bool {
         if !self.active {
             return false;
         }
@@ -334,7 +345,8 @@ impl Managed {
         };
         let mut complete = false;
         for _ in 0..updates {
-            complete = self.update(target, degrees, speed());
+            let step = speed(self);
+            complete = self.update(target, degrees, step);
         }
         if self.relative
             && (complete

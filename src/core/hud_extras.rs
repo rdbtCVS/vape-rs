@@ -228,6 +228,7 @@ impl Runtime {
             ModuleId::WTap => decimal(self.hud_number(&format!("{id}.release-delay")), 0),
             ModuleId::HitSelect => self.hit_select_options().suffix(),
             ModuleId::BlockHit => self.block_hit_suffix(),
+            ModuleId::HitFlick => self.hit_flick_suffix(),
             _ => String::new(),
         }
     }
