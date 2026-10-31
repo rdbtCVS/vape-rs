@@ -75,6 +75,16 @@ impl Definition {
         });
         self
     }
+    /// Shown only while `id` differs from `expected` (the reference's
+    /// `getDisabledCondition().applyTo`).
+    pub fn unless(mut self, id: &str, expected: Value) -> Self {
+        self.visible_if.push(Condition {
+            setting: id.into(),
+            expected,
+            negate: true,
+        });
+        self
+    }
     pub fn validate(&self, value: &Value) -> Result<Value, String> {
         let bad = || format!("{}: invalid value for {}", self.id, self.label);
         let number = |v: &Value, min: f64, max: f64, step: f64| -> Result<f64, String> {

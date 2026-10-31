@@ -1,12 +1,14 @@
 // AutoHeal: Legit mode uses a hotbar healing item (soup, or the custom
 // "Healing Items") below the health threshold through the shared use
-// sequencer; its inventory side handles empty bowls ("Bowl Mode" Throw or
-// Stack into slot 17) and "Replace" (moves healing items from the main
-// inventory into empty hotbar slots) one gated click at a time.
+// sequencer; Silent uses it with a server-only held-item change. Silent's
+// "Potions" throws a splash potion from "Slot" at PreMotion/PostMotion. The
+// inventory side handles empty bowls ("Bowl Mode" Throw or Stack into slot
+// 17) and "Replace" (moves healing items from the main inventory into empty
+// hotbar slots) one gated click at a time.
 use super::super::super::inventory::{
     arrange::place_carried,
     session::{Policy, Session, Step},
-    types::{Click, Item, SlotRole, Snapshot},
+    types::{Click, Item, SlotRole, Snapshot, Vitals},
 };
 use super::throw_items::{is_bowl, is_soup};
 use std::collections::BTreeSet;
@@ -46,6 +48,78 @@ pub fn heal_slot(snapshot: &Snapshot, options: &Options) -> Option<u8> {
             .hotbar(*slot)
             .and_then(|s| s.item.as_ref())
             .is_some_and(|i| is_healing(i, options))
+    })
+}
+
+/// The pitch the reference's PreMotion sends while a potion is pending.
+pub const POTION_PITCH: f32 = 88.99;
+
+/// "Potions" (shown, so effective, only in Silent): "Regen", "Speed",
+/// "Resistance", the hotbar "Slot" a potion is swapped into, and "Replace".
+#[derive(Clone, Copy, Debug)]
+pub struct Potions {
+    pub regen: bool,
+    pub speed: bool,
+    pub resistance: bool,
+    /// Zero-based hotbar slot ("Slot" - 1).
+    pub slot: u8,
+    pub replace: bool,
+    /// Health threshold in HP; potions compare raw health with it.
+    pub health: f32,
+}
+fn has(vitals: &Vitals, effect: &str) -> bool {
+    vitals.effects.iter().any(|e| e == effect)
+}
+/// `isHealingPotion`: a splash potion holding instant health (health at or
+/// under the threshold), speed ("Speed" with no speed effect) or
+/// regeneration ("Regen", at or under the threshold, no regeneration
+/// effect). A resistance potion never matches, as in the reference.
+pub fn is_healing_potion(item: &Item, vitals: &Vitals, potions: &Potions) -> bool {
+    if item.fingerprint.id != "minecraft:splash_potion" {
+        return false;
+    }
+    let low = vitals.health <= potions.health;
+    item.meta.effects.iter().any(|e| match e.id.as_str() {
+        "instant_health" => low,
+        "speed" => potions.speed && !has(vitals, "speed"),
+        "regeneration" => potions.regen && low && !has(vitals, "regeneration"),
+        _ => false,
+    })
+}
+/// PreMotion's `needsPotion`: low health (unless "Regen" and already
+/// regenerating), or a missing speed/resistance effect that is asked for;
+/// only on the ground (`onGround && isCollidedVertically`, which one
+/// `Entity.move` sets together).
+pub fn needs_potion(vitals: &Vitals, potions: &Potions) -> bool {
+    let wanted = vitals.health <= potions.health
+        && (!potions.regen || !has(vitals, "regeneration"))
+        || potions.speed && !has(vitals, "speed")
+        || potions.resistance && !has(vitals, "resistance");
+    wanted && vitals.on_ground
+}
+/// `findHealingPotionSlot`'s result: the hotbar slot to use, and the slot
+/// a window-0 SWAP click (button `hotbar`) brings the potion from.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PotionPick {
+    pub hotbar: u8,
+    pub swap: Option<u16>,
+}
+/// `findHealingPotionSlot`: the first healing potion in player-menu order
+/// (the main rows, then the hotbar). The reference stops at it: without
+/// "Replace" there is none, with it the potion is swapped into "Slot" (a
+/// potion already there needs no click; the reference's same-slot SWAP
+/// changes nothing). The 2x2 crafting grid (the reference's `slot < 8`
+/// branch) is not scanned.
+pub fn potion_slot(snapshot: &Snapshot, potions: &Potions) -> Option<PotionPick> {
+    let found = (9..36).chain(0..9).find(|i| {
+        snapshot
+            .slot(*i)
+            .and_then(|s| s.item.as_ref())
+            .is_some_and(|item| is_healing_potion(item, &snapshot.vitals, potions))
+    })?;
+    potions.replace.then_some(PotionPick {
+        hotbar: potions.slot,
+        swap: (found != u16::from(potions.slot)).then_some(found),
     })
 }
 
@@ -198,6 +272,135 @@ mod tests {
             next_click(&s, &options(), &mut origin),
             Some(((BOWL_SLOT, Click::Pickup), false))
         );
+    }
+    fn potions() -> Potions {
+        Potions {
+            regen: true,
+            speed: false,
+            resistance: false,
+            slot: 5,
+            replace: true,
+            health: 17.0,
+        }
+    }
+    fn splash(effect: &str) -> Item {
+        let mut i = item("splash_potion", ItemClass::Other, 0.0);
+        i.meta.effects.push(crate::inventory::types::PotionEffect {
+            id: effect.into(),
+            amplifier: 0,
+            duration: 1,
+        });
+        i
+    }
+    #[test]
+    fn healing_potions_follow_the_reference_conditions() {
+        let mut v = Vitals {
+            health: 10.0,
+            max_health: 20.0,
+            ..Vitals::default()
+        };
+        let p = potions();
+        assert!(is_healing_potion(&splash("instant_health"), &v, &p));
+        assert!(is_healing_potion(&splash("regeneration"), &v, &p));
+        assert!(!is_healing_potion(&splash("speed"), &v, &p));
+        assert!(!is_healing_potion(
+            &splash("resistance"),
+            &v,
+            &Potions {
+                resistance: true,
+                ..p
+            }
+        ));
+        assert!(is_healing_potion(
+            &splash("speed"),
+            &v,
+            &Potions { speed: true, ..p }
+        ));
+        let mut drink = splash("instant_health");
+        drink.fingerprint.id = "minecraft:potion".into();
+        assert!(!is_healing_potion(&drink, &v, &p));
+        v.effects.push("regeneration".into());
+        assert!(!is_healing_potion(&splash("regeneration"), &v, &p));
+        v.health = 18.0;
+        assert!(!is_healing_potion(&splash("instant_health"), &v, &p));
+    }
+    #[test]
+    fn a_potion_is_needed_only_on_the_ground() {
+        let mut v = Vitals {
+            health: 10.0,
+            max_health: 20.0,
+            on_ground: true,
+            ..Vitals::default()
+        };
+        assert!(needs_potion(&v, &potions()));
+        v.effects.push("regeneration".into());
+        assert!(!needs_potion(&v, &potions()));
+        assert!(needs_potion(
+            &v,
+            &Potions {
+                regen: false,
+                ..potions()
+            }
+        ));
+        assert!(needs_potion(
+            &v,
+            &Potions {
+                resistance: true,
+                ..potions()
+            }
+        ));
+        v.on_ground = false;
+        assert!(!needs_potion(
+            &v,
+            &Potions {
+                regen: false,
+                ..potions()
+            }
+        ));
+    }
+    #[test]
+    fn the_first_potion_in_menu_order_is_swapped_into_slot() {
+        let mut s = snapshot(false, std::time::Instant::now());
+        s.vitals.health = 10.0;
+        s.slots[2].item = Some(splash("instant_health"));
+        s.slots[30].item = Some(splash("instant_health"));
+        // The main rows come before the hotbar.
+        assert_eq!(
+            potion_slot(&s, &potions()),
+            Some(PotionPick {
+                hotbar: 5,
+                swap: Some(30)
+            })
+        );
+        s.slots[30].item = None;
+        assert_eq!(
+            potion_slot(&s, &potions()),
+            Some(PotionPick {
+                hotbar: 5,
+                swap: Some(2)
+            })
+        );
+        s.slots[5].item = s.slots[2].item.take();
+        assert_eq!(
+            potion_slot(&s, &potions()),
+            Some(PotionPick {
+                hotbar: 5,
+                swap: None
+            })
+        );
+        // Without Replace the reference finds none, even in the hotbar.
+        assert_eq!(
+            potion_slot(
+                &s,
+                &Potions {
+                    replace: false,
+                    ..potions()
+                }
+            ),
+            None
+        );
+        s.vitals.health = 18.0;
+        assert_eq!(potion_slot(&s, &potions()), None);
     }
     #[test]
     fn replace_moves_soup_to_an_empty_hotbar_slot() {

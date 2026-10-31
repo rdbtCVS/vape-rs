@@ -1,7 +1,10 @@
 // Runtime-side arbitration for the three retained inventory planners.
 use super::super::{
     inventory::types::{Request, Snapshot},
-    modules::utility::{auto_armor, auto_totem, chest_steal, refill},
+    modules::{
+        combat::rotation::{Claimant, Step},
+        utility::{auto_armor, auto_totem, chest_steal, refill},
+    },
 };
 use super::settings::{Definition, Kind};
 use super::{ModuleId, Runtime};
@@ -16,6 +19,12 @@ pub enum InventoryEffect {
     Request(Request),
     OpenInventory,
     CloseInventory,
+    /// AutoTotem's "Silent open": the player menu is used without a screen.
+    SilentOpen,
+    /// A click on the player menu, sent even with no screen shown.
+    SilentRequest(Request),
+    /// The silent session ended: close the player menu on the server.
+    SilentClose,
 }
 /// Longest time a selected planner may hold the container claim without
 /// emitting an effect. Planner clicks resolve within the gate deadline and
@@ -97,12 +106,30 @@ pub(super) fn definitions() -> Vec<Definition> {
             "Open inventory",
             true,
         ),
+        // "Silent open" equips without showing the inventory: the swap
+        // goes to the player menu while movement and clicks are held for
+        // "Silent move delay" after the last action.
+        Definition::boolean("inventory.auto-totem.silent-open", "Silent open", false)
+            .when("inventory.auto-totem.open-inventory", json!(true)),
+        Definition::new(
+            "inventory.auto-totem.silent-move-delay",
+            "Silent move delay",
+            Kind::Range {
+                min: 50.0,
+                max: 200.0,
+                step: 1.0,
+            },
+            json!([100.0, 120.0]),
+        )
+        .when("inventory.auto-totem.open-inventory", json!(true))
+        .when("inventory.auto-totem.silent-open", json!(true)),
         Definition::boolean(
             "inventory.auto-totem.close-inventory",
             "Close inventory",
             true,
         )
-        .when("inventory.auto-totem.open-inventory", json!(true)),
+        .when("inventory.auto-totem.open-inventory", json!(true))
+        .unless("inventory.auto-totem.silent-open", json!(true)),
         Definition::boolean(
             "inventory.auto-totem.inventory-only",
             "Inventory only",
@@ -184,7 +211,9 @@ pub(super) fn definitions() -> Vec<Definition> {
             },
             json!([75.0, 125.0]),
         ),
-        Definition::boolean("world.chest-steal.check-menu", "Check menu", true),
+        // The reference's "Check in menu" (`checkMenu`): only standard chest
+        // menus. Same key as before, so saved configs keep their value.
+        Definition::boolean("world.chest-steal.check-menu", "Check in menu", false),
         Definition::boolean("world.chest-steal.best-only", "Best only", false),
         Definition::boolean("world.chest-steal.keep-open", "Keep open", false),
         Definition::boolean("world.chest-steal.shuffle", "Shuffle", false),
@@ -273,10 +302,8 @@ impl Runtime {
         // A pending request remains owned by this module. Its next planner
         // observation is also delayed: no same-frame follow-up can mistake a
         // local prediction for server acceptance.
-        if module == ModuleId::Refill {
-            self.refill.observe(snapshot);
-        }
-        if !self.inventory_schedule.ready(now) {
+        let finishing = module == ModuleId::Refill && self.refill.observe(snapshot);
+        if !finishing && !self.inventory_schedule.ready(now) {
             return Vec::new();
         }
         let (effect, delay, active) = match module {
@@ -284,7 +311,8 @@ impl Runtime {
                 let effect = chest_effect(self.chest_steal.step(snapshot, &self.chest_options()));
                 (
                     effect,
-                    self.inventory_delay("world.chest-steal.click-delay", (150, 200)),
+                    self.chest_steal
+                        .delay(self.inventory_delay("world.chest-steal.click-delay", (150, 200))),
                     self.chest_steal.active(),
                 )
             }
@@ -305,15 +333,36 @@ impl Runtime {
                     self.inventory_bool("inventory.auto-totem.inventory-only", false);
                 let open = self.inventory_bool("inventory.auto-totem.open-inventory", true);
                 let close = self.inventory_bool("inventory.auto-totem.close-inventory", true);
+                let silent = self.inventory_bool("inventory.auto-totem.silent-open", false);
                 self.auto_totem.random_slot =
                     self.inventory_bool("inventory.auto-totem.random-slot", true);
+                let options = auto_totem::Options {
+                    inventory_only,
+                    open,
+                    close,
+                    silent,
+                };
+                let claim = &mut self.combat.claim;
+                let returning = self.combat.managed.relative;
                 let effect = self
                     .auto_totem
-                    .step(snapshot, inventory_only, open, close)
+                    .step(snapshot, options, || {
+                        claim.blocked_for(Claimant::AutoTotem)
+                            && !claim.acquire(Claimant::AutoTotem, true, returning)
+                    })
                     .map(|effect| match effect {
                         auto_totem::Effect::Request(r) => InventoryEffect::Request(r),
                         auto_totem::Effect::OpenInventory => InventoryEffect::OpenInventory,
                         auto_totem::Effect::CloseInventory => InventoryEffect::CloseInventory,
+                        auto_totem::Effect::SilentOpen => {
+                            self.combat.managed.hold(snapshot.vitals.view);
+                            InventoryEffect::SilentOpen
+                        }
+                        auto_totem::Effect::SilentRequest(r) => InventoryEffect::SilentRequest(r),
+                        auto_totem::Effect::SilentClose => {
+                            self.auto_totem_release_rotation();
+                            InventoryEffect::SilentClose
+                        }
                     });
                 let range = self.inventory_delay("inventory.auto-totem.delay", (100, 120));
                 let extra = self.inventory_bool("inventory.auto-totem.extra-randomization", true);
@@ -361,26 +410,63 @@ impl Runtime {
         }
         Vec::new()
     }
-    /// AutoTotem's "Show totem count" label and colour. Nothing draws it
-    /// yet: the reference shows it in the active-module stack frame, which
-    /// has no port (documented in docs/decisions.md).
-    pub fn totem_count_display(&self, snapshot: &Snapshot) -> Option<(String, [u8; 3])> {
-        (self.enabled(ModuleId::AutoTotem)
-            && self.inventory_bool("inventory.auto-totem.show-totem-count", false))
-        .then(|| {
-            let count = auto_totem::totem_count(snapshot);
-            (count.to_string(), auto_totem::count_color(count))
-        })
+    /// Whether AutoTotem's "Show totem count" readout is in the
+    /// active-module stack (drawn by the overlay, `center_stack`).
+    pub fn totem_count_shown(&self) -> bool {
+        self.enabled(ModuleId::AutoTotem)
+            && self.inventory_bool("inventory.auto-totem.show-totem-count", false)
     }
     pub fn cancel_inventory(&mut self) {
         self.actions
             .release_owner(super::super::actions::Owner("inventory"));
         self.auto_armor.cancel();
+        if self.auto_totem.silent() {
+            self.auto_totem_release_rotation();
+        }
         self.auto_totem.cancel();
         self.refill.cancel();
         self.chest_steal.cancel();
         self.inventory_extra.cancel();
         self.inventory_schedule.clear();
+    }
+    /// `closeInventory` of a silent session: the speed-0 controller returns
+    /// to the view at speed 3 with linear acceleration (only while it is
+    /// still the managed rotation: nobody else holds the claim), then the
+    /// claim is released.
+    fn auto_totem_release_rotation(&mut self) {
+        let c = &mut self.combat;
+        if c.managed.active
+            && c.claim
+                .owner()
+                .is_none_or(|owner| owner == Claimant::AutoTotem)
+        {
+            c.managed.release_with(Step {
+                counts: 3.0 * 0.25,
+                clamp: false,
+                proportional: false,
+                linear: true,
+            });
+        }
+        c.claim.release(Claimant::AutoTotem);
+    }
+    /// One client tick of AutoTotem's `suppressInput`; true while movement
+    /// keys and clicks are held. A disabled module holds nothing.
+    pub fn auto_totem_tick(&mut self, now: Instant) -> bool {
+        if !self.enabled(ModuleId::AutoTotem) {
+            self.auto_totem.release_input();
+            return false;
+        }
+        let delay = self.inventory_delay("inventory.auto-totem.silent-move-delay", (100, 120));
+        self.auto_totem.suppress_tick(now, delay)
+    }
+    /// Attack, use and block-break input is cancelled (`onClickMouse`,
+    /// `onRightClickMouse`, `onSendClickBlock`).
+    pub fn auto_totem_input_held(&self) -> bool {
+        self.enabled(ModuleId::AutoTotem) && self.auto_totem.suppressing()
+    }
+    /// The player-menu close a cancelled silent session still owes.
+    pub fn take_silent_close(&mut self) -> bool {
+        self.auto_totem.take_close_owed()
     }
     /// The backend calls this when `submit` rejects a stale request; no
     /// planner retries it against a different menu or revision.
@@ -445,7 +531,7 @@ impl Runtime {
     }
     fn chest_options(&self) -> chest_steal::Options {
         chest_steal::Options {
-            check_menu: self.inventory_bool("world.chest-steal.check-menu", true),
+            check_menu: self.inventory_bool("world.chest-steal.check-menu", false),
             best_only: self.inventory_bool("world.chest-steal.best-only", false),
             keep_open: self.inventory_bool("world.chest-steal.keep-open", false),
             shuffle: self.inventory_bool("world.chest-steal.shuffle", false),
@@ -579,6 +665,83 @@ mod tests {
             );
             assert!(!runtime.inventory_busy());
         }
+    }
+
+    #[test]
+    fn silent_totem_session_holds_rotation_and_input_then_returns() {
+        let mut runtime = Runtime::default();
+        runtime
+            .set_setting("inventory.auto-totem.silent-open", json!(true))
+            .unwrap();
+        runtime
+            .set_setting(
+                "inventory.auto-totem.silent-move-delay",
+                json!([150.0, 150.0]),
+            )
+            .unwrap();
+        runtime.set_enabled(ModuleId::AutoTotem, true);
+        let t = Instant::now();
+        let mut snapshot = full_inventory(&runtime, t, false);
+        snapshot.slots[30].item = Some(item("minecraft:totem_of_undying", 1));
+        let mut now = t;
+        let mut next = |runtime: &mut Runtime, snapshot: &mut Snapshot| loop {
+            now += Duration::from_millis(50);
+            assert!(now < t + Duration::from_secs(10), "no effect");
+            snapshot.observed = now;
+            runtime.auto_totem_tick(now);
+            if let [effect] = runtime.inventory_step(snapshot).as_slice() {
+                return (effect.clone(), now);
+            }
+        };
+        assert_eq!(
+            next(&mut runtime, &mut snapshot).0,
+            InventoryEffect::SilentOpen
+        );
+        assert!(runtime.combat.managed.active && runtime.combat.managed.sent().is_some());
+        assert!(runtime.auto_totem_input_held());
+        let request = match next(&mut runtime, &mut snapshot).0 {
+            InventoryEffect::SilentRequest(r) => r,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!((request.slot, request.click), (30, Click::SwapOffhand));
+        snapshot.slots[30].item = None;
+        snapshot.slots[37].item = Some(item("minecraft:totem_of_undying", 1));
+        snapshot.revision += 1;
+        let (effect, closed) = next(&mut runtime, &mut snapshot);
+        assert_eq!(effect, InventoryEffect::SilentClose);
+        assert!(runtime.combat.managed.relative, "returning to the view");
+        assert!(!runtime.combat.claim.owned_by(Claimant::AutoTotem));
+        assert!(runtime.auto_totem_tick(closed + Duration::from_millis(100)));
+        assert!(!runtime.auto_totem_tick(closed + Duration::from_millis(160)));
+        assert!(!runtime.auto_totem_input_held());
+        assert!(!runtime.take_silent_close(), "the effect was the close");
+        snapshot.observed = closed + Duration::from_secs(1);
+        assert!(runtime.inventory_step(&snapshot).is_empty(), "no reopen");
+        assert!(!runtime.inventory_busy());
+    }
+
+    #[test]
+    fn cancelled_silent_totem_session_owes_one_close() {
+        let mut runtime = Runtime::default();
+        runtime
+            .set_setting("inventory.auto-totem.silent-open", json!(true))
+            .unwrap();
+        runtime.set_enabled(ModuleId::AutoTotem, true);
+        let t = Instant::now();
+        let mut snapshot = full_inventory(&runtime, t, false);
+        snapshot.slots[30].item = Some(item("minecraft:totem_of_undying", 1));
+        assert_eq!(
+            runtime.inventory_step(&snapshot),
+            vec![InventoryEffect::SilentOpen]
+        );
+        // The player died, a GUI opened or the module was disabled.
+        runtime.cancel_inventory();
+        assert!(runtime.combat.managed.relative);
+        assert!(runtime.take_silent_close());
+        assert!(!runtime.take_silent_close());
+        runtime.set_enabled(ModuleId::AutoTotem, false);
+        assert!(!runtime.auto_totem_tick(t));
+        assert!(!runtime.auto_totem_input_held());
     }
 
     #[test]

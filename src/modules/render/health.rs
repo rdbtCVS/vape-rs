@@ -1,7 +1,7 @@
 // Health (`Health`): your health in hearts under the crosshair, in the
 // active-module stack (`ActiveModuleStackFrame`: centred, 10 below the
 // screen centre).
-use super::overlay::{Align, Draw, Frame};
+use super::{center_stack::Entry, overlay::Frame};
 
 /// The label and its colour: hearts rounded to halves with a trailing `.0`
 /// dropped, then a heart, gold with absorption and red otherwise.
@@ -25,19 +25,14 @@ pub fn label(health: f32, absorption: f32) -> (String, u32) {
     (format!("{number} {heart}"), color)
 }
 
-pub fn draws(frame: &Frame) -> Vec<Draw> {
-    let (text, color) = label(frame.own.health, frame.own.absorption);
-    let p = &frame.projection;
-    vec![Draw::Text {
-        x: p.width / 2.0,
-        y: p.height / 2.0 + 10.0,
-        scale: 1.0,
-        text,
+/// Health's entry in the active-module stack.
+pub fn entry(frame: &Frame) -> Entry {
+    let (label, color) = label(frame.own.health, frame.own.absorption);
+    Entry {
+        module: "Health",
+        label,
         color,
-        shadow: true,
-        align: Align::Center,
-        backdrop: None,
-    }]
+    }
 }
 
 #[cfg(test)]

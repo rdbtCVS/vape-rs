@@ -368,20 +368,26 @@ impl Compare {
         }
     }
 }
-/// `TextMatchMode` without the regex modes (see [`Condition::parse`]).
+/// `TextMatchMode`. Both sides are lowercased; a condition matches when any
+/// of its texts does (`matchesAny`), so negative modes with several texts
+/// pass when any one text is absent, as in the reference.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextMode {
     Equals,
     NotEquals,
+    MatchRegex,
+    NotMatchRegex,
     Contains,
     NotContains,
     IsIn,
     IsNotIn,
 }
 impl TextMode {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Equals,
         Self::NotEquals,
+        Self::MatchRegex,
+        Self::NotMatchRegex,
         Self::Contains,
         Self::NotContains,
         Self::IsIn,
@@ -391,33 +397,41 @@ impl TextMode {
         match self {
             Self::Equals => "equals",
             Self::NotEquals => "does not equal",
+            Self::MatchRegex => "matches regex",
+            Self::NotMatchRegex => "does not match regex",
             Self::Contains => "contains",
             Self::NotContains => "does not contain",
             Self::IsIn => "is in",
             Self::IsNotIn => "is not in",
         }
     }
-    fn parse(name: &str) -> Result<Self, String> {
-        match name {
-            "matches regex" | "does not match regex" => {
-                Err("regex text conditions are not supported".into())
-            }
-            _ => Self::ALL
-                .into_iter()
-                .find(|m| m.name() == name)
-                .ok_or_else(|| format!("unknown text operator {name:?}")),
+    /// `supportsMultipleValues`: the editor lists several texts.
+    pub fn multi_value(self) -> bool {
+        matches!(self, Self::IsIn | Self::IsNotIn)
+    }
+    /// `TextMatchMode.fromName`: case-insensitive, unknown names are Equals.
+    pub fn parse(name: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|m| m.name().eq_ignore_ascii_case(name))
+            .unwrap_or(Self::Equals)
+    }
+    pub fn matches(self, value: &str, candidate: &str) -> bool {
+        let value = value.to_lowercase();
+        let candidate = candidate.to_lowercase();
+        // `String.matches`; an invalid pattern never matches.
+        let regex = || super::text_regex::Regex::new(&candidate).map(|r| r.matches(&value));
+        match self {
+            Self::Equals => value == candidate,
+            Self::NotEquals => value != candidate,
+            Self::MatchRegex => regex() == Some(true),
+            Self::NotMatchRegex => regex() == Some(false),
+            Self::Contains | Self::IsIn => value.contains(&candidate),
+            Self::NotContains | Self::IsNotIn => !value.contains(&candidate),
         }
     }
-    fn test(self, value: &str, texts: &[String]) -> bool {
-        let value = value.to_lowercase();
-        let eq = || texts.iter().any(|t| t.to_lowercase() == value);
-        let contains = || texts.iter().any(|t| value.contains(&t.to_lowercase()));
-        match self {
-            Self::Equals | Self::IsIn => eq(),
-            Self::NotEquals | Self::IsNotIn => !eq(),
-            Self::Contains => contains(),
-            Self::NotContains => !contains(),
-        }
+    pub fn test(self, value: &str, texts: &[String]) -> bool {
+        texts.iter().any(|t| self.matches(value, t))
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -460,6 +474,11 @@ pub enum Condition {
         texts: Vec<String>,
     },
     ItemName {
+        mode: TextMode,
+        texts: Vec<String>,
+    },
+    /// `LORE`: any lore line matches.
+    Lore {
         mode: TextMode,
         texts: Vec<String>,
     },
@@ -586,11 +605,11 @@ impl Condition {
                 amount: number(value, "amount")? as i32,
             },
             "DISPLAY_NAME" => Self::DisplayName {
-                mode: TextMode::parse(&text(value, "operator")?)?,
+                mode: TextMode::parse(&text(value, "operator")?),
                 texts: texts(),
             },
             "ITEM_NAME" => Self::ItemName {
-                mode: TextMode::parse(&text(value, "operator")?)?,
+                mode: TextMode::parse(&text(value, "operator")?),
                 texts: texts(),
             },
             "MATERIAL" => Self::Material {
@@ -604,7 +623,10 @@ impl Condition {
                     .map(unprefixed)
                     .collect(),
             },
-            "LORE" => return Err("lore conditions are not supported by the host".into()),
+            "LORE" => Self::Lore {
+                mode: TextMode::parse(&text(value, "operator")?),
+                texts: texts(),
+            },
             other => return Err(format!("unknown condition type {other:?}")),
         })
     }
@@ -643,6 +665,9 @@ impl Condition {
             }
             Self::ItemName { mode, texts: t } => {
                 json!({"type": "ITEM_NAME", "operator": mode.name(), "text": texts(t)})
+            }
+            Self::Lore { mode, texts: t } => {
+                json!({"type": "LORE", "operator": mode.name(), "text": texts(t)})
             }
             Self::Material { include, items } => json!({"type": "MATERIAL",
                 "operator": if *include {"is in"} else {"is not in"}, "items": items}),
@@ -707,11 +732,9 @@ impl Condition {
             Self::Quantity { operator, amount } => {
                 operator.test(f64::from(item.fingerprint.count), f64::from(*amount))
             }
-            Self::DisplayName { mode, texts } => match &item.meta.custom_name {
-                Some(name) => mode.test(name, texts),
-                None => mode.test("", texts),
-            },
-            Self::ItemName { mode, texts } => mode.test(&id, texts),
+            Self::DisplayName { mode, texts } => mode.test(&item.meta.display_name, texts),
+            Self::ItemName { mode, texts } => mode.test(&item.meta.item_name, texts),
+            Self::Lore { mode, texts } => item.meta.lore.iter().any(|l| mode.test(l, texts)),
             Self::Material { include, items } => items.contains(&id) == *include,
         }
     }
@@ -982,14 +1005,33 @@ impl Profile {
         self.items.iter().find(|r| r.filter.matches(Some(item)))
     }
 }
-/// Parses the `profiles` text setting: an array of profiles or one profile.
+/// Parses the `profiles` text setting: an array of profiles or one profile
+/// (none when empty).
 pub fn parse_profiles(text: &str, presets: &[Preset]) -> Result<Vec<Profile>, String> {
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
     let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     match &value {
         Value::Array(list) => list.iter().map(|p| Profile::parse(p, presets)).collect(),
         Value::Object(_) => Ok(vec![Profile::parse(&value, presets)?]),
         _ => Err("profiles must be a JSON object or array".into()),
     }
+}
+/// `String.equalsIgnoreCase`: equal length, and each character pair equal
+/// as is, upper-cased or lower-cased.
+pub fn equals_ignore_case(a: &str, b: &str) -> bool {
+    a.chars().count() == b.chars().count()
+        && a.chars().zip(b.chars()).all(|(x, y)| {
+            x == y || x.to_uppercase().eq(y.to_uppercase()) || x.to_lowercase().eq(y.to_lowercase())
+        })
+}
+/// `InventoryCleanerProfileValue.findByName`: the first profile named `name`
+/// ignoring case.
+pub fn find_profile(profiles: &[Profile], name: &str) -> Option<usize> {
+    profiles
+        .iter()
+        .position(|p| equals_ignore_case(&p.name, name))
 }
 pub fn parse_presets(text: &str) -> Result<Vec<Preset>, String> {
     if text.trim().is_empty() {
@@ -1103,6 +1145,15 @@ pub(crate) mod tests {
         assert_eq!(Matcher::find("Any Weapon"), Some(Matcher::Weapons));
     }
     #[test]
+    fn selection_finds_profiles_by_name_ignoring_case() {
+        let profiles = parse_profiles(r#"[{"name":"PvP"},{"name":"Bridge"}]"#, &[]).unwrap();
+        assert_eq!(find_profile(&profiles, "bridge"), Some(1));
+        assert_eq!(find_profile(&profiles, "PVP"), Some(0));
+        assert_eq!(find_profile(&profiles, ""), None);
+        assert_eq!(find_profile(&profiles, "Bridges"), None);
+        assert!(equals_ignore_case("ÉTÉ", "été"));
+    }
+    #[test]
     fn profile_json_round_trips_and_rejects_unsupported() {
         let text = r#"[{"name":"PvP","armor_mode":"Best armor",
             "slots":[{"slot":0,"itemFilter":"swords","priority":"weapon_best"},
@@ -1121,10 +1172,24 @@ pub(crate) mod tests {
         assert!(p.slot_rule(8).unwrap().accepts(Some(&apple)));
         let again = Profile::parse(&p.to_json(), &[]).unwrap();
         assert_eq!(&again, p);
-        let lore = r#"{"type":"LORE","operator":"contains","text":[]}"#;
-        assert!(Condition::parse(&serde_json::from_str(lore).unwrap()).is_err());
+        let lore = r#"{"type":"LORE","operator":"Contains","text":["c291bA=="]}"#;
+        let lore = Condition::parse(&serde_json::from_str(lore).unwrap()).unwrap();
+        assert_eq!(
+            lore,
+            Condition::Lore {
+                mode: TextMode::Contains,
+                texts: vec!["soul".into()]
+            }
+        );
+        assert_eq!(Condition::parse(&lore.to_json()).unwrap(), lore);
         let regex = r#"{"type":"ITEM_NAME","operator":"matches regex","text":[]}"#;
-        assert!(Condition::parse(&serde_json::from_str(regex).unwrap()).is_err());
+        assert!(matches!(
+            Condition::parse(&serde_json::from_str(regex).unwrap()),
+            Ok(Condition::ItemName {
+                mode: TextMode::MatchRegex,
+                ..
+            })
+        ));
     }
     #[test]
     fn potion_and_text_conditions() {
@@ -1135,6 +1200,9 @@ pub(crate) mod tests {
             duration: 1,
         }];
         pot.meta.custom_name = Some("Heal Pot".into());
+        pot.meta.display_name = "Heal Pot".into();
+        pot.meta.item_name = "Splash Potion of Healing".into();
+        pot.meta.lore = vec!["Soulbound".into(), "Tier II".into()];
         let c = Condition::PotionEffect {
             mode: EffectMode::Level,
             effect: legacy_effect(6).unwrap().into(),
@@ -1148,5 +1216,50 @@ pub(crate) mod tests {
         };
         assert!(d.matches(&pot));
         assert!(Condition::parse(&d.to_json()).unwrap() == d);
+        let text = |mode, texts: &[&str]| (mode, texts.iter().map(|t| (*t).to_owned()).collect());
+        type Case = ((TextMode, Vec<String>), bool, bool, bool);
+        let cases: [Case; 8] = [
+            // (condition, display name, item name, lore)
+            (text(TextMode::Equals, &["heal pot"]), true, false, false),
+            (text(TextMode::NotEquals, &["heal pot"]), false, true, true),
+            (
+                text(TextMode::MatchRegex, &[".*potion of \\w+"]),
+                false,
+                true,
+                false,
+            ),
+            (
+                text(TextMode::NotMatchRegex, &["tier i+"]),
+                true,
+                true,
+                true,
+            ),
+            (text(TextMode::Contains, &["healing"]), false, true, false),
+            (text(TextMode::NotContains, &["pot"]), false, false, true),
+            (text(TextMode::IsIn, &["sword", "soul"]), false, false, true),
+            // Any absent text passes, like the reference's matchesAny.
+            (text(TextMode::IsNotIn, &["heal", "x"]), true, true, true),
+        ];
+        for ((mode, texts), display, name, lore) in cases {
+            let d = Condition::DisplayName {
+                mode,
+                texts: texts.clone(),
+            };
+            let n = Condition::ItemName {
+                mode,
+                texts: texts.clone(),
+            };
+            let l = Condition::Lore { mode, texts };
+            assert_eq!(
+                (d.matches(&pot), n.matches(&pot), l.matches(&pot)),
+                (display, name, lore),
+                "{mode:?}"
+            );
+        }
+        let empty = Condition::Lore {
+            mode: TextMode::NotContains,
+            texts: Vec::new(),
+        };
+        assert!(!empty.matches(&pot));
     }
 }
