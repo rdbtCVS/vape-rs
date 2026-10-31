@@ -100,15 +100,22 @@ pub(super) fn tick(game: &mut Game<'_>) {
             cooldown_ready: cooldown_ready(game),
             shield_bypass: false,
         };
-        let result = with_client(&client, |runtime| runtime.silent_aura_tick(&tick));
+        // HitFlick's start paths (the attack intercepts) are not hooked yet,
+        // so it never leaves Idle and needs no host view here.
+        let flick = crate::game::vape_rs::core::combat_runtime::Flick::default();
+        let result = with_client(&client, |runtime| runtime.silent_aura_tick(&tick, &flick));
         remote::set_rotation(result.sent);
         match result.click {
             silent_aura::Click::Attack(id) => {
                 if !remote::attack(game, id) {
                     remote::miss(game);
                 }
+                crate::game::vape_block_hit::silent_click(game);
             }
-            silent_aura::Click::Miss => remote::miss(game),
+            silent_aura::Click::Miss => {
+                remote::miss(game);
+                crate::game::vape_block_hit::silent_click(game);
+            }
             silent_aura::Click::None => {}
         }
     }

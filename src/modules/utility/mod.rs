@@ -10,4 +10,5 @@ pub mod inv_cleaner;
 pub mod inventory_guard;
 pub mod inventory_manager;
 pub mod refill;
+pub mod target_filter;
 pub mod throw_items;

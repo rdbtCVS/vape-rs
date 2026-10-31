@@ -243,6 +243,14 @@ impl SilentAura {
             controlling: false,
         }
     }
+    /// SilentAura's controller drives the managed rotation.
+    pub fn controlling(&self) -> bool {
+        self.controlling
+    }
+    /// Another module's controller replaced SilentAura's (`setController`).
+    pub fn yield_controller(&mut self) {
+        self.controlling = false;
+    }
     pub fn target(&self) -> Option<i32> {
         self.target
     }

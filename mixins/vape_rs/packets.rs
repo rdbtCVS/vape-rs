@@ -152,6 +152,12 @@ pub fn inbound(game: &mut Game<'_>, packet: &C) -> core::ops::ControlFlow<super:
         C::HurtAnimation(p) => with_client(&client, |runtime| runtime.outbound_hit(p.id, now)),
         _ => {}
     }
+    // HitSelect's preference counts ticks after a knockback.
+    if matches!(packet, C::Explode(_))
+        || matches!(packet, C::SetEntityMotion(p) if game.remote.as_ref().is_some_and(|r| r.entity_id == p.id))
+    {
+        with_client(&client, |runtime| runtime.hit_select_velocity());
+    }
     let (hold, blink, flush) = with_client(&client, |runtime| {
         runtime.backtrack_held(queued());
         (runtime.inbound_hold_active(), runtime.blink_holds_inbound(), runtime.take_inbound_flush())
