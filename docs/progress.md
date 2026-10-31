@@ -857,3 +857,15 @@ User request: bump the pins to the latest remote main.
 - KeepSprint's Horizon dependency (remote-attack slowdown, #3251) is now in the pin.
 
 Validation ([repin-main-2026-10-31.json](evidence/repin-main-2026-10-31.json)): fmt, all-target Clippy `-D warnings`, 118 lib tests and the payload test pass; stage/audit (36 hooks, 22 support modules) pass; host check and fast build pass. Fresh-home scenarios on the new executable: smoke 27/27, LAN 16/16, inbound hold/replay (LAN) 27/27.
+
+## 2026-10-31: Text GUI module list (HUD worker)
+
+- New HUD panel module `hud.text-gui` ("Text GUI", default off, anchored top-right) ports `TextGuiSettings` and the overlay. It lists enabled modules that have a reference `guiColor`. Sorting is by rendered length (name plus suffix, longest first) or alphabetical. Colour modes are Module color, Match GUI color (the GUI accent) and Custom color. Suffix modes are Basic, Extended and None. Further settings: shadow, row background, smooth/game font, watermark, custom text (`&` codes), hidden modules list, and slide/fade animation at the reference rate (±0.08 per 10 ms).
+- Suffixes (`src/core/hud_extras.rs`) follow the reference value display formats:
+  - Basic: NoFall, Speed and FakeLag mode; Blink's held-packet count.
+  - Extended: Backtrack/AutoClicker/RightClicker/KnockbackDelay/Reach ranges, JumpReset chance, Velocity `h/v`, FakeLag `mode delay ms`, AimAssist and WTap values.
+  - Extended falls back to Basic.
+- Painted by `hud_painter.rs` with live text measurement. It anchors to the screen half it is in. A drop against the right edge stays right-anchored.
+- Not ported: click-to-disable on rows, rounded row corners, the logo-image watermark (text `vape v4` instead), rainbow colours (no GUI colour/rainbow setting exists), the KnockbackDelay "Holding", FakeLag queued-red and AutoArmor "In Combat" states, and a list placed mid-right keeping its right edge when it shrinks.
+
+Validation: fmt, Clippy -D warnings, 126 lib tests (3 new hud_extras, 5 text_gui), payload test, stage/audit (36 hooks, 22 support modules), host check and fast build pass. `tools/text_gui_scenario.py` (fresh homes, 7 restarts, 11 screenshots) passes; evidence in docs/evidence/hud-text-gui/. It covers: Basic/Extended suffixes, both sorts, three colour modes, plain font without background, left anchoring with watermark and custom text, hidden list, a bind removing a row, and the Text GUI's own bind.

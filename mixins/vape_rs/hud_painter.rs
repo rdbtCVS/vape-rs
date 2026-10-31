@@ -144,6 +144,9 @@ fn color(argb: u32, enabled: bool) -> u32 {
 }
 pub(super) fn panel(game: &crate::game::Game<'_>, batch: &mut HudBatch, panel: &HudPanel) -> Rect {
     let atlas = &game.gui.atlas;
+    if let crate::game::vape_rs::ui::hud::Content::TextGui(view) = &panel.content {
+        return text_gui(atlas, batch, panel, view);
+    }
     let layout = panel.layout(|text| HudBatch::text_width(atlas, text));
     let w = layout.width * panel.scale;
     let h = layout.height * panel.scale;
@@ -301,4 +304,78 @@ pub(super) fn panel(game: &crate::game::Game<'_>, batch: &mut HudBatch, panel: &
     }
     batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
     Rect(x, y, w, h)
+}
+
+/// The Text GUI list: anchored to whichever half of the screen it sits in,
+/// drawn with the smooth GUI font or the game font.
+fn text_gui(
+    atlas: &horizon_client::hud::HudAtlas,
+    batch: &mut HudBatch,
+    panel: &HudPanel,
+    view: &crate::game::vape_rs::ui::text_gui::View,
+) -> Rect {
+    use crate::game::vape_rs::ui::text_gui::{Draw, layout};
+    const TEXT_EM: f32 = 9.0;
+    let s = panel.scale;
+    let start = batch.vertices.len();
+    let mut ui = horizon_client::ui_theme::Ui::new(atlas, batch, (0.0, 0.0));
+    let measure = |text: &str, size: f32| {
+        if view.smooth {
+            ui.vape_rs_measure(text, TEXT_EM * size)
+        } else {
+            HudBatch::text_width(atlas, text) * size
+        }
+    };
+    let width = layout(view, s, true, measure).width;
+    let screen = (ui.batch.width, ui.batch.height);
+    let right = panel.x + width / 2.0 >= screen.0 / 2.0;
+    let out = layout(view, s, right, measure);
+    let x = panel.x.clamp(0.0, (screen.0 - out.width).max(0.0));
+    let y = panel.y.clamp(0.0, (screen.1 - out.height).max(0.0));
+    for draw in out.draws {
+        match draw {
+            Draw::Fill {
+                x: dx,
+                y: dy,
+                w,
+                h,
+                color: argb,
+            } => ui
+                .batch
+                .fill(atlas, x + dx, y + dy, w, h, color(argb, panel.enabled)),
+            Draw::Text {
+                x: dx,
+                y: dy,
+                size,
+                text,
+                color: argb,
+                shadow,
+            } => {
+                // The shadow sits one font pixel down-right and fades with
+                // the text it belongs to.
+                let alpha = argb >> 24;
+                let layers = shadow
+                    .map(|shadow| {
+                        let a = (shadow >> 24) * alpha / 255;
+                        (size, (a << 24) | (shadow & 0xffffff))
+                    })
+                    .into_iter()
+                    .chain(std::iter::once((0.0, argb)));
+                for (offset, argb) in layers {
+                    let (tx, ty) = (x + dx + offset, y + dy + offset);
+                    let abgr = color(argb, panel.enabled);
+                    if view.smooth {
+                        ui.vape_rs_text(&text, tx, ty, TEXT_EM * size, 8.0 * size, abgr);
+                    } else {
+                        let first = ui.batch.vertices.len();
+                        ui.batch.text(atlas, &text, tx, ty, abgr, false);
+                        ui.batch.scale_since(first, tx, ty, size, size);
+                    }
+                }
+            }
+        }
+    }
+    ui.finish();
+    batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
+    Rect(x, y, out.width, out.height)
 }

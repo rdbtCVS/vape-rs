@@ -74,6 +74,9 @@ pub enum Content {
     Compass {
         yaw: f32,
     },
+    /// Painted by the host from `text_gui::layout`; it needs live text
+    /// measurement, so the generic command layout is empty.
+    TextGui(super::text_gui::View),
 }
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -551,6 +554,7 @@ impl HudPanel {
                     );
                 }
             }
+            Content::TextGui(_) => {}
             Content::Compass { yaw } => {
                 let heading = heading(*yaw);
                 let start = heading - 70.0;

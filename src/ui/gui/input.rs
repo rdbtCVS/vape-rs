@@ -651,6 +651,9 @@ impl Gui {
             *scroll = (*scroll - delta * 24.0).max(0.0);
         }
     }
+    pub fn viewport(&self) -> (f32, f32) {
+        self.viewport
+    }
     pub fn update_viewport(&mut self, viewport: (f32, f32)) {
         self.viewport = viewport;
     }

@@ -3,6 +3,7 @@ pub mod gui;
 pub mod hud;
 pub mod hud_state;
 pub mod resource_names;
+pub mod text_gui;
 
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {

@@ -1,4 +1,5 @@
 pub mod automation;
+mod hud_extras;
 pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
@@ -102,6 +103,8 @@ pub struct Runtime {
     motion_override: Option<([f64; 3], [f64; 3])>,
     explosion_reentry: bool,
     hud_state: super::ui::hud_state::HudState,
+    text_gui_rows: super::ui::text_gui::Animator,
+    text_gui_clock: Option<std::time::Instant>,
     pub gui: Gui,
     suppress_game_input: bool,
     gui_bind: MultiBinding,
@@ -163,6 +166,10 @@ impl Default for Runtime {
                     json!(0xffffffffu32),
                 ),
             ] {
+                // The Text GUI defines its own, conditional, red colour.
+                if module == ModuleId::TextGui && definition.id.ends_with(".color") {
+                    continue;
+                }
                 settings.define(definition).expect("static HUD definition");
             }
         }
@@ -316,6 +323,9 @@ impl Default for Runtime {
         {
             settings.define(definition).unwrap();
         }
+        for definition in super::ui::text_gui::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::combat::trigger_bot::definitions() {
             settings.define(definition).unwrap();
         }
@@ -448,6 +458,8 @@ impl Default for Runtime {
             motion_override: None,
             explosion_reentry: false,
             hud_state: super::ui::hud_state::HudState::default(),
+            text_gui_rows: Default::default(),
+            text_gui_clock: None,
             gui: Gui::default(),
             suppress_game_input: false,
             gui_bind: MultiBinding::default(),
@@ -725,7 +737,10 @@ impl Runtime {
                         Err("Unknown module".into())
                     }
                 }
-                Action::Set(id, value) => self.set_setting(&id, value),
+                Action::Set(id, value) => {
+                    let value = self.anchor_hud_drag(&id, value);
+                    self.set_setting(&id, value)
+                }
                 Action::Favorite(id) => {
                     let mut document = self.snapshot();
                     let state = document.0["modules"]
@@ -1980,6 +1995,7 @@ impl Runtime {
     }
     pub fn update_hud(&mut self, snapshot: &Snapshot) {
         self.hud_state.update(snapshot);
+        self.tick_text_gui();
     }
     pub fn register_synthetic_click(&mut self, button: usize) {
         self.hud_state.click(button);
@@ -2032,6 +2048,10 @@ impl Runtime {
                     .unwrap()
             };
             let content = match module {
+                ModuleId::TextGui => match self.text_gui_content(preview) {
+                    Some(content) => content,
+                    None => continue,
+                },
                 ModuleId::Coordinates => super::ui::hud::Content::Coordinates {
                     layout: if self
                         .settings
@@ -2222,6 +2242,7 @@ impl Runtime {
                 } => (70.0, 90.0),
                 Content::Coordinates { .. } => (0.0, 35.0),
                 Content::Lines => (50.0, 20.0),
+                Content::TextGui(_) => (0.0, 0.0),
             };
             panels.push(HudPanel {
                 content,
