@@ -73,7 +73,9 @@ def run(resources):
         command('gamerule natural_health_regeneration false')
         command('clear @s')
         command('effect clear @s')
-        session.call('look', '0', '0')
+        # Custom items keep the camera's look: straight down, the splash hits
+        # the player.
+        session.call('look', '0', '90')
 
         # 1. Silent custom item, held slot restored.
         command('item replace entity @s hotbar.0 with minecraft:snowball 16')

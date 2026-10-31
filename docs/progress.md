@@ -1770,3 +1770,61 @@ Open:
 - AutoHotbar "Only best" scores items with our own categories, not the reference's per-class comparators (food nutrition×saturation, the potion per-effect amplifier compare, attack-speed and fire-aspect terms). The comparator helper rows stay below validated.
 - AutoTotem's non-silent screen does not yet cancel the player's own clicks while AutoTotem has the inventory open (the reference's `onWindowClick`; decisions.md).
 - AutoArmor's Delay range is out of scope for this round.
+
+### Later in the round (final head)
+
+Landed after the runs above:
+- `d75d562`: AutoHotbar "Only best" uses the reference's per-class comparators, menu-order candidates and run-long touched slots (decisions.md). This resolves the comparator item under "Open" above.
+- `3d1ea7f`: InventoryManager profile selection uses `findByName`, case-insensitive. No match selects nothing.
+- `4dd6f8f` and `f4fd2cd`: AutoHeal Silent is ported, so it is no longer blocked.
+  - Custom items are used at onTick with a server-only held-item change, and the client's selected slot never moves.
+  - "Potions" swaps the potion into "Slot" and sends 88.99 pitch through `auto-heal-pre-motion` (HEAD of `remote_send_state`).
+  - `auto-heal-post-motion` (HEAD of the empty `native_tick`, right after the motion packet) throws it. The camera never moves.
+- `f4fd2cd`: Throwpot's tie order follows `ItemDataComparator` (decisions.md).
+- Merged main at `5d44e13` (10bd7ad) and `109d27c` (97dbaa7).
+
+Gates on `109d27c`:
+- fmt clean
+- all-target Clippy `-D warnings` clean
+- tests: 246 lib + 1 integration + 4 xtask pass
+- payload-test passes (246)
+- host build passes, and stage/audit removes exactly 49 hooks and 29 support modules
+
+Scenarios rerun on the clean `109d27c` build, each in survival on a fresh isolated home. Captures were inspected.
+- `tools/inventory_planners_scenario.py` `inv-plan-2tmlf9o9`: 11/11, the 10 cases above plus `hotbar_comparators`.
+  - The latter takes an iron pickaxe over the faster golden one, the Power II bow, Swiftness II, and golden carrots over pumpkin pie.
+  - Case 7 takes the iron sword over the stone and wooden ones.
+- `tools/inventory_scenario.py` `inv-rec-a3h0tumc`: 4/4.
+  - The first run, `inv-rec-i0ftuvdr`, passed both Refill cases. It then failed before ChestSteal: `interact` reported the player 42.9 blocks from the chest at load average 17. The rerun passed.
+- `tools/inventory_parity_scenario.py` `inv-parity-skftk8v_`: 2/2.
+  - ChestSteal Best only passes.
+  - AutoTotem Silent open: the screen stays `playing`. The hold lasts 0.591 s over 35 samples, the totem is equipped at 0.417 s inside the 0.266–0.857 s window, and walking resumes at 0.118.
+- `tools/auto_heal_silent_scenario.py` `inv-heal-sqi9ovc6`: 2/2.
+  - Custom item: an Instant Health splash potion in slot 4.
+    - Nothing is used while the inventory screen is open.
+    - After it closes, health goes from 10 to 14, the client's slot stays 1 and the snowballs stay 16.
+    - The server's `SelectedItemSlot` is 0, and a right click throws a snowball (16 → 15).
+  - Potions with Replace: the potion in inventory.13 is swapped into Slot 6 and thrown, and health goes from 10 to 14.
+    - The camera stays at yaw 0, pitch -10 throughout.
+    - The client's slot stays 1, the stick stays in slot 1, and nothing is left on the cursor.
+  - The first run, `inv-heal-whkoefuz`, looked level, so its splash missed the player. Case 1 now looks down, because custom items keep the camera's look, as in the reference.
+- Evidence is in docs/evidence/inventory-r2-final-{planners,recovery,parity}/ and docs/evidence/inventory-r2-autoheal-silent/.
+
+Still open in this scope:
+- The InventoryManager/InvCleaner rule editor UI (brief part B) is not built. The reference has about 4,200 lines of cleaner UI and 1,410 of HotbarSlotRule UI. Its rows stay not-started.
+- InventoryFill: no host scenario, because the harness can't hold a mouse button in a container screen (above).
+- AutoTotem's non-silent `onWindowClick` cancel.
+- AutoHeal deviations:
+  - no same-slot swap
+  - the crafting grid isn't searched
+  - vanilla stew and food are not eaten by a single use
+  - Silent "Bowl mode" runs through the inventory session
+  - the bowl modes (Throw, Stack, None) have no scenario
+- AutoHotbar deviations: `findOverflowSlots` kinds, and moves are number-key swaps.
+- Modes without a scenario:
+  - the Toggle activations
+  - ArmorSwitch gold, leather and chain
+- ChestSteal's distance comparator: the take order isn't asserted in a host scenario.
+- ItemDataComparator: the Throwpot order isn't asserted in a host scenario.
+- InventoryActionGuard: no combat scenario.
+- ThrowDebuff orders nearest-first; the reference doesn't sort. Left to its owner.
