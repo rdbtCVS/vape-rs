@@ -109,7 +109,10 @@ def version_applies(call):
             return COMPARE[m.group(2)](VERSIONS[m.group(1)])
     return True
 
-OPTION = re.compile(r'ModeOption\s+(\w+)\s*=\s*[^;]*?"([^"]*)"|this\.(\w+)\s*=\s*new ModeOption\s*\(\s*"([^"]*)"')
+# Mode option fields: `ModeOption x = new ModeOption("3D")`, or a submode
+# such as `LegitScaffoldMode legitMode = new LegitScaffoldMode(this, "Legit")`.
+OPTION = re.compile(r'ModeOption\s+(\w+)\s*=\s*[^;]*?"([^"]*)"'
+                    r'|(?:this\.|\b\w+\s+)(\w+)\s*=\s*new \w+\s*\(\s*(?:this\s*,\s*)?"([^"]*)"')
 
 def options(paths):
     """Mode option fields and their labels, as in `threeDimensionalMode = new ESP3D(this, "3D")`."""
@@ -154,10 +157,12 @@ def reference():
             kind = m.group(1) or m.group(2)
             if kind in ('Value', 'ModeValue') and 'create' not in m.group(0) and kind == 'Value':
                 continue
-            a = [lit(x) for x in args(text, m.end() - 1)]
-            a = a[1:] if a and str(a[0]).strip('()').endswith('this') else a  # the owner
+            raw = args(text, m.end() - 1)
+            if raw and raw[0].strip('()').endswith('this'):
+                raw = raw[1:]  # the owner
             if kind == 'LimitValue' or kind == 'OptionalLimitValue':
-                a = a[1:]  # storage id first
+                raw = raw[1:]  # storage id first
+            a = [lit(x) for x in raw]
             if not a or not isinstance(a[0], str) or not a[0]:
                 continue  # label built at runtime; not comparable as text
             d = {'kind': kind, 'label': a[0]}
@@ -170,10 +175,14 @@ def reference():
             elif kind in ('RandomValue', 'RandomClickDelayValue') and len(a) >= 7:
                 d.update(min=a[3], default=[a[4], a[5]], max=a[6], step=a[7] if len(a) > 7 and isinstance(a[7], float) else None)
             elif kind == 'ModeValue' and len(a) >= 2:
-                # create(owner, name[, description], default, options...)
-                d['default'] = next((x for x in a[1:3] if isinstance(x, str) and x.startswith('this.')), a[1])
-                if isinstance(a[1], str) and a[1].startswith('this.'):
-                    d['default'] = labels.get(a[1][5:], a[1])
+                # create(owner, name[, description], default, options...):
+                # the default is the first argument after the name that is
+                # not a string literal (a description), and names an option.
+                default = next((x for r, x in zip(raw[1:3], a[1:3]) if not clean(r).startswith('"')), a[1])
+                if isinstance(default, str):
+                    field = default.removeprefix('this.').removesuffix('.getSelectionValue()')
+                    default = labels.get(field, default)
+                d['default'] = default
             decls.append(d)
         if decls:
             out[r['id']] = (r['display_name'], r['status'], decls)
