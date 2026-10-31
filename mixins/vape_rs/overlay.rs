@@ -188,22 +188,15 @@ fn bed_plates(game: &Game<'_>, wanted: bool) -> Vec<crate::game::vape_rs::module
     plates
 }
 
-/// The frame the overlay modules draw from, or `None` outside a world.
-fn frame(game: &Game<'_>, batch: &HudBatch, epoch: crate::game::vape_rs::core::lifecycle::Epoch) -> Option<Frame> {
+/// The living entities the overlay draws: the combat snapshot with each
+/// one's tab listing, equipment, max health and hurt flash.
+fn living(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifecycle::Epoch) -> Vec<Living> {
     use std::collections::HashMap;
-    let player = game.player.as_ref()?;
-    let (camera, view) = horizon_client::gizmos::vape_on_top::frame_camera()?;
-    let partial = game.clock.camera_fraction() as f32;
-    let fov = game.fov_degrees(partial, camera);
-    let aspect = batch.width / batch.height.max(1.0);
-    let pose = game.bob_matrix(partial) * game.spinning_matrix(partial);
-    let matrix = glam::Mat4::perspective_rh(fov.to_radians(), aspect, 0.05, 1024.0) * pose * view;
-    let projection = Projection { camera, matrix: matrix.to_cols_array(), width: batch.width, height: batch.height };
     let tab: HashMap<i32, (i32, Option<String>)> =
         crate::game::remote::vape_remote_tab::players(game).into_iter().map(|(id, mode, name)| (id as i32, (mode, name))).collect();
     let mobs: HashMap<i32, &horizon_client::mobs::Mob> = game.mobs.iter().map(|m| (m.id as i32, m)).collect();
     let guests: HashMap<i32, _> = game.lan.iter().flat_map(|host| host.hub.guests.iter().map(|g| (g.entity_id, g))).collect();
-    let entities = crate::game::vape_combat::snapshot(game, epoch, None)
+    crate::game::vape_combat::snapshot(game, epoch, None)
         .into_iter()
         .map(|view| {
             let id = view.handle.id;
@@ -231,7 +224,25 @@ fn frame(game: &Game<'_>, batch: &HudBatch, epoch: crate::game::vape_rs::core::l
             }
             living
         })
-        .collect();
+        .collect()
+}
+
+/// The frame the overlay modules draw from, or `None` outside a world.
+fn frame(game: &Game<'_>, batch: &HudBatch, epoch: crate::game::vape_rs::core::lifecycle::Epoch) -> Option<Frame> {
+    let player = game.player.as_ref()?;
+    let (camera, view) = horizon_client::gizmos::vape_on_top::frame_camera()?;
+    let partial = game.clock.camera_fraction() as f32;
+    let fov = game.fov_degrees(partial, camera);
+    let aspect = batch.width / batch.height.max(1.0);
+    let pose = game.bob_matrix(partial) * game.spinning_matrix(partial);
+    let matrix = glam::Mat4::perspective_rh(fov.to_radians(), aspect, 0.05, 1024.0) * pose * view;
+    let projection = Projection { camera, matrix: matrix.to_cols_array(), width: batch.width, height: batch.height };
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let (spawners_wanted, beds_wanted, entities_wanted, indicators_wanted) =
+        with_client(&client, |r| (r.spawners_wanted(), r.bed_plates_wanted(), r.overlay_entities_wanted(), r.indicators_wanted()));
+    // Only the modules that read entities pay for the snapshot and its
+    // equipment (Health, BedPlates and the others read none).
+    let entities = if entities_wanted { living(game, epoch) } else { Vec::new() };
     let own = Own {
         health: player.health.health(),
         absorption: player.health.absorption(),
@@ -247,12 +258,11 @@ fn frame(game: &Game<'_>, batch: &HudBatch, epoch: crate::game::vape_rs::core::l
             .map(|s| s.count)
             .sum(),
     };
-    let client = game.__horizon_mixins_vape_rs_client().clone();
-    let (spawners_wanted, beds_wanted) = with_client(&client, |r| (r.spawners_wanted(), r.bed_plates_wanted()));
     let spawners = if spawners_wanted { spawners(game) } else { Vec::new() };
+    let indicators = if indicators_wanted { indicator_shots(game, &client, f64::from(partial)) } else { Vec::new() };
     Some(Frame {
         spawners,
-        indicators: indicator_shots(game, &client, f64::from(partial)),
+        indicators,
         bed_plates: bed_plates(game, beds_wanted),
         projection,
         entities,
@@ -273,7 +283,17 @@ pub(crate) fn draw(game: &mut Game<'_>, batch: &mut HudBatch) {
     let Some(frame) = frame(game, batch, epoch) else {
         return;
     };
-    let draws = with_client(&client, |runtime| runtime.overlay(&frame));
+    let (draws, callout) = with_client(&client, |runtime| (runtime.overlay(&frame), runtime.murder_finder_callout()));
+    // MurdererFinder's callout (`sendChatMessage`): ClientPacketListener's
+    // sendChat on a server (single player's included), the chat input in a
+    // serverless world; both keep to the Chat option.
+    if let Some(message) = callout {
+        if game.remote.is_some() {
+            game.send_chat(&message);
+        } else {
+            game.handle_chat_input(&message);
+        }
+    }
     paint(game, batch, &draws);
 }
 

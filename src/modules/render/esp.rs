@@ -172,6 +172,12 @@ fn mode(settings: &Settings) -> &str {
         .unwrap_or("3D")
 }
 
+/// Whether ESP draws on the HUD overlay (2D mode); 3D boxes are world lines
+/// and Outline is the host's glow.
+pub fn draws_2d(settings: &Settings) -> bool {
+    mode(settings) == "2D"
+}
+
 /// The ESP colour for a player: friend/enemy recolouring, else the setting.
 fn player_color(settings: &Settings, entity: &EntityView, people: &impl People) -> u32 {
     person_color(settings, entity, people)
@@ -522,4 +528,77 @@ fn looking_at(e: &EntityView, target: [f64; 3]) -> f64 {
     }
     let dot = (0..3).map(|i| view[i] * to[i] / length).sum::<f64>();
     dot.clamp(-1.0, 1.0).acos().to_degrees()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::super::targeting::filter::NameLists;
+    use super::super::super::super::targeting::filter::tests::entity;
+    use super::*;
+
+    fn settings() -> Settings {
+        let mut s = Settings::default();
+        for d in definitions().into_iter().chain(people_definitions()) {
+            s.define(d).unwrap();
+        }
+        s
+    }
+
+    /// `Tracers.collectEntities`' entries (`RenderEntityContextEntry`: an
+    /// entity with its colour): players by default; mobs and animals once
+    /// turned on, each in its colour; friends and enemies recoloured; all
+    /// from the frame's view centre to the eye height.
+    #[test]
+    fn tracer_entries_take_their_group_or_person_colour() {
+        let mut s = settings();
+        let camera = Camera {
+            eye: [0.0, 1.62, 0.0],
+            look: [0.0, 0.0, 1.0],
+            yaw: 0.0,
+            pitch: 0.0,
+        };
+        let entities = [
+            entity(EntityClass::Player, "Stranger", [0.0, 0.0, 4.0]),
+            entity(EntityClass::Player, "Pal", [1.0, 0.0, 6.0]),
+            entity(EntityClass::Player, "Rival", [2.0, 0.0, 8.0]),
+            entity(EntityClass::Monster, "", [3.0, 0.0, 10.0]),
+            entity(EntityClass::Peaceful, "", [4.0, 0.0, 12.0]),
+        ];
+        let people = NameLists {
+            friends: vec!["pal".into()],
+            enemies: vec!["rival".into()],
+        };
+        let traced = |s: &Settings| {
+            let mut out = Vec::new();
+            tracers(s, &camera, &entities, &people, &mut out);
+            assert!(out.iter().all(|l| l.start.0.iter().all(|v| v.is_nan())));
+            // Farthest first; the end is at 0.85 of the box's height.
+            out.iter().map(|l| (l.end.0, l.color)).collect::<Vec<_>>()
+        };
+        let eye = |x: f64, z: f64| [x, 1.8 * 0.85, z];
+        assert_eq!(
+            traced(&s),
+            [
+                (eye(2.0, 8.0), 0xfff4_4242),
+                (eye(1.0, 6.0), 0xff42_f489),
+                (eye(0.0, 4.0), 0xff00_96ff),
+            ]
+        );
+        s.set(&format!("{TRACERS}.mobs"), json!(true)).unwrap();
+        s.set(&format!("{TRACERS}.animals"), json!(true)).unwrap();
+        s.set("friends.recolor", json!(false)).unwrap();
+        let all = traced(&s);
+        assert_eq!(all[0], (eye(4.0, 12.0), 0xffff_ffff));
+        assert_eq!(all[1], (eye(3.0, 10.0), 0xffff_9a00));
+        assert_eq!(all[3], (eye(1.0, 6.0), 0xff00_96ff));
+        // "Enemy Only" drops friends; a distance range drops mobs outside it.
+        s.set(&format!("{TRACERS}.enemy-only"), json!(true))
+            .unwrap();
+        s.set(&format!("{TRACERS}.mob-distance-check"), json!(true))
+            .unwrap();
+        s.set(&format!("{TRACERS}.mob-distance"), json!([0.0, 8.0]))
+            .unwrap();
+        let ends: Vec<_> = traced(&s).into_iter().map(|(end, _)| end).collect();
+        assert_eq!(ends, [eye(4.0, 12.0), eye(2.0, 8.0), eye(0.0, 4.0)]);
+    }
 }

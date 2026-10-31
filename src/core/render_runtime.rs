@@ -9,21 +9,27 @@ use super::super::targeting::entities::EntityView;
 use super::{ModuleId, Runtime};
 
 impl Runtime {
-    /// Whether any overlay module draws this frame.
+    /// Whether any overlay module draws this frame. ESP counts only in 2D
+    /// mode and NameTags only with its equipment row.
     pub fn overlay_active(&self) -> bool {
-        [
-            ModuleId::Esp,
-            ModuleId::Health,
-            ModuleId::Arrows,
-            ModuleId::NameTags,
-            ModuleId::SpawnerFinder,
-            ModuleId::MurderFinder,
-            ModuleId::Indicators,
-            ModuleId::BedPlates,
-        ]
-        .into_iter()
-        .any(|id| self.enabled(id))
+        self.overlay_entities_wanted()
+            || [
+                ModuleId::Health,
+                ModuleId::SpawnerFinder,
+                ModuleId::Indicators,
+                ModuleId::BedPlates,
+            ]
+            .into_iter()
+            .any(|id| self.enabled(id))
             || self.totem_count_shown()
+    }
+    /// Whether an overlay module reads the frame's entities (ESP 2D, the
+    /// NameTags equipment row, Arrows, MurdererFinder).
+    pub fn overlay_entities_wanted(&self) -> bool {
+        (self.enabled(ModuleId::Esp) && esp::draws_2d(&self.settings))
+            || (self.enabled(ModuleId::NameTags) && name_tags::draws_equipment(&self.settings))
+            || self.enabled(ModuleId::Arrows)
+            || self.enabled(ModuleId::MurderFinder)
     }
     /// The friends' aliases, by name, for labels that show them.
     fn friend_aliases(&self) -> Vec<(String, String)> {
@@ -80,13 +86,73 @@ impl Runtime {
         }
         out
     }
+    /// MurdererFinder's callout to send to chat this frame.
+    pub fn murder_finder_callout(&mut self) -> Option<String> {
+        self.murder_finder.take_callout()
+    }
     /// Whether Indicators is on and follows `p`.
     pub fn indicators_follow(&self, p: &indicators::Projectile, feet: [f64; 3]) -> bool {
         self.enabled(ModuleId::Indicators) && indicators::followed(&self.settings, p, feet)
     }
+    /// Whether the host should follow projectiles (Indicators) this frame.
+    pub fn indicators_wanted(&self) -> bool {
+        self.enabled(ModuleId::Indicators)
+    }
     /// Whether the host should survey beds (BedPlates) this frame.
     pub fn bed_plates_wanted(&self) -> bool {
         self.enabled(ModuleId::BedPlates)
+    }
+    /// The NameTags tags for one frame's entities (one runtime call, the
+    /// friend list read once); friends show their alias and, with "Recolor
+    /// visuals", the friend colour.
+    pub fn name_tags(
+        &self,
+        subjects: &[name_tags::Subject],
+        own_threat: f64,
+    ) -> Vec<Option<name_tags::Tag>> {
+        if !self.enabled(ModuleId::NameTags) {
+            return vec![None; subjects.len()];
+        }
+        let friends = self.friend_keys();
+        let people = if friends.is_empty() {
+            Vec::new()
+        } else {
+            self.people()
+        };
+        let recolor = self
+            .settings
+            .get("friends.recolor")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
+        let color = recolor.then(|| {
+            self.settings
+                .get("friends.color")
+                .and_then(serde_json::Value::as_u64)
+                .map_or(0xff42_f489, |c| c as u32)
+        });
+        subjects
+            .iter()
+            .map(|subject| {
+                let friend = !subject.name.is_empty()
+                    && friends
+                        .iter()
+                        .any(|f| f.eq_ignore_ascii_case(&subject.name));
+                let alias = friend.then(|| {
+                    people
+                        .iter()
+                        .find(|p| {
+                            p.relation == "friends" && p.name.eq_ignore_ascii_case(&subject.name)
+                        })
+                        .map_or(subject.name.as_str(), |p| p.alias.as_str())
+                });
+                name_tags::tag(
+                    &self.settings,
+                    subject,
+                    own_threat,
+                    alias.map(|a| (a, color)),
+                )
+            })
+            .collect()
     }
     /// ESP Outline's glowing colours (RGB) by entity id.
     pub fn esp_outlines(&self, entities: &[EntityView]) -> Vec<(i32, u32)> {
@@ -205,13 +271,12 @@ impl Runtime {
     /// The through-wall lines of Search and PropHunt for one frame.
     pub fn scene_lines(
         &self,
-        camera: &esp::Camera,
         found: &[([i32; 3], String)],
         props: &[[f64; 3]],
     ) -> Vec<super::super::modules::render::world::Line> {
         let mut out = Vec::new();
         if self.enabled(ModuleId::Search) {
-            search::lines(&self.settings, camera, found, &mut out);
+            search::lines(&self.settings, found, &mut out);
         }
         if self.enabled(ModuleId::PropHunt) {
             self.prop_hunt.lines(props, &mut out);

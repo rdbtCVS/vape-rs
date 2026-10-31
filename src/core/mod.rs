@@ -1490,8 +1490,7 @@ impl Runtime {
             self.enabled(ModuleId::StorageEsp),
             self.enabled(ModuleId::Esp)
                 || self.enabled(ModuleId::Tracers)
-                || self.enabled(ModuleId::Trajectories)
-                || self.enabled(ModuleId::Explosions),
+                || self.enabled(ModuleId::Trajectories),
         )
     }
     /// Trajectories' launch for the held item, when the module is on.
@@ -1621,44 +1620,6 @@ impl Runtime {
     pub fn name_tags_replace_players(&self) -> bool {
         self.enabled(ModuleId::NameTags)
             && super::modules::render::name_tags::replaces_players(&self.settings)
-    }
-    /// The NameTags tag for one entity; friends show their alias and,
-    /// with "Recolor visuals", the friend colour.
-    pub fn name_tag(
-        &self,
-        subject: &super::modules::render::name_tags::Subject,
-        own_threat: f64,
-    ) -> Option<super::modules::render::name_tags::Tag> {
-        if !self.enabled(ModuleId::NameTags) {
-            return None;
-        }
-        let friends = self.friend_keys();
-        let friend = friends
-            .iter()
-            .any(|f| !subject.name.is_empty() && f.eq_ignore_ascii_case(&subject.name));
-        let alias = friend.then(|| {
-            self.people()
-                .into_iter()
-                .find(|p| p.relation == "friends" && p.name.eq_ignore_ascii_case(&subject.name))
-                .map_or_else(|| subject.name.clone(), |p| p.alias)
-        });
-        let recolor = self
-            .settings
-            .get("friends.recolor")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-        let color = recolor.then(|| {
-            self.settings
-                .get("friends.color")
-                .and_then(Value::as_u64)
-                .map_or(0xff42_f489, |c| c as u32)
-        });
-        super::modules::render::name_tags::tag(
-            &self.settings,
-            subject,
-            own_threat,
-            alias.as_deref().map(|a| (a, color)),
-        )
     }
     /// ItemESP's tags at `partial` of the tick: `groups` are kept between
     /// ticks and advanced by a new tick's dropped `items`; `feet` is the

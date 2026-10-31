@@ -9,7 +9,7 @@
 // `SearchResultData.n`). The host scans loaded chunks a few per frame
 // (`SearchBlockChunkScanner.scanLoadedChunks`) and hands back the matches.
 use super::super::super::core::settings::{Definition, Kind, Settings};
-use super::esp::Camera;
+use super::esp::VIEW_CENTRE;
 use super::world::{Line, Point, outline_box};
 use serde_json::{Value, json};
 
@@ -111,14 +111,10 @@ pub fn query(settings: &Settings) -> Query {
 }
 
 /// A unit box per found block in its colour (`RenderUtil.u` with no
-/// fill) and, with "Use tracers", a 2-wide line from just ahead of the
-/// eye to the block's centre.
-pub fn lines(
-    settings: &Settings,
-    camera: &Camera,
-    found: &[([i32; 3], String)],
-    out: &mut Vec<Line>,
-) {
+/// fill) and, with "Use tracers", a 2-wide line from a block in front of
+/// the camera (ESP Tracers' `VIEW_CENTRE`, the real camera's) to the
+/// block's centre.
+pub fn lines(settings: &Settings, found: &[([i32; 3], String)], out: &mut Vec<Line>) {
     let q = query(settings);
     let tracers = settings
         .get(&key("use-tracers"))
@@ -132,7 +128,7 @@ pub fn lines(
         outline_box(out, Point(min), Point(min.map(|v| v + 1.0)), color, 1.5);
         if tracers && tracer {
             out.push(Line {
-                start: Point(std::array::from_fn(|i| camera.eye[i] + camera.look[i])),
+                start: VIEW_CENTRE,
                 end: Point(min.map(|v| v + 0.5)),
                 color,
                 width: 2.0,
@@ -190,26 +186,20 @@ mod tests {
             json!(["gold_ore=ffffd700 +tracer", "diamond_ore"]),
         )
         .unwrap();
-        let camera = Camera {
-            eye: [0.0; 3],
-            look: [0.0, 0.0, 1.0],
-            yaw: 0.0,
-            pitch: 0.0,
-        };
         let found = [
             ([0, 0, 5], "gold_ore".to_owned()),
             ([1, 0, 5], "diamond_ore".to_owned()),
         ];
         let tracers = |s: &Settings| {
             let mut out = Vec::new();
-            lines(s, &camera, &found, &mut out);
+            lines(s, &found, &mut out);
             out.iter()
                 .filter(|l| l.width == 2.0)
-                .map(|l| (l.end.0, l.color))
+                .map(|l| (l.start.0[0].is_nan(), l.end.0, l.color))
                 .collect::<Vec<_>>()
         };
         assert!(tracers(&s).is_empty());
         s.set(&key("use-tracers"), json!(true)).unwrap();
-        assert_eq!(tracers(&s), [([0.5, 0.5, 5.5], 0xffff_d700)]);
+        assert_eq!(tracers(&s), [(true, [0.5, 0.5, 5.5], 0xffff_d700)]);
     }
 }

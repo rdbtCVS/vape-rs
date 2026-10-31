@@ -329,7 +329,7 @@ pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> Contr
     let launch = held.and_then(|stack| {
         use crate::game::vape_rs::modules::render::trajectories::Loaded;
         let view = horizon_client::item_render::stack_view(stack);
-        let loaded = match view.patch.get("minecraft:charged_projectiles").and_then(|v| v.as_ref()?.as_array().cloned()) {
+        let loaded = match view.patch.get("minecraft:charged_projectiles").and_then(|v| v.as_ref()?.as_array()) {
             Some(p) if p.iter().any(|t| t.to_string().contains("firework_rocket")) => Loaded::Firework,
             Some(p) if !p.is_empty() => Loaded::Arrow,
             _ => Loaded::Empty,
@@ -358,7 +358,7 @@ pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> Contr
     if scene_on {
         let found = search_found(game, query);
         let props = if props_wanted { falling_blocks(game, alpha) } else { Vec::new() };
-        extra.extend(with_client(&client, |runtime| runtime.scene_lines(&camera, &found, &props)));
+        extra.extend(with_client(&client, |runtime| runtime.scene_lines(&found, &props)));
         extra.extend(projectile_lines(game, &client, &mut block));
     } else {
         search_found(game, None);

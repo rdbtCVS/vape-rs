@@ -220,6 +220,12 @@ fn pixel(settings: &Settings, distance: f64) -> f64 {
     }
 }
 
+/// Whether the players' equipment row is drawn, the only part of NameTags on
+/// the HUD overlay.
+pub fn draws_equipment(settings: &Settings) -> bool {
+    boolean(settings, "players") && boolean(settings, "equipment")
+}
+
 /// The players' equipment row (`NameTags.renderEquipment`): main hand,
 /// helmet to boots, then off hand, 16 tag pixels each at 1.1x, centred 26
 /// pixels above the tag, drawn on the HUD at the tag's projected size.
@@ -229,7 +235,7 @@ pub fn equipment_row(
     people: &impl super::super::super::targeting::filter::People,
 ) -> Vec<super::overlay::Draw> {
     let mut out = Vec::new();
-    if !boolean(settings, "players") || !boolean(settings, "equipment") {
+    if !draws_equipment(settings) {
         return out;
     }
     let max = number(settings, "players-max-distance", 0.0);

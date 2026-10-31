@@ -60,6 +60,9 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
         let eye = horizon_core::geometry::Vec3::new(feet.x, feet.y + f64::from(player.dimensions.eye_height), feet.z);
         let players = game.other_players();
         let tab = crate::game::remote::vape_remote_tab::players(game);
+        // Each type's translated name, looked up once a frame.
+        let mut type_names: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+        let (mut subjects, mut ats) = (Vec::new(), Vec::new());
         for m in game.mobs.iter().filter(|m| m.alive()) {
             let name = players.iter().find(|(p, _)| p.id == m.id).map(|(_, n)| n.clone());
             let class = if name.is_some() {
@@ -76,7 +79,9 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
             let head = horizon_core::geometry::Vec3::new(at.x, at.y + f64::from(m.kind.eye_height), at.z);
             let subject = Subject {
                 class,
-                name: name.clone().unwrap_or_else(|| m.custom_name.clone().unwrap_or_else(|| entity_name(&m.kind.id))),
+                name: name.clone().unwrap_or_else(|| {
+                    m.custom_name.clone().unwrap_or_else(|| type_names.entry(&*m.kind.id).or_insert_with(|| entity_name(&m.kind.id)).clone())
+                }),
                 distance: feet.distance(at),
                 health: m.health,
                 max_health: horizon_client::mobs::finalize::max_health(m),
@@ -87,16 +92,16 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
                 creative: tab.iter().any(|t| i64::from(t.0) == m.id as i64 && t.1 == 1),
                 threat: score(e.main_hand.as_deref(), false) + worn.iter().map(|w| score(*w, true)).sum::<f64>(),
             };
-            let Some(tag) = with_client(&client, |runtime| runtime.name_tag(&subject, own_threat)) else {
+            let height = if class == EntityClass::Player && e.crouching { 1.5 } else { f64::from(m.height()) };
+            subjects.push(subject);
+            ats.push(lerp(m.previous, m.position) + glam::DVec3::new(0.0, height + 0.4, 0.0));
+        }
+        let tags = with_client(&client, |runtime| runtime.name_tags(&subjects, own_threat));
+        for (at, tag) in ats.into_iter().zip(tags) {
+            let Some(tag) = tag else {
                 continue;
             };
-            let height = if class == EntityClass::Player && e.crouching { 1.5 } else { f64::from(m.height()) };
-            out.push(Extra {
-                at: lerp(m.previous, m.position) + glam::DVec3::new(0.0, height + 0.4, 0.0),
-                lines: vec![(text(&tag.text, tag.color), 0.0)],
-                scale: tag.scale,
-                alpha: tag.alpha,
-            });
+            out.push(Extra { at, lines: vec![(text(&tag.text, tag.color), 0.0)], scale: tag.scale, alpha: tag.alpha });
         }
     }
     if items_on {

@@ -35,14 +35,22 @@ from smoke_scenario import Checks
 KEYS = 'jknmbghyuiozv'
 
 
-def changed(a, b, threshold=48):
+def pixels(image):
+    """An image's pixels (`getdata` is deprecated from Pillow 12)."""
+    return getattr(image, 'get_flattened_data', image.getdata)()
+
+
+def changed(a, b, threshold=48, box=None):
+    """Pixels that differ between two captures (inside `box`, if given)."""
     diff = ImageChops.difference(Image.open(a).convert('RGB'), Image.open(b).convert('RGB'))
-    return sum(1 for p in diff.getdata() if sum(p) > threshold)
+    if box is not None:
+        diff = diff.crop(box)
+    return sum(1 for p in pixels(diff) if sum(p) > threshold)
 
 
 def near(path, rgb, tolerance=40):
     image = Image.open(path).convert('RGB')
-    return sum(1 for p in image.getdata() if all(abs(p[i] - rgb[i]) <= tolerance for i in range(3)))
+    return sum(1 for p in pixels(image) if all(abs(p[i] - rgb[i]) <= tolerance for i in range(3)))
 
 
 def crop(path, box, out, zoom=4):
@@ -185,25 +193,6 @@ def single_player(resources, allow_stale, results):
         t.compare('render.spawner-finder', 'spawner-finder', views(s, (3.5, 100.5, 6.5), NEAR, FAR))
         clear(3, 100, 6, 3, 100, 6)
 
-        # The sphere is depth-tested: the floor hides its lower half.
-        s.call('command', 'summon tnt 0.5 100 9 {fuse:6000,NoGravity:1b}')
-        s.call('wait', '6')
-        t.compare('render.explosions', 'explosions', views(s, (0.5, 100.5, 9), NEAR, (0.5, 100, -8.5)))
-        # The pulse: two frames half a period apart differ more with the
-        # module on than off.
-        s.call('options-set', 'guiScale', '2')
-        s.call('tp', *map(str, NEAR))
-        s.call('look-at', '0.5', '100.5', '9')
-        pulse = {}
-        for phase in ('on', 'off'):
-            t.tap('render.explosions')
-            for step in ('a', 'b'):
-                s.capture(f'explosions-pulse-{phase}-{step}')
-                s.call('wait', '5')
-            pulse[phase] = changed(s.root / f'explosions-pulse-{phase}-a.png', s.root / f'explosions-pulse-{phase}-b.png')
-        checks.check('explosions: the sphere pulses between frames', pulse['on'] > pulse['off'] + 500, pulse)
-        s.call('command', 'kill @e[type=tnt]')
-
         s.call('command', 'summon zombie 0.5 100 4 {NoAI:1b,PersistenceRequired:1b,'
                'equipment:{head:{id:"minecraft:diamond_helmet",count:1},'
                'mainhand:{id:"minecraft:iron_sword",count:1}}}')
@@ -272,7 +261,7 @@ def single_player(resources, allow_stale, results):
         s.call('wait', '25')
 
         def floor(distance):
-            s.call('look-at', 'block', '0', '99', '5' if distance == 'near' else '14', 'up')
+            s.call('look-at', '0.5', '100', '5.5' if distance == 'near' else '14.5')
 
         t.compare('render.trajectories', 'trajectories-bow-block',
                   views(s, (0.5, 99, 5), NEAR, NEAR, setup=floor), rgb=(255, 255, 255), wait=4)
@@ -284,12 +273,24 @@ def single_player(resources, allow_stale, results):
             s.call('look-at', '0.5', '101.2', '9')
 
         details = t.compare('render.trajectories', 'trajectories-bow-mob',
-                            views(s, (0.5, 101.2, 9), NEAR, NEAR, setup=at_zombie), rgb=(255, 0, 0), wait=4)
+                            views(s, (0.5, 101.2, 9), NEAR, NEAR, setup=at_zombie), wait=4)
         blue = {name: (near(s.root / f'trajectories-bow-mob-{name}-on.png', (0, 0, 255)),
                        near(s.root / f'trajectories-bow-mob-{name}-off.png', (0, 0, 255)))
                 for name in details}
         checks.check('trajectories: the cross is target blue on a mob',
                      all(on > off + 5 for on, off in blue.values()), {'zombie': zombie, 'blue': blue})
+        # The trajectory colour: facing a near mob the path runs along the
+        # view axis under the cross, so a zombie 55 blocks off with the bow
+        # aimed 9.2 degrees up, where the arc drops onto its chest.
+        s.call('command', 'kill @e[type=zombie]')
+        s.call('fill', '-2', '99', '21', '3', '99', '42', 'minecraft:stone')
+        s.call('fill', '-2', '100', '21', '3', '106', '42', 'minecraft:air')
+        s.call('command', 'summon zombie 0.5 100 40.5 {NoAI:1b,PersistenceRequired:1b}')
+        s.call('wait', '6')
+        back = (0.5, 100, -14.5)
+        t.compare('render.trajectories', 'trajectories-bow-far-mob',
+                  views(s, (0.5, 101, 40.5), back, back, setup=lambda _d: s.call('look', '0', '-9.2')),
+                  rgb=(255, 0, 0), wait=4)
         s.call('mouse', 'right', 'up')
         s.call('command', 'kill @e[type=zombie]')
         s.call('command', 'kill @e[type=arrow]')
@@ -336,9 +337,32 @@ def single_player(resources, allow_stale, results):
             t.tap('render.indicators')
             s.call('wait', '1')
             s.capture(f'indicators-hit-only-miss-{phase}')
-        miss = changed(s.root / 'indicators-hit-only-miss-on.png', s.root / 'indicators-hit-only-miss-off.png')
+        # Around the crosshair only: the relaunch's toasts slide between
+        # the two frames.
+        miss = changed(s.root / 'indicators-hit-only-miss-on.png', s.root / 'indicators-hit-only-miss-off.png',
+                       box=(100, 70, 700, 460))
         checks.check('indicators (Hit Only): an arrow passing 3 aside is not shown', miss < 40, {'changed': miss})
         s.call('command', 'kill @e[type=arrow]')
+
+        # Last: the pinned host's selectors cannot target primed TNT, so the
+        # fuse-6000 TNT stays (flashing) for the rest of the world's life.
+        # The sphere is depth-tested: the floor hides its lower half.
+        s.call('command', 'summon tnt 0.5 100 9 {fuse:6000s,NoGravity:1b}')
+        s.call('wait', '6')
+        t.compare('render.explosions', 'explosions', views(s, (0.5, 100.5, 9), NEAR, (0.5, 100, -8.5)))
+        # The pulse: two frames half a period apart differ more with the
+        # module on than off.
+        s.call('options-set', 'guiScale', '2')
+        s.call('tp', *map(str, NEAR))
+        s.call('look-at', '0.5', '100.5', '9')
+        pulse = {}
+        for phase in ('on', 'off'):
+            t.tap('render.explosions')
+            for step in ('a', 'b'):
+                s.capture(f'explosions-pulse-{phase}-{step}')
+                s.call('wait', '5')
+            pulse[phase] = changed(s.root / f'explosions-pulse-{phase}-a.png', s.root / f'explosions-pulse-{phase}-b.png')
+        checks.check('explosions: the sphere pulses between frames', pulse['on'] > pulse['off'] + 500, pulse)
         results.extend(checks.results)
         return s.root
 
@@ -384,7 +408,8 @@ def lan(resources, allow_stale, results):
         join({'schema': 1, 'modules': {}, 'settings': settings})
         host.call('give', 'minecraft:iron_sword', '1')
         host.call('select', '1')
-        host.call('command', 'item replace entity @s armor.head with minecraft:diamond_helmet')
+        # Enchanted, so the equipment row shows the helmet's glint.
+        host.call('command', 'item replace entity @s armor.head with minecraft:diamond_helmet[minecraft:enchantments={protection:1}]')
         host.call('tp', '0.5', '100', '6.5')
         guest.call('wait', '20')
 
@@ -393,7 +418,11 @@ def lan(resources, allow_stale, results):
 
         ahead = subject_views(guest, host, body, (0.5, 100, 6.5), (0.5, 100, 16.5))
         t.compare('render.esp', 'esp-2d', ahead)
-        t.compare('render.tracers', 'tracers', ahead, rgb=(0, 150, 255))
+        # Tracers end at the eyes: facing the subject the line is a few
+        # pixels, so the guest looks 4 blocks to its side.
+        aside = subject_views(guest, host, lambda at: (at[0] - 4, at[1] + 1, at[2]),
+                              (0.5, 100, 6.5), (0.5, 100, 16.5))
+        t.compare('render.tracers', 'tracers', aside, rgb=(0, 150, 255))
         t.compare('render.name-tags', 'name-tags-player', ahead)
         t.compare('render.murder-finder', 'murder-finder', ahead, minimum=50)
         t.compare('render.health', 'health', ahead, minimum=50)
@@ -430,6 +459,8 @@ def lan(resources, allow_stale, results):
         t.compare('render.prop-hunt', 'prop-hunt', prop_views)
         host.call('command', 'setblock 2 100 5 minecraft:air')
         host.call('command', 'kill @e[type=falling_block]')
+        # The sand the falling blocks dropped bobs between later frames.
+        host.call('command', 'kill @e[type=item]')
         host.call('command', 'tp VapeGuest 0.5 100 0.5 0 0')
 
         # StorageESP follows the lid of a chest the host holds open.
@@ -473,8 +504,9 @@ def lan(resources, allow_stale, results):
         t.compare('render.esp', 'esp-outline', ahead)
         guest.call('options-set', 'guiScale', '2')
         host.call('tp', '0.5', '100', '6.5')
-        guest.call('look-at', '0.5', '101', '6.5')
-        guest.call('wait', '4')
+        guest.call('look-at', '-3.5', '101', '6.5')
+        # Until the join's teleport message has faded from chat.
+        guest.call('wait', '220')
         friend = {}
         for phase in ('on', 'off'):
             t.tap('render.tracers')
@@ -488,9 +520,21 @@ def lan(resources, allow_stale, results):
         guest.close()
         doc = guest.saved()
         doc['settings']['render.esp.mode'] = '3D'
+        doc['settings']['render.murder-finder.callout'] = True
         join(doc)
         guest.call('wait', '20')
         t.compare('render.esp', 'esp-3d', ahead)
+        # MurdererFinder's Callout, last so its chat line is in no capture:
+        # the guest names the host (sword in hand) in the server's chat.
+        t.tap('render.murder-finder')
+        guest.call('wait', '40')
+        said = host.call('chat-log', '10').get('chat', [])
+        heard = guest.call('chat-log', '10').get('chat', [])
+        guest.capture('murder-finder-callout')
+        t.tap('render.murder-finder')
+        callouts = ('VapeHost is the murderer!', 'i saw that VapeHost!')
+        checks.check('murder finder (Callout): the guest names the host in chat',
+                     any(c in line for line in said for c in callouts), {'host': said, 'guest': heard})
         results.extend(checks.results)
         return guest.root
 
