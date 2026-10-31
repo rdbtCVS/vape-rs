@@ -170,3 +170,23 @@
 - **HUD icons are geometry, not the reference textures.** Armor Status's shield and broken bar and the compass arrow are drawn from the reference textures' shapes (rects, triangles and a fan), because Vape's PNGs are not shipped. Piece and effect icons are the host's own item and effect sprites.
 - **The Vape GUI-scale factor is 1.** Panel sizes come only from each module's Scale setting, in the host's GUI units, so they follow the host's GUI scale like the vanilla HUD.
 - **The foreground colour tints what the reference tints.** It applies to the text the reference draws in the editor foreground colour and to the compass arrow; tick marks, divider lines and the biome and durability colours keep the reference's fixed colours.
+
+## 2026-10-31: Movement B (worker round 2)
+
+- **AutoPearl and PearlCatch aim through the shared rotation claim.** The reference's pearl aim lock and its rotation and point-rotation controllers are ported. They drive the combat module's `Rotations/Shared` claim, not a separate rotation, so visible and silent aim and the release follow the same path as the other rotation users.
+- **Freecam runs the modern controller only.** 26.3 runs `FreecamModernController`. `FreecamLegacyController` cancels movement packets for pre-1.21.11 clients and has no 26.3 counterpart (not-applicable-reviewed).
+- **Freecam's "fake" is the player's real body.** The reference spawns a fake player where the player stands. Here the player keeps ticking in place with no movement input. Spawn Fake draws that real body in first person through the host's own body path (`own_body_in_view`). The server sees the same player standing still, and no client-side entity is invented.
+- **Freecam turns go through the host's mouse handling.** The camera takes `turn_player`'s already scaled turn, so the game's sensitivity, zoom, smooth camera and inverted axes apply to the free camera as they do to the player.
+- **Freecam's no-bob is render-scoped.** `suppressViewBobbing` with Move Fake turns the view bob off only in the camera transform (`no_hurt_camera.rs`). The host's bob setting is not changed.
+- **A control-socket key-up reaches the movement writer.** The writer drops a socket-held movement key that is no longer physically held. Without this, a scripted key released while Freecam owned the axis came back as held.
+- **Freelook shares Freecam's hooks.** There is one dispatcher per target (`player_camera_entity`, `turn_player`). It asks Freecam first, then Freelook; there is no second injection. Freelook renders the host's own camera entity turned to the freelook rotation, asked for again under a re-entry guard. The player model keeps the player's rotation, as the reference restores the player view before the player renders.
+- **Freelook takes the mouse as host cursor counts.** The counts are the host turn divided by `degrees_per_count / 0.15`. The reference reads the raw mouse delta, so here inverted axes, smooth camera and zoom carry into the freelook turn.
+- **Freelook's divergences from the reference:**
+  - Only mouse turns are redirected. A module or the server that sets the player's rotation still turns the player; the reference resets it to the saved view every frame.
+  - Hold reads the bind at the next tick's HEAD, not at the post tick.
+  - The bind's held keys are cleared when focus is lost or the click GUI opens, so a key held across the GUI does not keep Hold engaged.
+  - Disabling the module or leaving the world ends the freelook and restores the perspective. The reference keeps its state across worlds.
+  - The 1.16.5 cursor-position path (`mouseLastX`) is not reproduced.
+  - Not ported: the RotationManager adaptive-controller skip (`thirdPersonAimView`) and the render-rotation readers (`PlayerSimulationUtil`, `GuiRenderPrimitives`, `RenderUtil`).
+- **Freelook's Perspective value is never shown.** The reference builds `perspectiveMode` but never passes it to `addValue`, so it keeps its default, 3rd Person. The 1st-person mode is not-applicable-reviewed.
+- **Freelook's bind never toggles the module.** As in the reference, the module's `onBindActivated` engages the freelook, so the generic hidden-module refusal does not apply to it. The generic per-module `activation` setting is ignored for Freelook; its own Activate Freelook choice decides Hold or Toggle.

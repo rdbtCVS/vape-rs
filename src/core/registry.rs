@@ -129,6 +129,7 @@ registry! {
     AutoPearl => "utility.auto-pearl", "AutoPearl", "Utility", None, [];
     PearlCatch => "utility.pearl-catch", "PearlCatch", "Utility", None, [];
     Freecam => "render.freecam", "Freecam", "World", None, [];
+    Freelook => "render.freelook", "Freelook", "Render", None, [];
 }
 
 impl ModuleId {

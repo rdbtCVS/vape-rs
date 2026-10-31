@@ -29,6 +29,10 @@ pub(crate) fn tick(game: &mut Game<'_>) {
     }
     let client = game.__horizon_mixins_vape_rs_client().clone();
     let (wanted, gui_open) = with_client(&client, |runtime| (runtime.freecam_wanted(), runtime.gui.open));
+    // Freelook's post tick: the queued toggle and Hold's bind state.
+    let (screen, player) = (game.screen != Screen::Playing || gui_open, game.player.is_some());
+    with_client(&client, |runtime| runtime.freelook_tick(screen, player));
+    freelook_restore(game);
     if !wanted {
         return;
     }
@@ -143,4 +147,84 @@ pub(crate) fn requests(game: &Game<'_>) -> Vec<crate::game::vape_rs::core::movem
     }
     let client = game.__horizon_mixins_vape_rs_client().clone();
     with_client(&client, |runtime| runtime.freecam_requests())
+}
+
+// Freelook (reference `FreeLookHudModule`) shares the camera and turn hooks:
+// each asks Freecam first, then Freelook.
+use crate::game::perspective::CameraType;
+use crate::game::vape_rs::modules::render::freelook::{self, Perspective};
+
+thread_local! {
+    /// Set while the camera hook asks the host for the player's own camera.
+    static FREELOOK_ENTRY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn perspective(camera_type: CameraType) -> Perspective {
+    match camera_type {
+        CameraType::FirstPerson => Perspective::First,
+        CameraType::ThirdPersonBack => Perspective::Back,
+        CameraType::ThirdPersonFront => Perspective::Front,
+    }
+}
+
+fn camera_type(perspective: Perspective) -> CameraType {
+    match perspective {
+        Perspective::First => CameraType::FirstPerson,
+        Perspective::Back => CameraType::ThirdPersonBack,
+        Perspective::Front => CameraType::ThirdPersonFront,
+    }
+}
+
+/// `gameSettings.I(savedPerspective)`: the perspective from before the
+/// freelook, put back once it ends.
+fn freelook_restore(game: &mut Game<'_>) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    if let Some(saved) = with_client(&client, |runtime| runtime.freelook_restore()) {
+        game.camera_type = camera_type(saved);
+    }
+}
+
+/// `onPreRenderTick`: the camera's rotation this frame while the freelook
+/// is engaged, its perspective (third person) set before the view reads it.
+pub(crate) fn freelook_frame(game: &mut Game<'_>) -> Option<freelook::Camera> {
+    if !host(game) || FREELOOK_ENTRY.get() {
+        return None;
+    }
+    freelook_restore(game);
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let gui_open = with_client(&client, |runtime| runtime.gui.open);
+    let frame = freelook::Frame {
+        view: (game.yaw, game.pitch),
+        perspective: perspective(game.camera_type),
+        screen: game.screen != Screen::Playing || gui_open,
+        game_sensitivity: f64::from(game.settings.sensitivity),
+    };
+    let camera = with_client(&client, |runtime| runtime.freelook_frame(&frame))?;
+    let wanted = camera_type(camera.perspective);
+    if game.camera_type != wanted {
+        game.camera_type = wanted;
+    }
+    Some(camera)
+}
+
+/// The host's own camera entity, asked for from inside the camera hook.
+pub(crate) fn freelook_entered<T>(f: impl FnOnce() -> T) -> T {
+    FREELOOK_ENTRY.set(true);
+    let result = f();
+    FREELOOK_ENTRY.set(false);
+    result
+}
+
+/// `onPostMouseUpdate`'s `restorePlayerView`: while engaged a view turn goes
+/// to the camera, in the cursor units the reference reads (the turn divided
+/// by the game's per-count scale), and the player does not turn.
+pub(crate) fn freelook_turn(game: &Game<'_>, xo: f64, yo: f64) -> bool {
+    if !host(game) {
+        return false;
+    }
+    // `turn_player` turns 0.15 degrees per unit: its units are counts times
+    // `degrees_per_count / 0.15`.
+    let scale = 0.15 / horizon_client::mouse::degrees_per_count(game.look_options());
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    with_client(&client, |runtime| runtime.freelook_turn(xo * scale, yo * scale))
 }

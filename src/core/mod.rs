@@ -1,6 +1,7 @@
 pub mod automation;
 pub mod combat_runtime;
 pub mod freecam_runtime;
+pub mod freelook_runtime;
 mod hud_extras;
 pub mod inventory_extra;
 pub mod inventory_fill;
@@ -83,6 +84,7 @@ pub struct Runtime {
     throws: throw_runtime::Throws,
     pearls: pearl_runtime::Pearls,
     freecam: super::modules::render::freecam::Freecam,
+    freelook: super::modules::render::freelook::Freelook,
     inventory_fill: inventory_fill::Fill,
     settings: Settings,
     document: Document,
@@ -406,6 +408,7 @@ impl Default for Runtime {
             .chain(inventory_fill::definitions())
             .chain(pearl_runtime::definitions())
             .chain(freecam_runtime::definitions())
+            .chain(freelook_runtime::definitions())
         {
             settings
                 .define(definition)
@@ -490,6 +493,7 @@ impl Default for Runtime {
             throws: Default::default(),
             pearls: Default::default(),
             freecam: Default::default(),
+            freelook: Default::default(),
             inventory_fill: Default::default(),
             settings,
             document: Document::default(),
@@ -601,6 +605,7 @@ impl Runtime {
         self.movement_toggled(module, enabled);
         self.pearls_toggled(module, enabled);
         self.freecam_toggled(module, enabled);
+        self.freelook_toggled(module, enabled);
         if !enabled {
             self.combat_disabled(module);
         }
@@ -728,6 +733,9 @@ impl Runtime {
         action: KeyAction,
         accepts_input: bool,
     ) -> bool {
+        if module == ModuleId::Freelook {
+            return self.freelook_key(key, action, accepts_input);
+        }
         let enabled = self.enabled(module);
         let mode = self.mode(module);
         let required = self
@@ -1947,6 +1955,7 @@ impl Runtime {
         self.reset_combat();
         self.pearls_session_reset();
         self.freecam_session_reset(reason);
+        self.freelook_session_reset(reason);
         self.cancel_inventory();
         self.cancel_auto_fish();
         self.combat_guard.reset();
@@ -2349,6 +2358,7 @@ impl Runtime {
                 | ModuleId::AutoPearl
                 | ModuleId::PearlCatch
                 | ModuleId::Freecam
+                | ModuleId::Freelook
                 | ModuleId::FastPlace
                 | ModuleId::Fullbright
                 | ModuleId::ClearWater

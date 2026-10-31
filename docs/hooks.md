@@ -53,6 +53,11 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `fly-move` | `horizon_client::motion::MotionWorld<'_,'_,'_>::move_self` | Cancellable HEAD (library crate). Substitutes Fly's per-tick movement vector. |
 | `send-state` | `horizon_client::game::remote::Game<'_>::remote_send_state` | NoFall/Fly pre-motion: AntiCheat's MovePlayerStatus true/false pair and the ground value for this send; Step's recognised step (Speed stage, 0.45 timer; the reference's two extra positions are not sent: 26.3 kicks a second position in one client tick). |
 | `send-state-ground` | `remote_send_state`, argument 2 of `r.position_sender.update` | MODIFY_ARG (`require = 1`, `ordinal = 0`). Replaces the sent `on_ground` with the pre-motion value when set. |
+| `pearl-use-item` | `horizon_client::game::remote::Game<'_>::remote_use_item` | HEAD (`adapters/pearl_use_item.rs`, binds `hand`; support module `vape_pearls` in `game/remote.rs`). Tells the pearl runtime that this client used an ender pearl from that hand, so AutoPearl and PearlCatch track their own throw. Serving and dedicated are guarded out. |
+| `pearl-throw-item` | `horizon_client::game::creatures::Game<'_>::throw_item` | HEAD (`adapters/pearl_throw_item.rs`, binds `stack`). The same notice on the single-player throw path; a LAN guest's turn (`lan_acting`) is not this client's throw. |
+| `freecam-camera` | `horizon_client::game::perspective::Game<'_>::player_camera_entity` | Cancellable HEAD (`adapters/freecam_camera.rs`, binds `&mut Game`). One dispatcher: Freecam's camera entity when the camera is free; otherwise, while Freelook is engaged, the host's own camera entity (asked for again under a re-entry guard) turned to the freelook rotation, with the camera type set to third person before `camera_view` reads it. |
+| `freecam-turn` | `horizon_client::game::perspective::Game<'_>::turn_player` | Cancellable HEAD (`adapters/freecam_turn.rs`, binds `xo`, `yo`). One dispatcher: the turn goes to Freecam's camera, else to Freelook (converted to cursor counts by `degrees_per_count`), and the player does not turn; otherwise the host turns the player. |
+| `freecam-body` | `horizon_client::game::perspective::Game<'_>::own_body_in_view` | Cancellable HEAD (`adapters/freecam_body.rs`). Spawn Fake: the player's real body is drawn in first person while the camera is free. |
 
 ## Support modules
 
@@ -84,6 +89,8 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_overlay` | `crates/horizon-client/src/game/fov.rs` | `mixins/vape_rs/overlay.rs` |
 | `vape_remote_tab` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/remote_tab.rs` |
 | `vape_esp_outline` | `crates/horizon-client/src/game/glowing.rs` | `mixins/vape_rs/esp_outline.rs` |
+| `vape_pearls` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/pearls.rs` |
+| `vape_freecam` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/freecam.rs` |
 
 Inventory worker (2026-10-31), no new hooks:
 
@@ -103,3 +110,10 @@ Live entity snapshots come from `vape_combat::snapshot`: alive `Game::mobs` (rem
 Movement keys have one writer: `vape_input_delays::movement`, called from `client-tick` before local and remote movement, and from `client-frame` on screen/pause/unfocused frames. It reads the host's canonical key set and toggle mappings, resolves the per-tick requests from Sprint and Parkour (`vape_parkour::edge_ahead` answers the host collision query) through `core::movement_input::Writer`, and writes only the axes that differ from the user's state, or that it owned and must hand back. Host events reach the writer through the two key-capture adapters above. Host scenarios: docs/evidence/postmerge-validation.json.
 
 KillAura and SilentAura run from `client-tick` through `vape_aura::tick`, after TriggerBot: snapshots from `vape_combat::snapshot`, attacks by entity id through `vape_combat_remote::attack` (on a server: `Attack`, `remote_player_attack`, attack-strength reset, swing and `Punch`, in the host's order and respecting `miss_time`; locally `attack_mob` and the swing), misses through `vape_combat_remote::miss`. The shared rotation claim and managed rotation live in the runtime (`core/combat_runtime.rs`, `modules/combat/rotation.rs`).
+
+Movement worker B (2026-10-31, worker round 2): 5 hooks (`pearl-use-item`, `pearl-throw-item`, `freecam-camera`, `freecam-turn`, `freecam-body`) and 2 support modules (`vape_pearls`, `vape_freecam`). `client-tick` calls `vape_pearls::tick` and `vape_freecam::tick`.
+
+- `vape_pearls::tick` feeds the pearl runtime (the pearls in the world, players, the hotbar, a collision-only block ray for the landing prediction). It answers with slot switches through `Game.selected` and throws through the host's use-item path. Rotations go through the shared rotation claim (`Rotations/Shared`).
+- `vape_freecam::tick` runs Freelook's post tick (the queued Toggle, Hold's bind state, the perspective put back) for every client tick. While Freecam is wanted, it also gathers the physical movement keys and the arrow keys and holds the player's rotation. The movement writer releases the seven movement keys and walks the player with the arrows under Move Fake.
+- The movement writer drops a socket-held key that is no longer physically held (`socket_held`/`socket_released`), so a control-socket key-up reaches the writer.
+- Freelook has no injection of its own; it shares `client-tick`, `freecam-camera` and `freecam-turn` with Freecam (Freecam is asked first).

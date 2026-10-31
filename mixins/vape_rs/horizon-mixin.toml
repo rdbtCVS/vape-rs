@@ -678,7 +678,8 @@ bindings = [
 
 # Freecam: the client tick, the render camera taken from the module's
 # camera, the view turns sent to it, and the player's own body drawn in
-# first person (Spawn Fake).
+# first person (Spawn Fake). Freelook shares the tick, camera and turn
+# hooks: each asks Freecam first, then Freelook.
 [[module]]
 id = "freecam"
 file = "crates/horizon-client/src/game.rs"
@@ -691,7 +692,7 @@ target = "horizon_client::game::perspective::Game<'_>::player_camera_entity"
 kind = "HEAD"
 cancellable = true
 helper = "adapters/freecam_camera.rs"
-bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
 
 [[injection]]
 id = "freecam-turn"
