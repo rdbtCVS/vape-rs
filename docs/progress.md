@@ -1721,3 +1721,40 @@ Gates on merged main (`gates.sh --host`): fmt, Clippy `-D warnings`, tests 431 p
 Scenarios on merged main, each in a fresh isolated home: hud_detail 8/8, weather_modes 13/13, hud_editor 9/9, hud_modes 5/5, hud_readouts 7/7 and no_hurt_camera 7/7. The first no_hurt_camera run failed 5/7 at load average 10–12: with the module off, the first capture after the hit already fell past the ten-tick tilt (frame differences 1.49, 0.18, 0.22, 0.29, 0.33, against 21.15, 20.89, 15.09, 6.13, 1.67 on an immediate rerun). The scenario now measures the module-off pass up to three times when it misses the window. Every attempt stays in measurements.json, and the module-on passes are still checked once against the module-off peak. It passed 7/7 on the next run. Post-merge evidence: docs/evidence/main-hud-modules-{layouts,weather-modes,no-hurt-camera}.
 
 Open, from the worker: HUD text still uses the host bitmap font (a cross-HUD decision shared with hud-client); localization, the HUD editor's transparency and the armor bar's glow are not ported.
+
+## 2026-10-31: render (worker round 2)
+
+Branch `t3/4e786919`, with main 97dbaa7 merged (6afbbd9).
+
+Landed:
+- Validation of the round-1 render modules, on and off, at GUI scale 2 and 1 and two camera distances: Tracers, NameTags, Search, ESP (3D, 2D, Outline), SpawnerFinder, StorageESP, Trajectories, Arrows, Health, Explosions, PropHunt and MurdererFinder (with its Callout through the host's chat send).
+- Ports: Projectiles, Indicators (Always, Threat, Hit Only), BedPlates, Block Overlay, and ItemESP Group Items. Fullbright's two modes are validated through `tools/legit_render_scenario.py`.
+- Fidelity fixes: Tracers registers only the reference's own "Enemy Only" ("Enemies List Only" is removed), and ESP has none. SpawnerFinder's whitelist is labelled "Spawners".
+- Frame-cost bounds: the host builds snapshots and surveys only for the modules that are on (see decisions.md).
+
+Scenarios, each in a fresh isolated home:
+- `tools/render_scenario.py --part sp`: 21/21 (`render-sp-tt731e63`).
+- `--part all`: LAN 14/14 (`render-guest-ogt7j7py`, host `render-host-t2et199g`); its SP part failed 2 checks, superseded by the SP run above:
+  - `trajectories-bow-far-mob`: a bow lob at pitch -82 had to land within about 0.1° of pitch to hit the zombie's box. The check is now `trajectories-snowball-far-mob`: a snowball thrown 10° up, where any pitch from -7° to -13° hits. Red path pixels: 98 on, 0 off, in all four views.
+  - Indicators Hit Only: the hit capture missed the arrow while the legit scenario ran alongside. Run alone: red 622 on the hit, 0 / 0 on the miss.
+- `tools/legit_render_scenario.py`: 40/40 (`legit-render-nftqe3z2`). Fullbright's dark-room luma, off / on / after: Night Vision 8.5 / 70.2 / 8.3, Gamma 7.9 / 87.0 / 8.2.
+- Captures were inspected through `tools/contact_sheet.py` and individually.
+- Evidence: docs/evidence/render-r2-{sp,lan-host,lan-guest,legit-render}.
+
+Gates on 6afbbd9 plus this commit's docs and scenario edits (Python only):
+- `cargo fmt --all --check`: ok.
+- Clippy `-D warnings`: ok.
+- `cargo test --workspace`: 250 + 1 + 4 + 0 passed, 0 failed.
+- payload-test: 250 passed.
+- Host stage, check and build on 6afbbd9, under the lock: exit 0. Audit: 44 hooks and 29 support modules, original AST restored.
+- The coordinator runs the host check and build again after merging.
+
+Re-checked at pin 8f91f89:
+- Chams and XRay stay blocked, each on the exact missing host capability in decisions.md.
+- MotionBlur has real hook targets, so it is no longer host-blocked. It is not-started, for worker/hud.
+
+Open:
+- MotionBlur is not implemented. The plan is in decisions.md.
+- Perf after the frame-cost bounds is not re-measured. Before, in ms of CPU a frame: plain 1.042, all modules 1.725, esp 1.599, name-tags 1.207.
+- ESP Skeleton is blocked: no player-model bone poses.
+- `delays_perf`'s NoClickDelay failure is outside the render scope.

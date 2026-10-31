@@ -288,23 +288,31 @@ def single_player(resources, allow_stale, results):
                 for name in details}
         checks.check('trajectories: the cross is target blue on a mob',
                      all(on > off + 5 for on, off in blue.values()), {'zombie': zombie, 'blue': blue})
-        # The trajectory colour: facing a near mob the path runs along the
-        # view axis under the cross, so a lob instead: the bow aimed 82
-        # degrees up drops the arrow onto a zombie 27 blocks off (inside the
-        # 2-chunk render distance's entity tracking, about 32 blocks), the
-        # path falling away below the cross.
-        s.call('command', 'kill @e[type=zombie]')
-        s.call('command', 'kill @e[type=item]')
-        s.call('command', 'summon zombie 0.5 100 12.5 {NoAI:1b,PersistenceRequired:1b,'
-               'equipment:{head:{id:"minecraft:carved_pumpkin",count:1}}}')
-        s.call('wait', '30')
-        back = (0.5, 100, -14.5)
-        t.compare('render.trajectories', 'trajectories-bow-far-mob',
-                  views(s, (0.5, 101, 12.5), back, back, setup=lambda _d: s.call('look', '0', '-82')),
-                  rgb=(255, 0, 0), wait=4)
         s.call('mouse', 'right', 'up')
         s.call('command', 'kill @e[type=zombie]')
         s.call('command', 'kill @e[type=arrow]')
+        s.call('command', 'kill @e[type=item]')
+        # The trajectory colour: facing a near mob the path runs along the
+        # view axis under the cross, so a snowball thrown 10 degrees up at a
+        # zombie 27 blocks off (inside the 2-chunk render distance's entity
+        # tracking, about 32 blocks) instead: its arc drops about 11 degrees
+        # onto it, below the cross. Any pitch from -7 to -13 hits the zombie's
+        # box, where a bow's steep lob had to land within a tenth of a degree.
+        s.call('command', 'summon zombie 0.5 100 12.5 {NoAI:1b,PersistenceRequired:1b,'
+               'equipment:{head:{id:"minecraft:carved_pumpkin",count:1}}}')
+        s.call('give', 'minecraft:snowball', '16')
+        s.call('wait', '30')
+        s.call('command', 'kill @e[type=arrow]')
+        s.call('select', 'snowball')
+        s.call('wait', '4')
+        held = s.call('state').get('held')
+        checks.check('a snowball is held', 'snowball' in str(held), held)
+        back = (0.5, 100, -14.5)
+        t.compare('render.trajectories', 'trajectories-snowball-far-mob',
+                  views(s, (0.5, 101, 12.5), back, back, setup=lambda _d: s.call('look', '0', '-10')),
+                  rgb=(255, 0, 0), wait=4)
+        s.call('command', 'kill @e[type=zombie]')
+        s.call('command', 'clear @p minecraft:snowball')
         s.call('wait', '10')
 
         s.call('command', 'give @p minecraft:crossbow[charged_projectiles=[{id:"minecraft:arrow",count:1}]]')
