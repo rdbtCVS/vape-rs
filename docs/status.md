@@ -11,11 +11,12 @@ or blocked.
 
 ## Ledger
 
-docs/features.csv holds 472 rows: **206 validated**, 42 integrated,
-36 implemented-core, 138 not-started, 9 blocked, 13 excluded-approved and
-28 not-applicable-reviewed. 97 of the not-started rows are helper classes
-whose status follows their owning module ([decisions](decisions.md)), so
-they move when their owners are validated. `validated` always means a
+docs/features.csv holds 472 rows: **218 validated**, 43 integrated,
+37 implemented-core, 119 not-started, 9 blocked, 13 excluded-approved and
+33 not-applicable-reviewed. Helper classes take their status from their
+owning module ([decisions](decisions.md)); a review of all 97 helper rows
+moved 19 of them on 2026-10-31, and most of the remaining not-started rows
+are the 47 classes of the inventory-filter GUI editor, which is not ported. `validated` always means a
 passing fresh-home host scenario with evidence in docs/evidence;
 `integrated` means hooked and running in the host without a full scenario.
 
@@ -68,11 +69,11 @@ decision column and decisions.md):
 ## Evidence on merged main
 
 - `gates.sh --host` on `d90e860` (all nine workers merged): fmt, Clippy `-D warnings` (all targets), **895 tests passed / 0 failed**, payload-test, stage/audit with **64 hooks and 35 support modules** on horizon-mixins `0e9229d`, host check and host build.
-- Scenarios: each worker's scenarios passed on its branch in fresh homes (progress.md lists the instance names). The rerun of all 27 on merged main is in progress. It waits for GPU memory between runs because other sessions' clients use most of the 8 GB card; an earlier attempt died on wgpu out-of-memory. Results go into progress.md when it finishes.
+- Scenarios: each worker's scenarios passed on its branch in fresh homes (progress.md lists the instance names). The rerun on merged main was cut short by a reboot and is going again one scenario at a time under `target/scenario.lock`; render (single player and LAN), legit render and the AutoTool LAN guard pass on main so far, and the results go into progress.md as they finish.
 - Settings parity (`tools/settings_parity.py`): no default or range differences remain. It now honours the reference's version-gated registrations (`U(value, ForgeVersion…)`, target 26.3). The remaining "missing setting" entries are all on integrated or blocked rows: Blink "Spawn fake", KillAura "Show target" and its colours, Reach "Misplace"/"Disadvantage", SilentAura's Break blocks, render and colour settings, and SilentAura's AI settings (excluded).
 - AntiBot's 16 "Your team color" options are not-applicable-reviewed: the reference registers that setting only below 1.21.11 and uses the player-list colour on 26.3, which the port detects.
 - Online removal (Phase 7): the pack-time capability audit rejects `unsafe`, sockets, processes, FFI, `include_*!`, the host HTTP client, telemetry/friends crates and URL literals in shipped code; no Java/C/C++ or binaries are tracked.
-- Performance: `tools/perf_scenario.py` measures per-module frame cost. The machine has stayed loaded by other sessions (load ~25), so no run is attributable yet; performance is unvalidated.
+- Performance: `tools/perf_scenario.py` on main, near-idle machine (load ~6 of 12 cores): 67/67. Each render/HUD module alone adds under 0.5 ms of CPU per frame, all twelve together 0.296 ms, at a steady 119 fps, and nothing is left once off (docs/evidence/perf-idle-main, progress.md 2026-10-31). Still to measure: a host build without the mod, a dense entity scene and the worst-case queue/planner loads.
 - Not covered: remote/third-party servers, window focus loss, switching between two worlds.
 - [hooks.md](hooks.md) lists every target and module.
 

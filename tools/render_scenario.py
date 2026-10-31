@@ -265,6 +265,9 @@ def single_player(resources, allow_stale, results):
         s.call('tp', *map(str, NEAR))
         s.call('mouse', 'right', 'down')
         s.call('wait', '25')
+        # The command feedback in chat covers the lower screen, where the
+        # near bow arc runs; hide chat for the bow captures.
+        s.call('options-set', 'chatVisibility', '2')
 
         def floor(distance):
             s.call('look-at', '0.5', '100', '5.5' if distance == 'near' else '14.5')
@@ -289,6 +292,7 @@ def single_player(resources, allow_stale, results):
         checks.check('trajectories: the cross is target blue on a mob',
                      all(on > off + 5 for on, off in blue.values()), {'zombie': zombie, 'blue': blue})
         s.call('mouse', 'right', 'up')
+        s.call('options-set', 'chatVisibility', '0')
         s.call('command', 'kill @e[type=zombie]')
         s.call('command', 'kill @e[type=arrow]')
         s.call('command', 'kill @e[type=item]')
@@ -372,18 +376,22 @@ def single_player(resources, allow_stale, results):
         s.call('command', 'summon tnt 0.5 100 9 {fuse:6000s,NoGravity:1b}')
         s.call('wait', '6')
         t.compare('render.explosions', 'explosions', views(s, (0.5, 100.5, 9), NEAR, (0.5, 100, -8.5)))
-        # The pulse: two frames half a period apart differ more with the
-        # module on than off.
+        # The pulse: frames differ more with the module on than off. It is
+        # solid for five ticks and fades in over five, so two frames half a
+        # period apart can both be nearly solid; four frames three ticks apart
+        # always include a solid one and one under 0.36 alpha.
         s.call('options-set', 'guiScale', '2')
         s.call('tp', *map(str, NEAR))
         s.call('look-at', '0.5', '100.5', '9')
         pulse = {}
+        steps = ('a', 'b', 'c', 'd')
         for phase in ('on', 'off'):
             t.tap('render.explosions')
-            for step in ('a', 'b'):
+            for step in steps:
                 s.capture(f'explosions-pulse-{phase}-{step}')
-                s.call('wait', '5')
-            pulse[phase] = changed(s.root / f'explosions-pulse-{phase}-a.png', s.root / f'explosions-pulse-{phase}-b.png')
+                s.call('wait', '3')
+            frames = [s.root / f'explosions-pulse-{phase}-{step}.png' for step in steps]
+            pulse[phase] = max(changed(a, b) for i, a in enumerate(frames) for b in frames[i + 1:])
         checks.check('explosions: the sphere pulses between frames', pulse['on'] > pulse['off'] + 500, pulse)
         results.extend(checks.results)
         return s.root

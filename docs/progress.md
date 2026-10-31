@@ -2357,3 +2357,14 @@ Scenario rerun on merged main: the first batch died on `wgpu error: Out of Memor
 Not done: the idle-machine performance run (load stays near 25), the re-pin (candidate 5062f225 is stale; Horizon main is about 1,450 commits ahead), and the LongJump/AntiFall/Step decision (the user's).
 
 Docs: docs/status.md rewritten for main `3ad3e2a`; README "What works today" lists the newly validated modules and names the integrated, blocked and unported ones separately.
+
+## 2026-10-31: per-module frame cost on main (near-idle machine)
+
+After a reboot cleared the other sessions' clients, `tools/perf_scenario.py` ran on main's build (`d90e860` sources, identical to `4c8d6e6`; bundle `134e21cb`) under `target/scenario.lock`, in a fresh isolated home (`perf-sfehneei`). Load average 5.95 at the start and 5.72 at the end on 12 cores (the round-5 workers resumed and began compiling during the run); 6.9 GB VRAM and 26 GB RAM free. Evidence: docs/evidence/perf-idle-main/.
+
+Result **67/67**, every bench at the same frame cap (119 fps; vanilla's AFK limiter off):
+- Plain CPU per frame 0.953 ms at the start and 0.861 ms at the end (noise 0.092 ms); no cost is left once everything is off.
+- Each module alone adds under 1 ms: Coordinates 0.075, FPS −0.061, Keystrokes −0.015, Armor −0.132, Potions −0.027, ESP 0.025, Tracers 0.032, StorageESP 0.05, NameTags 0.06, ItemESP 0.35, Trajectories −0.046, Fullbright 0.49 (ms; negatives are within the noise).
+- All twelve together add **0.296 ms** (CPU p99 2.17 ms). ItemESP's and Fullbright's single benches also had a higher frame p99 (9.46 ms against 8.44) that the all-on bench does not show, so those two figures likely include the workers' compile load.
+
+Covered of plan §10 item 7: runtime enabled with all features off, representative overlays, many enabled modules, a 24-cow, 8-chest scene. Not yet covered: a host build without the mod (mod disabled), a dense entity scene and the worst-case queue/planner loads (InventoryManager sort of a full inventory, the Blink/FakeLag/BackTrack queues at their limits). Performance stays partially validated until those run.
