@@ -95,3 +95,11 @@
   - "Extra randomization" is the reference's `computeDelay`: a normal centred on the range with sd range/4, clamped to the range, plus an 18 % chance of a long pause of max(120, 1.25·range) to max(350, 3.25·range) ms.
   - "Show totem count" computes the reference's count and colour (`Runtime::totem_count_display`). Nothing draws it yet, because the reference shows it in the active-module stack frame and that frame has no port here.
   - "Silent open" and "Silent move delay" are not registered. `menu_ops` sends server clicks only while `Screen::Inventory` is shown, so clicking the player inventory with no screen open needs a Horizon API. This is blocked; there is no workaround.
+
+## 2026-10-31: combat rotation and auras
+
+- **One rotation owner.** `rotation::Claim` follows the reference's SharedModuleControlClaims: higher priority preempts, and a waiting owner takes over on release. SilentAura's managed rotation is sent only through the motion packet's rotation argument (`send-state-rotation`). The camera and `game.yaw/pitch` are never changed, so the view stays where the player looks.
+- **SilentAuraClicker merged into SilentAura.** The clicker needs the managed rotation and the aura's target every tick, so it runs in the same runtime tick. It is not a separate module. Its settings stay under SilentAura as in the reference GUI.
+- **Attacks by id replicate the host order.** On a server: `Attack`, then `remote_player_attack`, the strength reset, the swing and `Punch`. Locally: `attack_mob` plus the swing. WTap's attack bookkeeping runs on both paths.
+- **KeepSprint wraps the host body.** The HEAD hook calls `remote_player_attack` once under a re-entry guard. It acts only when the result shows exactly the vanilla 0.6 cut, so a host change to the cut makes it inert instead of wrong.
+- **Not routed:** the mouse-over/block raytrace, the riding rotation packet and the third-person rotation render (open items, no workaround). Aura shield/cooldown bypass from ShieldBreaker/HitSwap/AutoMace arrives with those modules.

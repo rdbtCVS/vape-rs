@@ -1051,3 +1051,73 @@ arrangement planners, use sequences and Refill extras. After the merge:
   and 22 support modules.
 - The Refill run above was made before the merge. Main's Refill extras are
   covered by the inventory worker's own scenarios.
+
+## 2026-10-31: combat worker, shared rotation, KillAura, SilentAura, KeepSprint
+
+- `modules/combat/rotation.rs`: the shared rotation claim (priority owners,
+  pending takeover on release) and the managed rotation. The managed rotation
+  steps toward its target in 50 updates per tick with sensitivity-quantised
+  deltas, then returns to the view before the claim is released.
+- KillAura: swing/attack range, max angle (half on each side), max targets,
+  Distance/Yaw/Armor/Threat/Health sort, APS, perfect swing, require mouse,
+  GUI check, limited items, disable on death and use release/reuse around the
+  attack.
+- SilentAura: the PID rotation mode, Center/Closest target area, random aim,
+  switch, shield check, extra swing and the clicker. Its clicker
+  (SilentAuraClicker) ray-tests the managed rotation, not the view. AI modes
+  stay excluded-approved.
+- KeepSprint: runs at the `remote_player_attack` HEAD. It runs the host body
+  once under a re-entry guard, then replaces the 0.6 cut and sprint stop with
+  the configured slowdown and sprint. Includes buffer abuse and only-in-air.
+- Hooks: `send-state-rotation` (MODIFY_ARG on the motion packet's rotation)
+  and `keep-sprint` (HEAD, cancellable). New support modules: `vape_aura`
+  (client tick) and `vape_combat_remote` (attack by id, miss, swing,
+  KeepSprint). Stage/audit: 38 hooks, 24 modules.
+- `tools/aura_scenario.py` (single player, NoAI 1000-health zombie): 16/16.
+  KillAura hits off-crosshair inside its angle; it does not hit outside the
+  angle, behind a screen, or after disable. SilentAura hits while the view
+  stays unchanged, does not hit outside its angle, and stops when disabled.
+- `tools/keep_sprint_scenario.py` (LAN host + guest, fresh homes): 13/13.
+  Without KeepSprint, guest KillAura hits on the host show the ~0.78 speed
+  dip. With KeepSprint at slowdown 1.0: 0 dips over 6 hits and sprinting
+  throughout. After disable the dip returns.
+
+Validation: fmt, Clippy -D warnings, 131 lib tests and the payload test pass.
+Stage/audit (38 hooks, 24 modules) and the host check/build pass. Evidence:
+docs/evidence/combat-aura.json and combat-keep-sprint.json.
+
+Not ported or limited:
+- The managed rotation does not cover the riding rotation packet.
+- No third-person render of the managed rotation, and no movement fix.
+- The mouse-over and block raytrace are not redirected; the wall check uses
+  the target filter's visibility.
+- SilentAura's Render type (Ring/Box) is not ported.
+- A SilentAura miss in single player only swings.
+- KeepSprint changes only hits on remote players, because that is where the
+  host applies the cut.
+
+## 2026-10-31: combat worker, merge of main and open combat items
+
+Merged main (inventory planners, use sequences, recovery scenario) into
+worker/combat. Conflicts were additive only (core module list, registry,
+docs) and keep both sides.
+
+Validation after the merge: fmt, Clippy -D warnings, 153 lib tests and the
+payload test pass. Stage/audit pass (38 hooks, 24 support modules). Host
+check: 0 errors.
+
+HitSelect has been researched but not implemented. Notes for the next pass:
+- The reference's two obfuscated tick constants are `(int)` casts of longs.
+  They give COOLDOWN_TICKS = 8 (Right-click use cancel) and
+  VELOCITY_RESET_TICKS = 7 (Normal).
+- The attack-to-damage timing it needs is already tracked by
+  `blatant::outbound` (expected hurt ticks, average hit delay).
+- Cancelling the click locally can use the integrated `attack_clicks` count
+  at the client-tick HEAD.
+- On a server it needs a cancellable HEAD on `remote_start_attack`. The
+  existing `remote-attack` HEAD is not cancellable, and
+  `InteractionInput.clicks` is private.
+
+Not started: HitSelect, BlockHit, HitFlick, AntiBot, HitSwap, AutoMace,
+ShieldBreaker, CrystalAura, BowAimbot, AimAssist Adaptive, Reach Misplace,
+and SilentAura's Render type.

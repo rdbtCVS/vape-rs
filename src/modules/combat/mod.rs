@@ -1,8 +1,12 @@
 pub mod aim_assist;
 pub mod click_timing;
 pub mod clicker;
+pub mod keep_sprint;
+pub mod kill_aura;
 pub mod knockback;
 pub mod reach;
+pub mod rotation;
+pub mod silent_aura;
 pub mod trigger_bot;
 pub mod velocity;
 pub mod wtap;
