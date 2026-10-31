@@ -106,6 +106,13 @@ registry! {
     Scaffold => "blatant.scaffold", "Scaffold", "Utility", None, [];
     InvWalk => "blatant.inv-walk", "InvWalk", "Other", None, [];
     WindCharge => "utility.wind-charge", "WindCharge", "Utility", None, [];
+    Health => "render.health", "Health", "Render", None, [];
+    Arrows => "render.arrows", "Arrows", "Render", None, [];
+    Explosions => "render.explosions", "Explosions", "Render", None, [];
+    Search => "render.search", "Search", "Render", None, [];
+    SpawnerFinder => "render.spawner-finder", "SpawnerFinder", "Render", None, [];
+    MurderFinder => "render.murder-finder", "MurdererFinder", "World", None, [];
+    PropHunt => "render.prop-hunt", "PropHunt", "World", None, [];
     InventoryManager => "inventory.inventory-manager", "InventoryManager", "Inventory", None, [];
     InvCleaner => "inventory.inv-cleaner", "InvCleaner", "Inventory", None, [];
     AutoHotbar => "inventory.auto-hotbar", "AutoHotbar", "Inventory", None, [];

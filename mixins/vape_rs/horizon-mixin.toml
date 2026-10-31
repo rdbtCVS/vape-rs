@@ -296,6 +296,7 @@ id = "on-top"
 file = "crates/horizon-client/src/gizmos.rs"
 name = "vape_on_top"
 source = "on_top.rs"
+visibility = "pub"
 
 [[injection]]
 id = "on-top-hook"
@@ -577,4 +578,43 @@ bindings = [
  { name = "world", ty = "&mut crate::motion::MotionWorld<'_, '_, '_>", value = "&mut *self" },
  { name = "keys", ty = "crate::sprint::Keys", value = "keys" },
  { name = "sprint_window", ty = "i32", value = "sprint_window" },
+]
+
+[[module]]
+id = "overlay"
+file = "crates/horizon-client/src/game/fov.rs"
+name = "vape_overlay"
+source = "overlay.rs"
+
+[[injection]]
+id = "overlay-hook"
+target = "horizon_client::game::fov::Game<'_>::draw_spyglass"
+kind = "HEAD"
+helper = "adapters/overlay.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+]
+
+[[module]]
+id = "remote-tab"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_remote_tab"
+source = "remote_tab.rs"
+
+[[module]]
+id = "esp-outline"
+file = "crates/horizon-client/src/game/glowing.rs"
+name = "vape_esp_outline"
+source = "esp_outline.rs"
+
+[[injection]]
+id = "esp-outline-hook"
+target = "horizon_client::game::glowing::Game<'_>::mob_outline"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/esp_outline.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "m", ty = "&horizon_client::mobs::Mob", value = "m" },
 ]

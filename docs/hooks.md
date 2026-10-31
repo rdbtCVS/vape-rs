@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **33 hooks (32 HEAD + 1 MODIFY_ARG), 18 support modules, no owned state**. Horizon `8f91f896a5d47d034318569940e775d8bd854bd6` (main, 2026-10-31); published, unpatched horizon-mixins main `07dab17387480ac03829584d9d1ee9912c9bb515`, the pin the `.hnmod` names.
+Current audited configuration: **38 hooks (37 HEAD + 1 MODIFY_ARG), 25 support modules, no owned state**. Horizon `8f91f896a5d47d034318569940e775d8bd854bd6` (main, 2026-10-31); published, unpatched horizon-mixins main `07dab17387480ac03829584d9d1ee9912c9bb515`, the pin the `.hnmod` names.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers and modules, rejects any owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
@@ -39,6 +39,8 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `outbound-packet` | `horizon_client::game::remote::Game<'_>::send` | Cancellable HEAD (support module `vape_packets` in `game/remote.rs`). Classifies the serverbound packet (movement, attack with the target's hurt time, release-use-item) and drops it (NoItemRelease, PotionSaver), holds a clone with a due time (Blink, FakeLag) or continues. Held packets are released in order from the send and from the client tick hook straight to the session, bypassing the hook; the tick also sends Regen's packets. Remote servers only; `net.rs` ClientTickEnd bypasses it. |
 | `send-state-rotation` | `horizon_client::game::remote::Game<'_>::remote_send_state` | MODIFY_ARG (argument 1 of `r.position_sender.update`, require 1, ordinal 0). Replaces the rotation of the tick's motion packet with the managed rotation (SilentAura) that `vape_aura::tick` stored for this tick from the client-tick hook; otherwise passes the view's rotation through. The riding `MovePlayerRot` path is not covered. |
 | `keep-sprint` | `horizon_client::game::remote::Game<'_>::remote_player_attack` | Cancellable HEAD (support module `vape_combat_remote` in `game/remote.rs`). While KeepSprint is enabled it runs the host body itself behind a re-entry guard, compares the attacker's horizontal motion before and after (the host's `ATTACKER_SLOWDOWN` cut and sprint stop), then applies KeepSprint's slowdown and sprint, and cancels. Otherwise continues. |
+| `overlay-hook` | `horizon_client::game::fov::Game<'_>::draw_spyglass` | HEAD (support module `vape_overlay` in `game/fov.rs`, which reaches the private FOV, bob and spin matrices). Builds the frame projection from the gizmos camera and paints the screen-space render modules (ESP 2D, Health, Arrows, NameTags equipment row, SpawnerFinder, MurdererFinder) into the HUD batch under the host HUD. |
+| `esp-outline-hook` | `horizon_client::game::glowing::Game<'_>::mob_outline` | Cancellable HEAD (support module `vape_esp_outline` in `game/glowing.rs`). In ESP Outline mode it returns the ESP colour for shown players through the host's glowing-outline pass; otherwise it continues into the host body. |
 | `on-top-hook` | `horizon_client::gizmos::camera_relative` | Cancellable HEAD. Moves marked lines from the frame's depth-tested set to its always-on-top set, so StorageESP shows through walls. |
 | `entity-pick` | `horizon_client::game::Game<'_>::mob_hit` | Cancellable HEAD. Reach and HitBoxes replicate the host pick with a longer ray and inflated boxes; creative, serving and dedicated keep the host pick. Uses `try_with_client` so a held runtime lock falls through. |
 | `remote-attack` | `horizon_client::game::remote::Game<'_>::remote_start_attack` | Reach's post-attack bookkeeping on the remote (and single-player) path; `auto-tool-attack` covers the local path. |
@@ -76,6 +78,9 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_smooth_text` | `crates/horizon-client/src/ui_theme.rs` | `mixins/vape_rs/smooth_text.rs` |
 | `vape_aura` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/aura.rs` |
 | `vape_combat_remote` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/combat_remote.rs` |
+| `vape_overlay` | `crates/horizon-client/src/game/fov.rs` | `mixins/vape_rs/overlay.rs` |
+| `vape_remote_tab` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/remote_tab.rs` |
+| `vape_esp_outline` | `crates/horizon-client/src/game/glowing.rs` | `mixins/vape_rs/esp_outline.rs` |
 
 Inventory worker (2026-10-31), no new hooks:
 

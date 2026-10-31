@@ -88,6 +88,13 @@
 - **NoSlowdown hook retargeted.** `no-slowdown` sat on `controlled_simulation_tick`, a wrapper only host tests call, so it never ran in a real game. It now targets the sprint-window form the remote tick calls. It also clears `item_use_slows_sprint` with Sprint on (the reference's sprint re-enable).
 - **Audit peels stacked HEAD hooks.** Two HEAD hooks on one function stack in priority order, not manifest order. xtask's audit now removes any expected HEAD statement from the top until none match.
 
+## 2026-10-31: render worker
+
+- **Trajectories follow vanilla where the reference differs.** Shooter motion is added as in `shootFromRotation` (the reference omits it). A crossbow arrow flies at 3.15 (the reference uses about 3.0). Multishot side arrows are not drawn.
+- **Search** keeps the reference's block list and colours but not its per-block tracer toggle; one tracers setting covers all entries.
+- **MurdererFinder and PropHunt are in World**, because the GUI has no Minigames frame. The MurdererFinder callout is blocked: there is no chat-send path. PropHunt drops the reference's 0..256 y bound (worlds go from -64 to 320).
+- **SpawnerFinder's label** sits at y-0.25 inside the block, as in the reference.
+- **Limits recorded as open:** skeleton ESP needs bone poses that the host does not expose. Equipment items draw without enchantment glint. Arrows draws a filled triangle. The Explosions fill draws through walls. XRay and Chams are blocked: they need chunk-mesher and entity-render hooks that the pinned host does not offer, so they are not worked around.
 ## 2026-10-31: inventory worker, use sequences, InventoryFill, Refill and AutoTotem extras
 
 - **Use sequences are one executor.** Throwpot, ThrowDebuff and AutoHeal Legit share `src/core/throw_runtime.rs`, which holds the hotbar, use and container claims at priority 150. That is above the inventory planners and AutoFish (100) and below macros (200). Effects go through the host's ordinary paths: the selected slot, one use press (`vape_macros::use_once`) and the held-item drop.

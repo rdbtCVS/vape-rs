@@ -9,6 +9,7 @@ pub mod movement_input;
 pub mod movement_runtime;
 pub mod profiles;
 mod registry;
+pub mod render_runtime;
 pub mod settings;
 pub mod throw_runtime;
 
@@ -94,6 +95,8 @@ pub struct Runtime {
     velocity: super::modules::combat::velocity::Velocity,
     knockback: super::modules::combat::knockback::Knockback,
     backtrack: super::modules::blatant::backtrack::Backtrack,
+    murder_finder: super::modules::render::murder_finder::MurderFinder,
+    prop_hunt: super::modules::render::prop_hunt::PropHunt,
     inbound_flush: bool,
     left_clicker: super::modules::combat::clicker::Engine,
     right_clicker: super::modules::combat::clicker::Engine,
@@ -346,6 +349,11 @@ impl Default for Runtime {
             .chain(super::modules::blatant::outbound::definitions())
             .chain(super::modules::blatant::backtrack::definitions())
             .chain(super::modules::render::anti_debuff::definitions())
+            .chain(super::modules::render::arrows::definitions())
+            .chain(super::modules::render::explosions::definitions())
+            .chain(super::modules::render::search::definitions())
+            .chain(super::modules::render::spawner_finder::definitions())
+            .chain(super::modules::render::murder_finder::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -455,6 +463,8 @@ impl Default for Runtime {
             velocity: Default::default(),
             knockback: Default::default(),
             backtrack: Default::default(),
+            murder_finder: Default::default(),
+            prop_hunt: Default::default(),
             inbound_flush: false,
             left_clicker: super::modules::combat::clicker::Engine::new(0x5851_f42d_4c95_7f2d),
             right_clicker: super::modules::combat::clicker::Engine::new(0x2c1b_3c6d_4a1f_9e37),
@@ -1436,7 +1446,8 @@ impl Runtime {
             self.enabled(ModuleId::StorageEsp),
             self.enabled(ModuleId::Esp)
                 || self.enabled(ModuleId::Tracers)
-                || self.enabled(ModuleId::Trajectories),
+                || self.enabled(ModuleId::Trajectories)
+                || self.enabled(ModuleId::Explosions),
         )
     }
     /// Trajectories' launch for the held item, when the module is on.
@@ -1444,6 +1455,7 @@ impl Runtime {
         &self,
         item: &str,
         use_ticks: Option<u32>,
+        loaded: super::modules::render::trajectories::Loaded,
     ) -> Option<super::modules::render::trajectories::Launch> {
         use super::modules::render::trajectories;
         if !self.enabled(ModuleId::Trajectories) {
@@ -1454,14 +1466,14 @@ impl Runtime {
             .get(&format!("{}.ghost-bow-charge", trajectories::ID))
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        trajectories::launch(item, use_ticks, ghost)
+        trajectories::launch(item, use_ticks, ghost, loaded)
     }
     /// The through-wall lines of StorageESP, ESP and Tracers for one frame.
     pub fn world_lines(
         &self,
         camera: &super::modules::render::esp::Camera,
         entities: &[super::targeting::entities::EntityView],
-        storage: &[(super::modules::render::storage_esp::Storage, [i32; 3])],
+        storage: &[super::modules::render::storage_esp::Block],
         trajectory: Option<(
             super::modules::render::trajectories::Launch,
             super::modules::render::trajectories::BlockClip<'_>,
@@ -1988,6 +2000,9 @@ impl Runtime {
     pub fn tick(&mut self) -> bool {
         let first = self.ticks == 0;
         self.ticks = self.ticks.saturating_add(1);
+        if self.enabled(ModuleId::PropHunt) {
+            self.prop_hunt.tick();
+        }
         self.frame();
         first
     }
@@ -2228,7 +2243,14 @@ impl Runtime {
                 | ModuleId::KeepSprint
                 | ModuleId::Scaffold
                 | ModuleId::InvWalk
-                | ModuleId::WindCharge => continue,
+                | ModuleId::WindCharge
+                | ModuleId::Health
+                | ModuleId::Arrows
+                | ModuleId::Explosions
+                | ModuleId::Search
+                | ModuleId::SpawnerFinder
+                | ModuleId::MurderFinder
+                | ModuleId::PropHunt => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

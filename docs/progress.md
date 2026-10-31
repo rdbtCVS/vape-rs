@@ -858,6 +858,21 @@ User request: bump the pins to the latest remote main.
 
 Validation ([repin-main-2026-10-31.json](evidence/repin-main-2026-10-31.json)): fmt, all-target Clippy `-D warnings`, 118 lib tests and the payload test pass; stage/audit (36 hooks, 22 support modules) pass; host check and fast build pass. Fresh-home scenarios on the new executable: smoke 27/27, LAN 16/16, inbound hold/replay (LAN) 27/27.
 
+## 2026-10-31: render worker (branch worker/render)
+
+Render modules on real host data, plus two new hooks (38 hooks, 25 support modules):
+
+- `overlay-hook` (HEAD, `fov::draw_spyglass`) and support module `vape_overlay`: screen-space overlays from a projection built from the gizmos camera with the host's FOV, view bobbing and nausea spin. Used by ESP 2D (bounding box, health bar, name, background, priority-only), Health, Arrows, the NameTags equipment row and creative marker, SpawnerFinder and MurdererFinder.
+- `esp-outline-hook` (cancellable HEAD, `glowing::mob_outline`): ESP Outline goes through the host's glowing-outline pass.
+- `vape_remote_tab`: player-list display names and game modes (creative marker, Use Displayname).
+- StorageESP: fills, ender chests and shulkers (host block entities), outline-open. Explosions: TNT fill. Tracers: player/enemy/bot filters.
+- Trajectories: vanilla shooter motion (horizontal only on the ground), loaded crossbows (arrow 3.15, firework straight 1.6 with no drag), drag-parameterised prediction.
+- Search: StringList `id[=AARRGGBB]`, range, only-caves, tracers. Loaded chunks are scanned two per frame, sections skipped with `may_hold`, and the state match is cached. The cache resets when the query changes.
+- SpawnerFinder: spawner block entities (`next_data().id()`), mob whitelist, distance-scaled label.
+- MurdererFinder (World): players holding a listed item, cleared on world change; the chat callout is not ported.
+- PropHunt (World): falling blocks (interpolated) and inbound `BlockUpdate` positions for 200 ticks, boxed and filled.
+
+Validation (after merging main): fmt, all-target Clippy `-D warnings`, 148 + 3 lib tests and the payload test pass. Stage/audit (38 hooks, 25 support modules) passes. Host check passes (0 errors; the existing visibility warnings only). Not yet run: the fast host build and `tools/render_scenario.py` (on/off screenshot diffs for single player and LAN). This was stopped at the coordinator's wrap-up, so no render module from this branch is `validated` yet.
 ## 2026-10-31: validation — GUI reruns, movement scenario, NoSlowdown hook fix
 
 Validation worker (branch `worker/validation`, pin 8f91f89 / 0e9229d).
