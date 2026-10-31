@@ -61,7 +61,7 @@ fn on_ladder(game: &Game<'_>) -> bool {
     let below = state(at[1] - 1);
     here_name.ends_with("_trapdoor")
         && property(here, "open").as_deref() == Some("true")
-        && name(below) == "minecraft:ladder"
+        && &*name(below) == "minecraft:ladder"
         && property(here, "facing") == property(below, "facing")
 }
 
