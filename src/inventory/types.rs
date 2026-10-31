@@ -75,6 +75,13 @@ pub struct ItemMeta {
     pub enchantments: Vec<(String, u32)>,
     /// Fastest `tool` rule speed (1.0 for items without a tool component).
     pub mining_speed: f32,
+    /// The localized hover name (`getHoverName`): the custom name, the item
+    /// name component, or the translated name (`Splash Potion of Poison`).
+    pub hover_name: String,
+    /// `minecraft:armor` and `minecraft:armor_toughness` modifier totals that
+    /// apply when worn.
+    pub armor_points: f32,
+    pub armor_toughness: f32,
 }
 impl ItemMeta {
     pub fn enchantment(&self, id: &str) -> u32 {
@@ -208,6 +215,8 @@ pub enum Click {
     ThrowStack,
     /// Number-key swap with hotbar slot n (`SWAP`, button n).
     SwapHotbar(u8),
+    /// Left click outside the menu (slot -999): drops the carried stack.
+    Outside,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Request {
@@ -231,4 +240,18 @@ impl Request {
             expected_carried: snapshot.carried.as_ref().map(|i| i.fingerprint.clone()),
         }
     }
+    /// A [`Click::Outside`] request; only the carried stack is expected.
+    pub fn outside(snapshot: &Snapshot) -> Self {
+        Self {
+            session: snapshot.session,
+            container_id: snapshot.container_id,
+            revision: snapshot.revision,
+            slot: OUTSIDE_SLOT,
+            click: Click::Outside,
+            expected: None,
+            expected_carried: snapshot.carried.as_ref().map(|i| i.fingerprint.clone()),
+        }
+    }
 }
+/// The slot id of [`Click::Outside`] requests; no snapshot slot uses it.
+pub const OUTSIDE_SLOT: u16 = u16::MAX;

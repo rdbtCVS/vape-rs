@@ -44,27 +44,31 @@ fn class(id: &str) -> ItemClass {
         ItemClass::Other
     }
 }
+/// Worn `minecraft:armor` and `minecraft:armor_toughness` modifier totals.
+fn armor_values(info: &horizon_client::items::ItemInfo) -> (f32, f32) {
+    info.modifiers
+        .iter()
+        // Vanilla armor modifiers name the piece's own slot group (`head`,
+        // `chest`...), not `armor`; count every group that applies when worn.
+        .filter(|(_, _, _, _, group)| {
+            group == "armor" || group == "any" || info.equip_slot.as_deref() == Some(group)
+        })
+        .fold((0.0, 0.0), |(armor, toughness), (attribute, _, amount, _, _)| {
+            match attribute.as_str() {
+                "minecraft:armor" | "armor" => (armor + *amount as f32, toughness),
+                "minecraft:armor_toughness" | "armor_toughness" => {
+                    (armor, toughness + *amount as f32)
+                }
+                _ => (armor, toughness),
+            }
+        })
+}
 fn score(stack: &ItemStack, info: Option<&horizon_client::items::ItemInfo>) -> f32 {
     let Some(info) = info else {
         return 0.0;
     };
-    let armor = info
-        .modifiers
-        .iter()
-        // Vanilla armor modifiers name the piece's own slot group (`head`,
-        // `chest`...), not `armor`; count every group that applies when worn.
-        .filter_map(|(attribute, _, amount, _, group)| {
-            (group == "armor" || group == "any" || info.equip_slot.as_deref() == Some(group))
-                .then_some((attribute.as_str(), *amount))
-        })
-        .fold(0.0, |total, (attribute, amount)| {
-            total
-                + match attribute {
-                    "minecraft:armor" | "armor" => amount as f32,
-                    "minecraft:armor_toughness" | "armor_toughness" => amount as f32 * 0.25,
-                    _ => 0.0,
-                }
-        });
+    let (points, toughness) = armor_values(info);
+    let armor = points + toughness * 0.25;
     if info.equip_slot.is_some() {
         armor + stack.enchantment_level("minecraft:protection") as f32 * 0.25
     } else {
@@ -73,34 +77,44 @@ fn score(stack: &ItemStack, info: Option<&horizon_client::items::ItemInfo>) -> f
 }
 
 fn potion_metadata(id: &str, stack: &ItemStack) -> (Option<Healing>, bool) {
-    let soup = matches!(
-        id,
-        "minecraft:mushroom_stew" | "minecraft:rabbit_stew" | "minecraft:beetroot_soup"
-    );
-    if soup {
+    // `ItemStackScoreUtil.v`: the item's default food is the mushroom stew's
+    // (6 nutrition, 0.6 saturation), which beetroot soup shares and rabbit
+    // stew does not.
+    if matches!(id, "minecraft:mushroom_stew" | "minecraft:beetroot_soup") {
         return (Some(Healing::Soup), false);
     }
-    // Vape's Refill accepts only splash potions whose real contents include
-    // instant health or regeneration. ChestSteal separately rejects the five
-    // harmful splash effects named by the reference; both decisions come from
-    // Horizon's decoded PotionContents component, never from an item-id suffix.
-    if id != "minecraft:splash_potion" {
+    // `ItemStackScoreUtil.o`: any potion item (drinkable, splash or
+    // lingering) whose contents, base or custom, include instant health or
+    // regeneration. ChestSteal separately rejects the five harmful splash
+    // effects named by the reference; both decisions come from Horizon's
+    // decoded PotionContents component, never from an item-id suffix.
+    if !matches!(
+        id,
+        "minecraft:potion" | "minecraft:splash_potion" | "minecraft:lingering_potion"
+    ) {
         return (None, false);
     }
-    let Some(definition) = stack.potion().and_then(brewing::potion) else {
-        return (None, false);
-    };
+    let definition = stack.potion().and_then(brewing::potion);
     let healing = definition
-        .effects
         .iter()
-        .any(|(effect, _, _)| matches!(*effect, "instant_health" | "regeneration"))
-        .then_some(Healing::Potion);
-    let harmful = definition.effects.iter().any(|(effect, _, _)| {
-        matches!(
-            *effect,
-            "poison" | "instant_damage" | "slowness" | "weakness" | "blindness"
+        .flat_map(|d| d.effects.iter().map(|(effect, _, _)| (*effect).to_owned()))
+        .chain(
+            stack
+                .custom_potion_effects()
+                .into_iter()
+                .map(|(effect, _, _)| unprefixed(&effect)),
         )
-    });
+        .any(|effect| matches!(effect.as_str(), "instant_health" | "regeneration"))
+        .then_some(Healing::Potion);
+    let harmful = id == "minecraft:splash_potion"
+        && definition.is_some_and(|d| {
+            d.effects.iter().any(|(effect, _, _)| {
+                matches!(
+                    *effect,
+                    "poison" | "instant_damage" | "slowness" | "weakness" | "blindness"
+                )
+            })
+        });
     (healing, harmful)
 }
 fn stack(game: &Game<'_>, stack: &ItemStack) -> Item {
@@ -191,6 +205,11 @@ fn meta(
             .map(|(e, level)| (e.to_string(), *level))
             .collect(),
         mining_speed,
+        hover_name: horizon_client::item_tooltip::name_line(stack, &|k| {
+            game.pack.names.display_get(k)
+        }),
+        armor_points: info.map_or(0.0, |i| armor_values(i).0),
+        armor_toughness: info.map_or(0.0, |i| armor_values(i).1),
     }
 }
 fn slot(game: &Game<'_>, index: usize, role: SlotRole, value: Option<&ItemStack>) -> Slot {
@@ -337,6 +356,12 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     {
         return false;
     }
+    if request.click == Click::Outside {
+        // Slot -999: only the carried stack the planner saw may be dropped.
+        return request.expected_carried.is_some()
+            && current.carried.as_ref().map(|i| &i.fingerprint) == request.expected_carried.as_ref()
+            && game.menu_ops(&[(None, 0, Input::Pickup)]);
+    }
     let Some(slot) = current.slot(request.slot) else {
         return false;
     };
@@ -347,7 +372,7 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
         return false;
     }
     let input = match request.click {
-        Click::Pickup => Input::Pickup,
+        Click::Pickup | Click::Outside => Input::Pickup,
         Click::SwapOffhand => Input::Swap,
         Click::QuickMove => Input::QuickMove,
         Click::Throw | Click::ThrowStack => Input::Throw,
