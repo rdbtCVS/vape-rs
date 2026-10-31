@@ -28,8 +28,8 @@ jobs:
             TAG="v${F#*-}"
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/*.hnmod dist/*.hnmod.sha256 --clobber
+            gh release upload "$TAG" dist/*.hnmod dist/*.hnmod.sha256 dist/*.compatibility.json --clobber
           else
-            gh release create "$TAG" dist/*.hnmod dist/*.hnmod.sha256 \
+            gh release create "$TAG" dist/*.hnmod dist/*.hnmod.sha256 dist/*.compatibility.json \
               --target "$GITHUB_SHA" --title "$TAG" --generate-notes
           fi

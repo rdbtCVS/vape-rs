@@ -148,8 +148,15 @@ fn pack(root: &Path) -> Result<PathBuf> {
     let mut sources = BTreeMap::new();
     let file = expand(&root.join("src/lib.rs"), root, &mut sources)?;
     let payload = prettyplease::unparse(&file);
+    capabilities(&quote!(#file), "runtime payload")?;
     let bundle = root.join("target/bundle/mixins/vape_rs");
     copy_sources(&root.join("mixins/vape_rs"), &bundle)?;
+    for path in tree_hashes(&bundle)?.keys() {
+        if path.extension().is_some_and(|e| e == "rs") && path != Path::new("runtime.rs") {
+            let source = syn::parse_file(&fs::read_to_string(bundle.join(path))?)?;
+            capabilities(&quote!(#source), &path.to_string_lossy())?;
+        }
+    }
     for path in tree_hashes(&bundle)?.keys() {
         if path != Path::new("runtime.rs") && !root.join("mixins/vape_rs").join(path).is_file() {
             return Err(format!(
@@ -182,6 +189,72 @@ fn pack(root: &Path) -> Result<PathBuf> {
     Ok(bundle)
 }
 
+/// Shipped Rust may only reach the OS through the host: no sockets, child
+/// processes, FFI, `unsafe` or files embedded at compile time. Token-level, so
+/// macro bodies are covered too.
+fn capabilities(tokens: &proc_macro2::TokenStream, origin: &str) -> Result<()> {
+    use proc_macro2::{Delimiter, TokenTree};
+    const DENIED: &[&str] = &[
+        "unsafe",
+        "TcpStream",
+        "TcpListener",
+        "UdpSocket",
+        "UnixStream",
+        "UnixListener",
+        "UnixDatagram",
+        "libloading",
+        "no_mangle",
+        "export_name",
+        "link_section",
+    ];
+    const MACROS: &[&str] = &[
+        "include",
+        "include_bytes",
+        "include_str",
+        "asm",
+        "global_asm",
+    ];
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let ident = |i: usize| match trees.get(i) {
+        Some(TokenTree::Ident(ident)) => Some(ident.to_string()),
+        _ => None,
+    };
+    let path = |i: usize, a: &str, b: &str| {
+        ident(i).as_deref() == Some(a)
+            && matches!(trees.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == ':')
+            && ident(i + 3).as_deref() == Some(b)
+    };
+    for (i, tree) in trees.iter().enumerate() {
+        let denied = match tree {
+            TokenTree::Ident(name) => {
+                let name = name.to_string();
+                DENIED.contains(&name.as_str())
+                    || (MACROS.contains(&name.as_str())
+                        && matches!(trees.get(i + 1), Some(TokenTree::Punct(p)) if p.as_char() == '!'))
+                    || (name == "extern" && matches!(trees.get(i + 1), Some(TokenTree::Literal(_))))
+                    || path(i, "std", "net")
+                    || path(i, "core", "net")
+                    || path(i, "process", "Command")
+                    || path(i, "std", "ffi")
+            }
+            TokenTree::Group(group) if group.delimiter() == Delimiter::Bracket => {
+                // `#[link(...)]` loads a native library.
+                i > 0
+                    && matches!(&trees[i - 1], TokenTree::Punct(p) if p.as_char() == '#')
+                    && matches!(group.stream().into_iter().next(), Some(TokenTree::Ident(n)) if n == "link")
+            }
+            _ => false,
+        };
+        if denied {
+            return Err(format!("{origin}: denied capability near `{tree}`").into());
+        }
+        if let TokenTree::Group(group) = tree {
+            capabilities(&group.stream(), origin)?;
+        }
+    }
+    Ok(())
+}
+
 fn payload_test(root: &Path) -> Result<()> {
     let bundle = pack(root)?;
     let fixture = root.join("target/payload-test");
@@ -209,21 +282,39 @@ fn payload_test(root: &Path) -> Result<()> {
 
 fn export(root: &Path, horizon: &Path) -> Result<PathBuf> {
     let config = config(root)?;
-    let pin = string(&config, "horizon_revision")?;
     let destination = root.join("target/horizon/pristine");
-    let archive = root.join("target/horizon/pinned.tar");
-    fs::create_dir_all(archive.parent().unwrap())?;
+    let fresh = export_fresh(
+        horizon,
+        string(&config, "horizon_revision")?,
+        &root.join("target/horizon"),
+    )?;
+    audit_hashes(&fresh, &config)?;
+    if destination.exists() {
+        if tree_hashes(&destination)? != tree_hashes(&fresh)? {
+            return Err("pristine export differs from committed pin; remove only target/horizon/pristine and restage".into());
+        }
+        fs::remove_dir_all(fresh)?;
+    } else {
+        fs::rename(fresh, &destination)?;
+    }
+    Ok(destination)
+}
+
+/// Export one committed revision into `directory/export-new`.
+fn export_fresh(horizon: &Path, revision: &str, directory: &Path) -> Result<PathBuf> {
+    let archive = directory.join("pinned.tar");
+    fs::create_dir_all(directory)?;
     // Export only Git-owned committed content, never a user's working tree or assets.
     checked(
         Command::new("git")
             .arg("-C")
             .arg(horizon)
             .arg("archive")
-            .arg(pin)
+            .arg(revision)
             .arg("--output")
             .arg(&archive),
     )?;
-    let fresh = root.join("target/horizon/export-new");
+    let fresh = directory.join("export-new");
     if fresh.exists() {
         fs::remove_dir_all(&fresh)?;
     }
@@ -236,17 +327,8 @@ fn export(root: &Path, horizon: &Path) -> Result<PathBuf> {
             .arg(&fresh),
     )?;
     remove_links(&fresh)?;
-    fs::write(fresh.join(".horizon-revision"), pin)?;
-    audit_hashes(&fresh, &config)?;
-    if destination.exists() {
-        if tree_hashes(&destination)? != tree_hashes(&fresh)? {
-            return Err("pristine export differs from committed pin; remove only target/horizon/pristine and restage".into());
-        }
-        fs::remove_dir_all(fresh)?;
-    } else {
-        fs::rename(fresh, &destination)?;
-    }
-    Ok(destination)
+    fs::write(fresh.join(".horizon-revision"), revision)?;
+    Ok(fresh)
 }
 
 fn tree_hashes(root: &Path) -> Result<BTreeMap<PathBuf, String>> {
@@ -380,9 +462,7 @@ fn mixin_sources(root: &Path, base: &Path, config: &Value) -> Result<PathBuf> {
     Ok(destination)
 }
 
-fn stage(root: &Path, horizon: &Path) -> Result<PathBuf> {
-    let bundle = pack(root)?;
-    let pristine = export(root, horizon)?;
+fn host_dependencies(pristine: &Path) -> Result<()> {
     let host_manifest: toml::Value = toml::from_str(&fs::read_to_string(
         pristine.join("crates/horizon-client/Cargo.toml"),
     )?)?;
@@ -398,7 +478,11 @@ fn stage(root: &Path, horizon: &Path) -> Result<PathBuf> {
     {
         return Err("pinned host must already provide serde_json 1.0.151; no dependency injection is performed".into());
     }
-    let config = config(root)?;
+    Ok(())
+}
+
+/// Build the pinned, clean mixin tool from reviewed sources.
+fn mixin_tool(root: &Path, config: &Value) -> Result<PathBuf> {
     let mixins = root.join("target/upstream/horizon-mixins");
     let revision = capture(
         Command::new("git")
@@ -406,7 +490,7 @@ fn stage(root: &Path, horizon: &Path) -> Result<PathBuf> {
             .arg(&mixins)
             .args(["rev-parse", "HEAD"]),
     )?;
-    if String::from_utf8(revision)?.trim() != string(&config, "horizon_mixins_revision")? {
+    if String::from_utf8(revision)?.trim() != string(config, "horizon_mixins_revision")? {
         return Err("wrong mixin tool revision".into());
     }
     let dirty = capture(Command::new("git").arg("-C").arg(&mixins).args([
@@ -417,7 +501,7 @@ fn stage(root: &Path, horizon: &Path) -> Result<PathBuf> {
     if !dirty.is_empty() {
         return Err("mixin tool sources are dirty".into());
     }
-    let mixins = mixin_sources(root, &mixins, &config)?;
+    let mixins = mixin_sources(root, &mixins, config)?;
     // Build reviewed pinned engine sources; never trust a stale preexisting executable.
     checked(
         Command::new("cargo")
@@ -434,38 +518,199 @@ fn stage(root: &Path, horizon: &Path) -> Result<PathBuf> {
             .arg("--target-dir")
             .arg(root.join("target/mixin-tool")),
     )?;
-    let tool = root.join("target/mixin-tool/debug/horizon-mixins");
+    Ok(root.join("target/mixin-tool/debug/horizon-mixins"))
+}
+
+fn mixin(tool: &Path, action: &str, workspace: &Path, bundle: &Path, out: &Path) -> Command {
+    let mut command = Command::new(tool);
+    command
+        .arg(action)
+        .arg("--workspace")
+        .arg(workspace)
+        .arg("--mods")
+        .arg(bundle.parent().unwrap())
+        .arg("--out")
+        .arg(out);
+    command
+}
+
+fn stage(root: &Path, horizon: &Path) -> Result<PathBuf> {
+    let bundle = pack(root)?;
+    let pristine = export(root, horizon)?;
+    host_dependencies(&pristine)?;
+    let config = config(root)?;
+    let tool = mixin_tool(root, &config)?;
     let staged = root.join("target/horizon/modded");
     for (action, out) in [
         ("plan", root.join("target/horizon/plan.json")),
         ("apply", staged.clone()),
     ] {
-        checked(
-            Command::new(&tool)
-                .arg(action)
-                .arg("--workspace")
-                .arg(&pristine)
-                .arg("--mods")
-                .arg(bundle.parent().unwrap())
-                .arg("--out")
-                .arg(out),
-        )?;
+        checked(&mut mixin(&tool, action, &pristine, &bundle, &out))?;
     }
-    audit(root)?;
+    // Compare the plan with the packed bundle it was made from, not the live
+    // sources: edits made while a stage runs must not affect its audit.
+    audit(root, &root.join("target/horizon"), &bundle, true)?;
     Ok(staged)
+}
+
+/// Reviewable upstream-update check. Exports a candidate Horizon revision to
+/// target/drift (the pinned export is untouched), reports which hashed target
+/// files changed, then plans, applies and audits the packed bundle against it
+/// and optionally compiles the result. Pins only ever move in a reviewed commit.
+fn drift(root: &Path, horizon: &Path, candidate: &str, compile: bool) -> Result<()> {
+    let config = config(root)?;
+    let pin = string(&config, "horizon_revision")?;
+    let git = |args: &[&str]| -> Result<String> {
+        Ok(String::from_utf8(capture(
+            Command::new("git").arg("-C").arg(horizon).args(args),
+        )?)?
+        .trim()
+        .to_owned())
+    };
+    let revision = git(&["rev-parse", "--verify", &format!("{candidate}^{{commit}}")])?;
+    let ahead = git(&["rev-list", "--count", &format!("{pin}..{revision}")]).ok();
+    let directory = root.join("target/drift");
+    // The bundle names its exact host revision; only this scratch copy names the candidate.
+    let bundle = directory.join("bundle/mixins/vape_rs");
+    if bundle.exists() {
+        fs::remove_dir_all(&bundle)?;
+    }
+    copy_sources(&pack(root)?, &bundle)?;
+    let manifest = bundle.join("horizon-mixin.toml");
+    let pinned = format!("horizon_revision = \"{pin}\"");
+    let text = fs::read_to_string(&manifest)?;
+    if text.matches(&pinned).count() != 1 {
+        return Err("bundle manifest does not name the pin exactly once".into());
+    }
+    fs::write(
+        &manifest,
+        text.replace(&pinned, &format!("horizon_revision = \"{revision}\"")),
+    )?;
+    let tool = mixin_tool(root, &config)?;
+    let pristine = directory.join("pristine");
+    let fresh = export_fresh(horizon, &revision, &directory)?;
+    if pristine.exists() {
+        fs::remove_dir_all(&pristine)?;
+    }
+    fs::rename(fresh, &pristine)?;
+    let mut changed = BTreeMap::new();
+    for (path, expected) in config["source_hashes"]
+        .as_object()
+        .ok_or("missing source hashes")?
+    {
+        let actual = fs::read(pristine.join(path)).map(|b| hash(&b)).ok();
+        if actual.as_deref() != expected.as_str() {
+            changed.insert(path.clone(), actual.unwrap_or_else(|| "missing".into()));
+        }
+    }
+    let version = fs::read_to_string(pristine.join("crates/horizon-core/src/version.rs"))?;
+    let constant = |name: &str| {
+        version.lines().find_map(|line| {
+            let rest = line.strip_prefix(&format!("pub const {name}: "))?;
+            Some(
+                rest.split_once('=')?
+                    .1
+                    .trim()
+                    .trim_end_matches(';')
+                    .trim_matches('"')
+                    .to_owned(),
+            )
+        })
+    };
+    let minecraft = constant("VERSION_ID");
+    let protocol = constant("PROTOCOL_VERSION");
+    let same_game = minecraft.as_deref() == config["minecraft"].as_str()
+        && protocol == config["protocol"].as_i64().map(|p| p.to_string());
+    let mut steps = vec![json!({
+        "step": "dependencies",
+        "ok": host_dependencies(&pristine).is_ok(),
+    })];
+    let mut ok = true;
+    for (action, out) in [
+        ("plan", directory.join("plan.json")),
+        ("apply", directory.join("modded")),
+    ] {
+        let output = mixin(&tool, action, &pristine, &bundle, &out).output()?;
+        ok = output.status.success();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail = stderr.lines().rev().take(20).collect::<Vec<_>>();
+        steps.push(json!({ "step": action, "ok": ok, "stderr": tail.into_iter().rev().collect::<Vec<_>>() }));
+        if !ok {
+            break;
+        }
+    }
+    if ok {
+        let audited = audit(root, &directory, &bundle, false);
+        ok = audited.is_ok();
+        steps.push(
+            json!({ "step": "audit", "ok": ok, "error": audited.err().map(|e| e.to_string()) }),
+        );
+    }
+    if ok && compile {
+        let staged = directory.join("modded");
+        let log = directory.join("check.log");
+        let output = fs::File::create(&log)?;
+        // Dependencies the candidate adds are fetched only for this explicit check.
+        ok = Command::new("cargo")
+            .current_dir(&staged)
+            .args(["fetch", "--locked"])
+            .stdout(Stdio::from(output.try_clone()?))
+            .stderr(Stdio::from(output.try_clone()?))
+            .status()?
+            .success()
+            && Command::new("cargo")
+                .current_dir(&staged)
+                .args([
+                    "check",
+                    "--locked",
+                    "--offline",
+                    "-p",
+                    "horizon-client",
+                    "--no-default-features",
+                    "--bin",
+                    "horizon-client",
+                ])
+                .arg("--target-dir")
+                .arg(root.join("target/drift-cargo"))
+                .stdout(Stdio::from(output.try_clone()?))
+                .stderr(Stdio::from(output))
+                .status()?
+                .success();
+        steps.push(json!({ "step": "check", "ok": ok, "log": log }));
+    }
+    let compatible = changed.is_empty() && same_game && steps.iter().all(|s| s["ok"] == true);
+    let report = json!({
+        "schema": 1,
+        "pinned_revision": pin,
+        "candidate_revision": revision,
+        "commits_ahead": ahead.and_then(|n| n.parse::<u64>().ok()),
+        "minecraft": minecraft,
+        "protocol": protocol,
+        "changed_sources": changed,
+        "steps": steps,
+        "compiled": compile && ok,
+        "pin_unchanged_compatible": compatible,
+    });
+    let path = directory.join("report.json");
+    write_changed(&path, &serde_json::to_vec_pretty(&report)?)?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    if !compatible {
+        return Err(format!("candidate drifts from the pin; review {}", path.display()).into());
+    }
+    Ok(())
 }
 
 // Strip exactly our generated hooks/module from the transformed AST and compare
 // with the original. All other Rust items, including cfg branches, must match.
-fn audit(root: &Path) -> Result<()> {
+// `directory` holds pristine/, modded/ and plan.json; drift checks skip the pinned hashes.
+fn audit(root: &Path, directory: &Path, bundle: &Path, pinned: bool) -> Result<()> {
     let config = config(root)?;
-    // Compare the plan with the packed bundle it was made from, not the live
-    // sources: edits made while a stage runs must not affect its audit.
-    let bundle = root.join("target/bundle/mixins/vape_rs");
-    let pristine = root.join("target/horizon/pristine");
-    let staged = root.join("target/horizon/modded");
-    audit_hashes(&pristine, &config)?;
-    let plan: Value = serde_json::from_slice(&fs::read(root.join("target/horizon/plan.json"))?)?;
+    let pristine = directory.join("pristine");
+    let staged = directory.join("modded");
+    if pinned {
+        audit_hashes(&pristine, &config)?;
+    }
+    let plan: Value = serde_json::from_slice(&fs::read(directory.join("plan.json"))?)?;
     let injections = plan["injections"]
         .as_array()
         .ok_or("missing plan injections")?;
@@ -886,11 +1131,22 @@ fn run() -> Result<()> {
         "pack" => println!("{}", pack(&root)?.display()),
         "payload-test" => payload_test(&root)?,
         "stage" => println!("{}", stage(&root, &horizon)?.display()),
-        "audit" => audit(&root)?,
+        "audit" => audit(
+            &root,
+            &root.join("target/horizon"),
+            &root.join("target/bundle/mixins/vape_rs"),
+            true,
+        )?,
+        "drift" => drift(
+            &root,
+            &horizon,
+            args.get(2).map_or("origin/main", String::as_str),
+            args.iter().any(|a| a == "--compile"),
+        )?,
         "check" | "build" | "test" => host(&root, action, &horizon)?,
         "identity" => println!("{}", serde_json::to_string_pretty(&identity(&root)?)?),
         _ => println!(
-            "cargo run -p xtask -- pack|payload-test|stage|audit|check|build|test|identity [horizon-git-path]"
+            "cargo run -p xtask -- pack|payload-test|stage|audit|check|build|test|identity [horizon-git-path]\n       cargo run -p xtask -- drift <horizon-git-path> [revision=origin/main] [--compile]"
         ),
     }
     Ok(())
@@ -899,6 +1155,56 @@ fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capabilities_reject_sockets_processes_ffi_and_embedded_files() {
+        for denied in [
+            quote!(
+                fn f() {
+                    std::net::TcpStream::connect("x");
+                }
+            ),
+            quote!(
+                fn f() {
+                    let s = format!("{}", UdpSocket::bind("x"));
+                }
+            ),
+            quote!(
+                fn f() {
+                    std::process::Command::new("sh");
+                }
+            ),
+            quote!(
+                fn f() {
+                    unsafe { g() }
+                }
+            ),
+            quote!(
+                extern "C" {
+                    fn g();
+                }
+            ),
+            quote!(
+                #[link(name = "x")]
+                fn f() {}
+            ),
+            quote!(
+                const X: &str = include_str!("secret");
+            ),
+        ] {
+            assert!(capabilities(&denied, "test").is_err(), "{denied}");
+        }
+        let allowed = quote!(
+            enum Command {
+                Text,
+            }
+            fn f() -> u32 {
+                let link = 1;
+                std::process::id() + link + Command::Text as u32
+            }
+        );
+        capabilities(&allowed, "test").unwrap();
+    }
 
     #[test]
     fn audit_only_removes_exact_expected_hook_at_function_head() {

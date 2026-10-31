@@ -1,0 +1,42 @@
+name: Upstream drift
+# Reviewable update check against Horizon main. It plans, applies, audits and
+# compiles the bundle on a candidate revision and uploads the report. It never
+# publishes, moves a pin or edits compatibility.json; pins move only in a
+# reviewed commit after the regression scenarios pass.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Horizon revision to check
+        default: origin/main
+permissions:
+  contents: read
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+      - run: rustup toolchain install 1.95.0 --profile minimal
+      - run: cargo fetch --locked
+      - name: Fetch Horizon and the pinned mixin tool
+        run: |
+          git clone --filter=blob:none https://github.com/horizon-rust/horizon target/upstream/horizon
+          git clone https://github.com/horizon-rust/horizon-mixins target/upstream/horizon-mixins
+          MIXINS="$(python3 -c 'import json; print(json.load(open("compatibility.json"))["horizon_mixins_revision"])')"
+          git -C target/upstream/horizon-mixins fetch origin "$MIXINS"
+          git -C target/upstream/horizon-mixins checkout --detach "$MIXINS"
+          cargo +1.95.0 fetch --locked --manifest-path target/upstream/horizon-mixins/Cargo.toml
+      - run: cargo run -p xtask --locked --offline -- drift target/upstream/horizon "${{ inputs.revision || 'origin/main' }}" --compile
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: |
+            target/drift/report.json
+            target/drift/check.log
+          if-no-files-found: ignore

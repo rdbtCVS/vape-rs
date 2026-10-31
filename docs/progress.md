@@ -1286,3 +1286,22 @@ captured from a fresh fast build of `545ca54` in a fresh isolated-home
 session (`target/scenarios/readme-gui-vvbo88if`, 1920x1080 offscreen, GUI
 scale 2, creative). They show layout only; no module is enabled and no
 parity claim follows from them.
+
+## 2026-10-31: upstream drift check, capability audit, compatibility matrix
+
+Phase 8 release tooling, done on main while the round-2 workers run.
+
+- `xtask drift <horizon> [revision] [--compile]` is a reviewable upstream-update check. It exports the candidate into target/drift (the pinned export and compatibility.json are untouched) and lists the hashed files that changed. It compares game version and protocol, then plans, applies and audits a scratch copy of the bundle that names the candidate. `--compile` fetches the candidate's locked dependencies and type-checks the client. It writes target/drift/report.json and fails whenever anything differs. `stage`, `export` and `audit` now share this code.
+- `.github/workflows/drift.yml` runs the check with `--compile` on Horizon main every day and uploads the report. It has read-only permissions and never publishes or moves a pin.
+- `pack` audits the shipped Rust (the runtime payload and every adapter and support module) at the token level, so macro bodies are covered too. It rejects `unsafe`, sockets (`std::net`, TCP/UDP/Unix sockets), `process::Command`, `extern "ABI"` blocks, `#[link]`, `std::ffi`, `include!`/`include_bytes!`/`include_str!`, `asm!`, `no_mangle`, `export_name` and `link_section`. The current tree passes. A unit test covers each rejection and the allowed look-alikes (an enum named `Command`, `include` and `link` used as names, `std::process::id`).
+- compatibility-matrix.json lists every published mod version with its Horizon, mixin, game and protocol pins and its platforms. `bundle.py` refuses to build a stable version whose pins differ from its matrix entry, so a new pin pair needs a new version. It also writes `<artifact>.compatibility.json` (artifact SHA-256, pins, toolchains, platforms), which the release workflow uploads. The development entry lists no validated platforms. Linux x86-64 is the only platform exercised; Windows and macOS are listed as unvalidated.
+- docs/development.md documents the update, rollback and settings-preservation process.
+
+Drift result for Horizon main `5062f225` (362 commits after the pin; evidence docs/evidence/drift-5062f225.json):
+- Minecraft 26.3 and protocol 777 are unchanged, and serde_json 1.0.151 is still provided.
+- Six hashed files changed: `game.rs`, `game/control.rs`, `game/lan_particles.rs`, `game/remote.rs`, `game/sculk.rs` and `motion.rs`.
+- All 43 hooks and 29 support modules plan, apply and audit cleanly, and `cargo check` of the client passes with 0 errors.
+- A re-pin still needs a source review of the changed files and the scenarios. Upstream also turned its anticheat on by default, with a combat check that acts, so the blatant-module scenarios need checking against it.
+- None of the client features our `blocked` rows wait for appear in the new commits: chat send, camera rotation, bone poses, mesher and entity-render hooks.
+
+Gates on this tree: fmt; Clippy `-D warnings` (all targets); 194 lib + 4 xtask tests; payload-test; `xtask check` on the pin (stage/audit removed exactly 43 hooks and 29 support modules; 68 warnings, 0 errors); `bundle.py` (74 source files).
