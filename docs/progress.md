@@ -1410,3 +1410,73 @@ Every other number and random range the audit can parse matches the reference.
 Current report: 26 missing settings on integrated rows, all routed (3 are SilentAura's excluded AI settings). Plus 2 missing on the blocked Reach row, 2 range differences (AutoArmor Delay, Text GUI Scale), 1 default difference (AutoArmor Delay) and 9 values hidden in the reference. The validated count is 57 and integrated is 39.
 
 Tests: `settings_dump` passes (1/1, 645 definitions).
+
+## 2026-10-31: HUD modules (worker round 3)
+
+Worker hud-modules, branch t3/fdf14b2d from main 4ff7488, Horizon pin 8f91f896a (mixins 0e9229d). Armor Status, Potion Status, Coords, FPS and Compass now draw the reference HUD frames. NoHurtCam and both Weather modes are proven from host frames.
+
+Changed files:
+- `src/ui/hud.rs`: the reference layouts.
+  - ArmorStatusHudFrame / ArmorStatusItemComponent: 20-tall detailed rows, and 22-tall compact rows 2 apart. The `getDurabilityPercent` edges are none / 1 / 100. Durability is coloured red → yellow → theme green. Low and no-durability rows get a warning fill; a broken piece shows the shield and broken bar for 4 s.
+  - PotionEffectsHudFrame: 30-tall rows. A countdown ring empties anticlockwise from the top, going green, then orange (half left), then red (a quarter). Names and MM:SS durations sit at the reference positions.
+  - CoordinatesHudFrame: Math.round positions and truncated text x. Has the `drawDirectionArrow` X/Z arrows, and the frame ends 12 past the Z arrow.
+  - CompassStripComponent: 1400 tenth-degree steps from 70° left of the heading (wrapped yaw + 180), with a tick every fifth degree. Big and small points get an unbackgrounded shadow copy. `compassarrow` is drawn at half scale, tinted by the foreground.
+  - Uses the reference theme colours. The foreground colour only tints what the reference draws in the editor foreground.
+  - New tests: `armor_percent_follows_the_reference_edges`, `armor_rows_draw_detailed_and_compact_reference_layouts`, `potion_rows_count_down_with_reference_colours`, `compass_ticks_follow_the_tenth_degree_strip`.
+- `src/ui/hud_state.rs`: a piece with no durability counts as low, as the reference's -1 does, so removing it also shows it broken.
+- `src/core/registry.rs`: display name "Potion Status". `src/core/mod.rs`: the armor frame height uses ArmorStatusHudFrame's margin (4, or 2 when compact).
+- `tools/hud_detail_scenario.py`: new `--part layouts` (the default `all` still runs the old details part first).
+  - Live armor and effects on the player, captured at GUI scale 2 and 1 in two seeded setting sets: the defaults, then compact armor, background off, vertical coordinates, negative effects only and a cyan foreground.
+  - Then the effects counting down, legs removed (broken, then gone), and every module off and back on through its bind.
+- `tools/no_hurt_camera_scenario.py`: a real `damage` hit while facing a brick wall, frames over the hurt tilt compared with the still frame before the hit, for on / off / on again.
+  - Command feedback is off, because the feedback lines scrolled the chat and polluted the diff.
+  - The GUI toggle now goes through the floating search ("cam"), since NoHurtCam moved to the Render frame in 1336a94.
+- `tools/weather_modes_scenario.py` (new): Raining under a clear server sky and Clear under a raining one (seeded through a restart). Each captures off / on / off frames, plus a frame of the server weather the mode should look like.
+- `tools/settings_parity.py`: `VAPE_RS_REFERENCE` names the reference from a worktree.
+- `docs/decisions.md`: infinite effects, geometry icons, the Vape GUI scale factor, and foreground tinting.
+
+Feature ids (ledger update target/ledger-updates/hud-modules.json, all `validated`):
+- module.armorstatushudmodule
+- module.potioneffectshudmodule
+- module.coordinateshudmodule, plus .mode.horizontal and .mode.vertical
+- module.fpsdisplayhudmodule
+- module.compasshudmodule
+- module.nohurtcamerahudmodule
+- module.weatherchangerhudmodule.mode.clear and .mode.raining
+
+The validated parent module.weatherchangerhudmodule gains the mode evidence and hook `client-frame`. module.hudmodule stays with hud-client (not-applicable-reviewed).
+
+Scenarios, each in a fresh isolated home. Evidence is in docs/evidence/hud-modules-*.
+- `hud_detail_scenario.py --part layouts` (`hud-layouts-pokp7tue`): 8/8, 12 captures inspected. Every element sits where the reference draws it at both scales. The settings change it, and with every module off the host view is unchanged.
+- `no_hurt_camera_scenario.py` (`no-hurt-camera-hyms7sjv`): 7/7.
+  - The maximum frame diff over the hurt ticks was 0.51 on, 21.27 off and 0.10 on again; frames are level when on and tilted when off.
+  - The bind, the GUI search toggle, restart persistence and Panic all pass.
+- `weather_modes_scenario.py` (`weather-modes-sm833i4s`): 13/13.
+  - Raining: sky luma off 191.1, on 93.9 (server rain 92.0), after 191.1; the server stays clear.
+  - Clear: off 93.2, on 189.9 (server clear 192.3), after 93.4; the server keeps raining.
+- Regressions: `hud_detail_scenario.py --part details` 7/7 (`hud-details-1h6yuls5`), `hud_editor_scenario.py` 9/9 (`hud-editor-jg3sp6nx`), `hud_modes_scenario.py` 5/5 (`hud-modes-cpxfkdi3`), `hud_readouts_scenario.py` 7/7 (`hud-readouts-b2j7ahsx`).
+- Settings parity: 645 definitions, no entries for these rows. Armor 1/1, Coordinates 1/1, Potions 2/2 and Weather 1/1 match; Compass, FPS and NoHurtCam declare no settings of their own.
+
+Failures fixed along the way:
+- Chat and the tutorial toast covered the panels; the layouts part hides them.
+- Compass clamping and expired effects.
+- The no-hurt-camera on-again pass measured 4.45 until command feedback was turned off.
+- The old GUI clicks toggled Reach Display after NoHurtCam moved frames.
+
+Gates:
+- `cargo fmt --all --check`: ok.
+- clippy `-D warnings`: ok.
+- `cargo test --workspace`: 198 + 1 + 4 + 0 passed, 0 failed.
+- payload-test: 198 passed.
+- stage + audit: 43 hooks and 29 support modules, original AST restored.
+- host check: exit 0, 68 warnings, the same count as main.
+- host build: exit 0.
+
+Limits and open items:
+- HUD text still uses the host bitmap game font and its shadow, not the reference TTF; Geist serves the GUI only. A HUD font switch is global styling across hud-client panels.
+- At GUI scale 1 the 0.7× bitmap glyphs sample unevenly.
+- Not ported: localization, the HUD editor alpha, and the armor bar glow and rounding.
+- Not ported: the reference resets a hidden effect's ring maximum.
+- The textures (armor, bar-1, compass*) are drawn as geometry and not shipped.
+
+Next: a reference-font decision for the HUD and editor alpha, coordinated with hud-client.

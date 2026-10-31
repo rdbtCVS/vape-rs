@@ -2359,7 +2359,9 @@ impl Runtime {
                 ),
                 Content::Armor { pieces, compact } => (
                     if *compact { 26.0 } else { 54.0 },
-                    2.0 + pieces.len() as f32 * if *compact { 24.0 } else { 20.0 },
+                    // ArmorStatusHudFrame.L: 4 of margin, less 2 when compact.
+                    if *compact { 2.0 } else { 4.0 }
+                        + pieces.len() as f32 * if *compact { 24.0 } else { 20.0 },
                 ),
                 Content::Potions { effects } => (40.0, 2.0 + effects.len() as f32 * 30.0),
                 Content::Compass { .. } => (308.0, 30.0),
