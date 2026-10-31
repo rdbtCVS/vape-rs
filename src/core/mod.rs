@@ -84,6 +84,8 @@ pub struct Runtime {
     trigger_bot: super::modules::combat::trigger_bot::TriggerBot,
     velocity: super::modules::combat::velocity::Velocity,
     knockback: super::modules::combat::knockback::Knockback,
+    backtrack: super::modules::blatant::backtrack::Backtrack,
+    inbound_flush: bool,
     left_clicker: super::modules::combat::clicker::Engine,
     right_clicker: super::modules::combat::clicker::Engine,
     reach: super::modules::combat::reach::Reach,
@@ -328,6 +330,7 @@ impl Default for Runtime {
             .chain(super::modules::render::name_tags::definitions())
             .chain(super::modules::render::item_esp::definitions())
             .chain(super::modules::blatant::outbound::definitions())
+            .chain(super::modules::blatant::backtrack::definitions())
             .chain(super::modules::render::anti_debuff::definitions())
         {
             settings.define(definition).unwrap();
@@ -428,6 +431,8 @@ impl Default for Runtime {
             trigger_bot: Default::default(),
             velocity: Default::default(),
             knockback: Default::default(),
+            backtrack: Default::default(),
+            inbound_flush: false,
             left_clicker: super::modules::combat::clicker::Engine::new(0x5851_f42d_4c95_7f2d),
             right_clicker: super::modules::combat::clicker::Engine::new(0x2c1b_3c6d_4a1f_9e37),
             reach: Default::default(),
@@ -500,7 +505,13 @@ impl Runtime {
                 }
                 ModuleId::Velocity => self.reset_velocity(),
                 ModuleId::JumpReset => self.knockback.reset_jump(),
-                ModuleId::KnockbackDelay => self.knockback.reset_delay(),
+                ModuleId::KnockbackDelay => {
+                    self.knockback.reset_delay();
+                    self.inbound_flush = true;
+                }
+                ModuleId::Backtrack => {
+                    self.reset_backtrack();
+                }
                 ModuleId::AutoClicker => self.clicker_release[0] |= self.left_clicker.reset(),
                 ModuleId::RightClicker => self.clicker_release[1] |= self.right_clicker.reset(),
                 ModuleId::Reach => self.reach.reset(),
@@ -513,7 +524,8 @@ impl Runtime {
                 ModuleId::AntiFall => self.anti_fall.reset(),
                 ModuleId::Blink => {
                     let active = self.outbound_active();
-                    self.outbound.tick(&self.settings, active, false);
+                    self.outbound.tick(&self.settings, active, false, None, 0);
+                    self.inbound_flush |= self.outbound.take_inbound_flush();
                 }
                 _ => {}
             }
@@ -987,6 +999,7 @@ impl Runtime {
         self.reset_velocity();
         self.knockback.reset_jump();
         self.knockback.reset_delay();
+        self.reset_backtrack();
         self.clicker_release[0] |= self.left_clicker.reset();
         self.clicker_release[1] |= self.right_clicker.reset();
         self.reach.reset();
@@ -1000,9 +1013,55 @@ impl Runtime {
             knockback_delay: world && self.enabled(ModuleId::KnockbackDelay),
         }
     }
-    /// Whether KnockbackDelay may hold inbound packets right now.
+    /// Whether any module may hold inbound packets right now.
     pub fn inbound_hold_active(&self) -> bool {
         self.knockback_active().knockback_delay
+            || self.backtrack_active()
+            || self.blink_holds_inbound()
+    }
+    fn reset_backtrack(&mut self) {
+        self.backtrack.reset();
+        self.inbound_flush |= self.backtrack.take_flush();
+    }
+    fn backtrack_active(&self) -> bool {
+        self.session.in_world() && self.enabled(ModuleId::Backtrack)
+    }
+    /// Blink's Bi-directional mode holds every inbound packet it may.
+    pub fn blink_holds_inbound(&self) -> bool {
+        self.outbound_active().blink && self.outbound.bidirectional(&self.settings)
+    }
+    /// Whether a module asked for every held inbound packet to go (it was
+    /// turned off, or Blink sent), once.
+    pub fn take_inbound_flush(&mut self) -> bool {
+        let outbound = self.outbound.take_inbound_flush();
+        std::mem::take(&mut self.inbound_flush) | outbound
+    }
+    /// Backtrack on a clientbound packet; Pass when it is off.
+    pub fn backtrack_packet(
+        &mut self,
+        ctx: &super::modules::blatant::backtrack::Context,
+        packet: &super::modules::blatant::backtrack::Packet,
+    ) -> super::modules::blatant::backtrack::Verdict {
+        use super::modules::blatant::backtrack::Verdict;
+        if !self.backtrack_active() {
+            return Verdict::Pass;
+        }
+        self.backtrack.packet(&self.settings, ctx, packet)
+    }
+    /// Backtrack's target: the entity we attack.
+    pub fn backtrack_attack(&mut self, id: i32) {
+        if self.backtrack_active() {
+            self.backtrack.attack(id);
+        }
+    }
+    /// The host's count of packets it holds, for Backtrack's ordering.
+    pub fn backtrack_held(&mut self, count: usize) {
+        self.backtrack.held(count);
+    }
+    pub fn backtrack_tick(&mut self) {
+        if self.backtrack_active() {
+            self.backtrack.tick();
+        }
     }
     /// JumpReset and KnockbackDelay on the local player's own velocity packet.
     pub fn knockback_packet(
@@ -1385,6 +1444,9 @@ impl Runtime {
         if self.enabled(ModuleId::Blink) {
             self.outbound.breadcrumbs(&self.settings, &mut out);
         }
+        if self.enabled(ModuleId::Backtrack) {
+            self.backtrack.lines(&self.settings, 1.0, &mut out);
+        }
         if let Some((launch, block)) = trajectory {
             super::modules::render::trajectories::lines(
                 &self.settings,
@@ -1418,11 +1480,20 @@ impl Runtime {
         self.outbound.packet(&self.settings, active, packet, ctx)
     }
     /// Per tick: Blink's auto send; whether to release every held packet.
-    pub fn outbound_tick(&mut self) -> bool {
+    pub fn outbound_tick(&mut self, target_hurt: Option<i32>, queued: usize) -> bool {
         let active = self.outbound_active();
         let world = self.session.in_world();
-        self.outbound.tick(&self.settings, active, world);
+        self.outbound
+            .tick(&self.settings, active, world, target_hurt, queued);
         self.outbound.take_flush()
+    }
+    /// The entity our last attack hit, whose hurt time Repel watches.
+    pub fn outbound_target(&self) -> Option<i32> {
+        self.outbound.target()
+    }
+    /// A damage packet for `id` arrived (Repel's expected hit delay).
+    pub fn outbound_hit(&mut self, id: i32, now_ms: u64) {
+        self.outbound.hit_confirmed(id, now_ms);
     }
     /// Whether a send just asked for every held packet to go.
     pub fn outbound_flush(&mut self) -> bool {
@@ -2101,6 +2172,7 @@ impl Runtime {
                 | ModuleId::Regen
                 | ModuleId::JumpReset
                 | ModuleId::KnockbackDelay
+                | ModuleId::Backtrack
                 | ModuleId::AntiDebuff => continue,
             };
             use super::ui::hud::Content;

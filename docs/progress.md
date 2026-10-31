@@ -816,3 +816,34 @@ Validation: fmt, all-target Clippy with `-D warnings`, and 113 lib tests (4
 new knockback tests) pass; stage/audit (36 hooks, 22 support modules) and the
 pinned host check pass with 0 errors. Compile-only: no game scenario ran, so
 features.csv marks both `implemented-core`, not validated.
+
+## 2026-10-31: Backtrack, Blink Bi-directional, Repel pre-tick flush
+
+User request: build Backtrack and Blink's Bi-directional mode on the inbound
+hold/replay, add FakeLag Repel's hurt-time pre-tick flush, and test ordering,
+flush/drop rules and reconnect cleanup in a controlled LAN scenario.
+
+- Inbound queue entries now carry an owner (KnockbackDelay, Backtrack, Blink)
+  and a due time never earlier than the entry before (order preserved across
+  owners). Limit raised to 1024. Blink holds everything non-critical until it
+  sends; turning Blink off, switching to Outgoing only, or auto send releases
+  the queue.
+- Backtrack (`modules/blatant/backtrack.rs`): follows the target's true
+  position through every move/sync/teleport packet, holds updates while the
+  target backs off along the line of sight, flushes on a new/removed target,
+  our own velocity packet, no target, or disable/world change. Draws the
+  server-position box. Latency is a range setting.
+- Repel: tracks attack-to-damage delays (hurt event/animation) and flushes
+  held outbound packets in the client tick when the target's hurt time falls
+  to the expected delay.
+- `tools/inbound_hold_scenario.py`: LAN host + guest, isolated homes. 27/27
+  checks: held chat order, flush before a teleport, drop on disconnect (old
+  lines never replay, new connection holds from empty), Backtrack lag and
+  convergence, chat order behind held updates, disable release, Repel hold
+  and deadline, no panics.
+
+Validation: fmt, Clippy -D warnings, 118 lib tests, payload test, stage/audit
+(36 hooks, 22 modules) and host check (0 errors) pass. Not covered by a game
+scenario: Repel's hurt-time flush itself (unit test only); Blink fake player
+still not ported; blink inbound delay differs from the reference (critical
+packets pass).

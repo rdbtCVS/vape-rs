@@ -2,6 +2,7 @@
 // Timer, Fly and NoFall are Category.OTHER (listed only on an exact search);
 // NoSlowdown is Category.HIDDEN.
 pub mod anti_fall;
+pub mod backtrack;
 pub mod fly;
 pub mod long_jump;
 pub mod no_fall;

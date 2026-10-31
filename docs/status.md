@@ -25,7 +25,7 @@ compile-only: no game scenario has run for them yet.
 | Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open), WTap† |
 | Other (exact-name search only) | HitBoxes†, Timer†, Fly†, NoFall† (Normal/AntiCheat), Step† (step height only), LongJump†, AntiFall†, NoItemRelease†, PotionSaver†, Regen† |
 | Hidden (never listed) | NoSlowdown† (sprint re-enable open), Speed† (Bhop/AntiCheat B) |
-| Utility | Panic (configurable bind, optional re-enable), Blink† (partial: outgoing only, breadcrumbs, auto send; no fake player), FakeLag† (partial: Latency, Repel without the hurt-time pre-tick flush) |
+| Utility | Panic (configurable bind, optional re-enable), Blink† (partial: Bi-directional, breadcrumbs, auto send; no fake player), FakeLag† (partial: Latency, Repel), BackTrack† |
 
 The local foundation includes typed settings/editors, chord/held bindings,
 local profiles and friends/enemies, text/clipboard/IME editing, local macro

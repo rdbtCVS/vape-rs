@@ -98,6 +98,7 @@ registry! {
     Regen => "blatant.regen", "Regen", "Other", None, [];
     JumpReset => "combat.jump-reset", "JumpReset", "Combat", None, [];
     KnockbackDelay => "combat.knockback-delay", "KnockbackDelay", "Utility", None, [];
+    Backtrack => "blatant.backtrack", "BackTrack", "Utility", None, [];
     AntiDebuff => "render.anti-debuff", "AntiDebuff", "Render", None, [];
 }
 
