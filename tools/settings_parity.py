@@ -79,8 +79,35 @@ def registered(paths):
             continue
         text = source.read_text(errors='replace')
         for m in re.finditer(r'\b(?:addValue|U)\s*\(', text):
-            names.update(re.findall(r'this\.(\w+)', ','.join(args(text, m.end() - 1))))
+            call = args(text, m.end() - 1)
+            if not version_applies(call):
+                continue
+            names.update(re.findall(r'this\.(\w+)', ','.join(call)))
     return names or None
+
+# ForgeVersion's ordinals (MC_26_2 is 110) and the version the port targets,
+# Minecraft 26.3, above every constant.
+VERSIONS = {'MC_1_7_10': 13, 'MC_1_8_9': 15, 'MC_1_12_2': 23, 'MC_1_14_4': 28, 'MC_1_16_5': 35,
+            'MC_1_16_5_ACTUAL': 36, 'MC_1_17': 37, 'MC_1_20_1': 47, 'MC_1_20_6': 50, 'MC_1_21_0': 51,
+            'MC_1_21_1': 52, 'MC_1_21_4': 54, 'MC_1_21_5': 55, 'MC_1_21_6': 56, 'MC_1_21_10': 60,
+            'MC_1_21_11': 61, 'MC_26_1': 100, 'MC_26_2': 110}
+TARGET = 120
+# The constraint methods and their boolean forms (`d()` is `n().y()`, ...).
+COMPARE = {'b': lambda v: TARGET < v, 'v': lambda v: TARGET < v,
+           'H': lambda v: TARGET <= v, 'B': lambda v: TARGET <= v,
+           'n': lambda v: TARGET >= v, 'd': lambda v: TARGET >= v,
+           'N': lambda v: TARGET > v, 'Y': lambda v: TARGET > v,
+           'S': lambda v: TARGET == v, 'L': lambda v: TARGET == v,
+           'h': lambda v: TARGET != v, 'A': lambda v: TARGET != v}
+
+def version_applies(call):
+    """`U(value, ForgeVersion.MC_x.b())` registers the value only on the
+    versions its constraint accepts; true for an unconditional call."""
+    for a in call:
+        m = re.fullmatch(r'ForgeVersion\.(MC_\w+?)\.(\w)\(\)', a.strip())
+        if m and m.group(1) in VERSIONS and m.group(2) in COMPARE:
+            return COMPARE[m.group(2)](VERSIONS[m.group(1)])
+    return True
 
 OPTION = re.compile(r'ModeOption\s+(\w+)\s*=\s*[^;]*?"([^"]*)"|this\.(\w+)\s*=\s*new ModeOption\s*\(\s*"([^"]*)"')
 
