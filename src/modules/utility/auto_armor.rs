@@ -351,7 +351,11 @@ mod tests {
         equipped_slot(s, armor).unwrap().index
     }
     fn set(s: &mut Snapshot, index: u16, value: Option<Item>) {
-        s.slots.iter_mut().find(|slot| slot.index == index).unwrap().item = value;
+        s.slots
+            .iter_mut()
+            .find(|slot| slot.index == index)
+            .unwrap()
+            .item = value;
     }
 
     #[test]
@@ -381,7 +385,11 @@ mod tests {
         let t = Instant::now();
         let mut s = snapshot(true, t);
         let head = armor_index(&s, ArmorSlot::Head);
-        set(&mut s, head, Some(piece("minecraft:leather_helmet", ArmorSlot::Head, 1.0)));
+        set(
+            &mut s,
+            head,
+            Some(piece("minecraft:leather_helmet", ArmorSlot::Head, 1.0)),
+        );
         s.slots[9].item = Some(piece("minecraft:iron_helmet", ArmorSlot::Head, 2.0));
         s.slots[2].item = Some(piece("minecraft:iron_boots", ArmorSlot::Feet, 2.0));
         let mut armor = AutoArmor::default();
@@ -409,7 +417,11 @@ mod tests {
         let t = Instant::now();
         let mut s = snapshot(true, t);
         let head = armor_index(&s, ArmorSlot::Head);
-        set(&mut s, head, Some(piece("minecraft:leather_helmet", ArmorSlot::Head, 1.0)));
+        set(
+            &mut s,
+            head,
+            Some(piece("minecraft:leather_helmet", ArmorSlot::Head, 1.0)),
+        );
         s.slots[9].item = Some(piece("minecraft:iron_helmet", ArmorSlot::Head, 2.0));
         let mut armor = AutoArmor::default();
         let o = Options {

@@ -114,7 +114,7 @@ pub(super) fn definitions() -> Vec<Definition> {
             "one-of-each",
         ),
     ];
-    for (label, _) in throw_items::DEBUFFS {
+    for label in throw_items::DEBUFFS {
         out.push(Definition::boolean(
             &format!("{TD}.{}", label.to_lowercase()),
             label,
@@ -312,13 +312,21 @@ impl Runtime {
                         .max(0.0) as u64
                 });
             let throws = &mut self.throws;
-            let queue = throw_items::sequence(
+            let build = if module == ModuleId::ThrowPot {
+                throw_items::sequence
+            } else {
+                throw_items::debuff_sequence
+            };
+            let queue = build(
                 uses,
                 snapshot.vitals.selected,
-                || throws.random(delay),
+                &mut || throws.random(delay),
                 scroll,
             );
             throws.sequencer.start(queue, now);
+            // A manual slot change abandons the sequence even before its
+            // first selection.
+            throws.sequencer.expected = Some(snapshot.vitals.selected);
             throws.module = Some(module);
             return self.throw_frame(snapshot, playing);
         }
@@ -365,7 +373,7 @@ impl Runtime {
                 "first" => DebuffMode::First,
                 _ => DebuffMode::OneOfEach,
             };
-            let enabled = throw_items::DEBUFFS.map(|(label, _)| {
+            let enabled = throw_items::DEBUFFS.map(|label| {
                 self.inventory_bool(&format!("{prefix}.{}", label.to_lowercase()), true)
             });
             return throw_items::debuff_plan(snapshot, mode, enabled);
@@ -402,9 +410,17 @@ fn host_effect(effect: Effect) -> ThrowEffect {
 #[cfg(test)]
 mod tests {
     use super::super::super::inventory::{
-        rules::tests::item, session::tests::snapshot, types::ItemClass,
+        rules::tests::item,
+        session::tests::snapshot,
+        types::{Healing, Item, ItemClass},
     };
     use super::*;
+
+    fn stew() -> Item {
+        let mut stew = item("mushroom_stew", ItemClass::Other, 0.0);
+        stew.healing = Some(Healing::Soup);
+        stew
+    }
 
     #[test]
     fn throwpot_runs_its_sequence_and_disables() {
@@ -413,7 +429,7 @@ mod tests {
         let mut s = snapshot(false, t);
         s.vitals.health = 10.0;
         s.vitals.max_health = 20.0;
-        s.slots[3].item = Some(item("mushroom_stew", ItemClass::Other, 0.0));
+        s.slots[3].item = Some(stew());
         runtime.set_enabled(ModuleId::ThrowPot, true);
         assert_eq!(
             runtime.throw_frame(&s, true),
@@ -433,7 +449,7 @@ mod tests {
         assert!(!runtime.enabled(ModuleId::ThrowPot));
         // Stew that was not eaten (vanilla) is not thrown away.
         s.vitals.selected = 0;
-        s.slots[3].item = Some(item("mushroom_stew", ItemClass::Other, 0.0));
+        s.slots[3].item = Some(stew());
         runtime.set_enabled(ModuleId::ThrowPot, true);
         s.observed = t + Duration::from_millis(1000);
         runtime.throw_frame(&s, true);

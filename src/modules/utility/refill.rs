@@ -357,7 +357,10 @@ mod tests {
         snap.is_player_inventory = false;
         // Every hotbar slot is full and "Hotbar clear" is off.
         let mut refill = Refill::default();
-        assert_eq!(refill.step(&snap, &Options::default()), vec![Effect::Disable]);
+        assert_eq!(
+            refill.step(&snap, &Options::default()),
+            vec![Effect::Disable]
+        );
         assert!(!refill.active());
         snap.slots[3].item = None;
         assert_eq!(
