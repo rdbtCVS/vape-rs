@@ -993,3 +993,48 @@ Pinned Horizon 8f91f896a / horizon-mixins 0e9229d, fresh isolated homes.
 - Not covered: localization (client.localization is not-started, nothing to
   validate).
 - Evidence: docs/evidence/validation-utility.json, validation-delays-perf.json.
+
+## 2026-10-31: inventory worker, arrangement planners (InventoryManager, InvCleaner, AutoHotbar, ArmorSwitch)
+
+- Snapshot additions (`mixins/vape_rs/transactions.rs`): per-item `ItemMeta` (custom name, potion contents, splash/lingering flag, food, block, hardness, enchantments, mining speed) and player `Vitals` (health, max health, selected slot, ground, effects, using item). `Click::Throw`/`ThrowStack` map to `Input::Throw` (button 0/1) and `Click::SwapHotbar(n)` maps to `Input::Swap`.
+- `src/inventory/rules.rs`: InventoryManager rule model (matchers, categories, conditions, presets, slot and inventory filters, profiles). The JSON shape follows the reference's.
+- `src/inventory/session.rs`: shared click session (open inventory, open wait, one gated click per snapshot, close wait, close). `src/inventory/arrange.rs`: shared armor and placement helpers.
+- Planners: `inventory_manager.rs`, `inv_cleaner.rs`, `auto_hotbar.rs`, `armor_switch.rs` in `src/modules/utility/`. Each step re-plans from the snapshot.
+- Runtime: `src/core/inventory_extra.rs` maps settings to planner options and steps to scheduler outcomes. The round-robin scheduler takes a module slice, so the four modules share the container claim, the stall watchdog and the gate with ChestSteal, AutoArmor, Refill and AutoTotem. On Key runs disable themselves when finished; ArmorSwitch always does. The reference "Activation" mode is stored as `<module>.trigger`, because `.activation` is the generic bind mode.
+
+Validation: fmt, all-target Clippy `-D warnings`, 131 lib tests and the payload test pass; stage/audit (36 hooks, 22 modules) pass; host check reports 0 errors. No game scenario has run yet.
+## 2026-10-31: inventory worker, use sequences, InventoryFill, Refill and AutoTotem extras
+
+- **Throwpot, ThrowDebuff, AutoHeal: one use-sequence executor.** `src/modules/utility/throw_items.rs` holds the plans and the sequencer; `src/core/throw_runtime.rs` holds the claims and settings.
+  - Throwpot (`inventory.throw-pot`): Type both/pots/soup, Mode dynamic/single, Delay, Scroll, Scroll delay, Random, Throw bowls.
+  - ThrowDebuff (`inventory.throw-debuff`): Mode all/one-of-each/first, and Harming, Weakness, Poison and Slowness toggles.
+  - AutoHeal (`inventory.auto-heal`, Hidden category):
+    - Legit mode: select, use, swap delay, restore.
+    - Bowl Mode stack/throw/none and Replace, as clicks through the shared session.
+    - Silent mode and Potions are blocked: Horizon has no silent held-item or use API.
+  - Host side: `vape_transactions::dispatch` turns the executor's effects into slot selection, `use_once` and drop.
+- **InventoryFill** (`src/core/inventory_fill.rs`, `inventory.inventory-fill`): shift-clicks the hovered container slot while Shift and the left button are held, at the CPS setting.
+- **Refill:**
+  - Adds the double-click: a 20 % second shift-click, sent only when it can still move something.
+  - A run now finishes, closing and disabling, once the inventory it worked in is closed. Before this fix it reopened the inventory. The host scenario found this.
+- **AutoTotem** adds Random slot, Extra randomization (the reference's delay distribution) and the Show totem count value. Silent open and Silent move delay are blocked: Horizon has no API to click the player inventory without a screen.
+- **Scenarios:**
+  - `tools/throw_scenario.py`: Throwpot, ThrowDebuff, and AutoHeal on and then off.
+  - `tools/inventory_scenario.py`: Refill interrupted and then completed, ChestSteal closed mid-run and then reopened, and AutoTotem Random slot.
+
+Validation:
+- fmt, all-target Clippy `-D warnings`, 140 lib tests, 3 integration tests and the payload test pass. The host build passes.
+- `tools/throw_scenario.py` passed in survival in a fresh isolated home (evidence `docs/evidence/inventory-throw.json`):
+  - Throwpot healed 10 → 20 HP with two of three Instant Health pots and restored slot 5.
+  - ThrowDebuff one-of-each threw one poison and one weakness and kept the second poison.
+  - AutoHeal Legit healed 6 → 15 HP using 2 of 4 pots; once disabled it threw nothing more at low health.
+- `tools/inventory_scenario.py`: the first run failed on the Refill reopen bug above; the rerun is recorded in the next entry.
+
+## 2026-10-31: inventory worker, recovery scenario through the bounded gate
+
+- `tools/inventory_scenario.py` passed in survival in a fresh isolated home against the host build of 5204104 (evidence `docs/evidence/inventory-recovery.json`, scenario dir deleted after the run):
+  - Refill (soup): closing its inventory mid-run disabled it with 1 of 3 hotbar soups moved and the screen back to playing; a second run completed (3 hotbar soups, 2 left in main) and closed the screen.
+  - ChestSteal: escape after 3 of 6 diamonds left 3 in the chest; reopening took the remaining 3 and closed the chest.
+  - AutoTotem (random slot): one of two main-inventory totems moved to the offhand and the screen returned to playing.
+- AutoFish recovery has no scenario yet; it stays integrated.
+- Validation on worker/inventory (main 604d679 already merged): `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` clean; `cargo test --workspace --locked --offline` 140 lib + 3 integration passed; `cargo run -p xtask --locked --offline -- payload-test` 140 passed.
