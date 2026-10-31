@@ -60,6 +60,15 @@ impl Refill {
         self.done = false;
         self.queued.clear();
     }
+    /// Every tick, between delayed steps: as in the reference's pre-tick
+    /// check, an inventory it opened counts as shown as soon as it appears,
+    /// so a player who closes it before the next click step ends the run
+    /// rather than having it reopened.
+    pub fn observe(&mut self, snapshot: &Snapshot) {
+        if self.opened && snapshot.is_player_inventory {
+            self.shown = true;
+        }
+    }
     pub fn step(&mut self, snapshot: &Snapshot, options: &Options) -> Vec<Effect> {
         if self.gate.interrupted(snapshot) {
             self.cancel();
@@ -370,6 +379,27 @@ mod tests {
         );
         assert!([first, second].concat().contains(&Effect::Disable));
         assert!(!refill.active());
+    }
+    #[test]
+    fn closing_before_the_next_step_still_finishes() {
+        let mut refill = Refill::default();
+        let options = Options::default();
+        let mut snap = snapshot();
+        snap.screen_open = false;
+        snap.is_player_inventory = false;
+        assert_eq!(refill.step(&snap, &options), vec![Effect::OpenInventory]);
+        // Shown for a tick between delayed steps, then closed.
+        snap.screen_open = true;
+        snap.is_player_inventory = true;
+        refill.observe(&snap);
+        snap.screen_open = false;
+        snap.is_player_inventory = false;
+        let first = refill.step(&snap, &options);
+        let second = refill.step(&snap, &options);
+        assert!(
+            !first.contains(&Effect::OpenInventory) && !second.contains(&Effect::OpenInventory)
+        );
+        assert!([first, second].concat().contains(&Effect::Disable));
     }
     #[test]
     fn scatter_initializes_nonzero_state() {

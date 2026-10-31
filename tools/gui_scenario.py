@@ -9,17 +9,18 @@ column at (122, 6) and keeps that spot.
 import argparse
 import json
 from pathlib import Path
+import gui_layout
 from native_session import NativeSession
 
 # Navigation rows (centres): 22-unit header, 20-unit rows, 14-unit MISC label.
-COMBAT, RENDER = (30, 38), (30, 58)
+COMBAT, RENDER = gui_layout.category('Combat'), gui_layout.category('Render')
 FRIENDS, PROFILES = (30, 172), (30, 192)
 GEAR, HUD_EDITOR = (94, 16), (107, 232)
 # A frame in the first column: header 6..26, body from y=26, 20-unit rows.
 FIRST_ROW, FIRST_DOTS = (160, 36), (221, 36)
-# Fullbright is the Render frame's fourth row (after AntiDebuff, Clear Water
-# and ESP); its inline settings open below it.
-FB = 60
+# Fullbright's offset from the Render frame's first row, by name order; its
+# inline settings open below it.
+FB = gui_layout.row('Render', 'render.fullbright')[1] - FIRST_ROW[1]
 FULLBRIGHT_ROW, FULLBRIGHT_DOTS = (160, 36 + FB), (221, 36 + FB)
 CREATE, IMPORT, PROFILE_FIELD, SUBMIT = (150, 36), (203, 36), (170, 54), (221, 54)
 # With the name entry closed, profile rows are 18 apart from y=47 and an open
@@ -79,7 +80,7 @@ def run(resources):
         # The header gear opens the client settings frame.
         click(GEAR)
         capture('global-settings')
-        click((170, 77))  # Settings sort by id: GUI scale, GUI binding, multi-bind.
+        click((170, 95))  # Settings sort by id: bind indicator, GUI scale (24 high), GUI binding, multi-bind.
         capture('multi-bind')
         assert session.saved()['settings']['client.multi-bind'] is True
         click(GEAR)

@@ -1410,3 +1410,14 @@ Every other number and random range the audit can parse matches the reference.
 Current report: 26 missing settings on integrated rows, all routed (3 are SilentAura's excluded AI settings). Plus 2 missing on the blocked Reach row, 2 range differences (AutoArmor Delay, Text GUI Scale), 1 default difference (AutoArmor Delay) and 9 values hidden in the reference. The validated count is 57 and integrated is 39.
 
 Tests: `settings_dump` passes (1/1, 645 definitions).
+
+## 2026-10-31: main's baseline scenario failures fixed
+
+Seven host scenarios failed on main at 4ff7488, before any round-2 merge. Four were scenario bugs, one was a real Refill deviation, and two were environment problems:
+- **delays_perf (NoJumpDelay):** the take-off windows were wall-clock, so a slow sample under load shrank them. The scenario now counts host ticks (`state.ticks`). A bonk under the ceiling lands in about six ticks, so the module turns the vanilla ten-tick spacing into a six-tick one: on needs 1.5× the take-offs and a median gap of 7 ticks or less, and off and after need a gap of at least 9. **NoClickDelay:** the miss-then-hit check released the button between the miss and the hit, which let the next tick clear the vanilla cooldown, so it held with the module off too. It now keeps the button held through the look.
+- **inventory (Refill):** after the player closed the inventory before the next delayed click, Refill reopened it. The reference's `onTick` observes the screen every pre-tick and only delays the clicks, so a run whose inventory was shown and then closed finishes and disables. `Refill::observe` (src/modules/utility/refill.rs) now runs every tick from the inventory runtime, and the unit test `closing_before_the_next_step_still_finishes` covers it.
+- **gui, auto_tool, no_hurt_camera:** fixed click positions went stale when modules were added or moved (NoHurtCam is in Render since 1336a94). The new `tools/gui_layout.py` computes category and module rows from the registry and `CATEGORIES`, and skips modules hidden by default once `src/core/visibility.rs` exists. The gui scenario's multi-bind click moved to y=95, below the newer "GUI bind indicator".
+- **auto_tool_guards:** the nether landing used random terrain, so the block under the crosshair varied. The scenario now force-loads and clears the area and lays an obsidian floor first.
+- **text_editor:** it now runs under `xvfb-run` with a private display, like the other clipboard checks.
+
+Tests: fmt, Clippy and the workspace tests are clean (395 passed, 0 failed), and payload-test, stage, host check and host build pass. Host scenarios, each in a fresh isolated home: delays_perf 39/39, inventory, gui, auto_tool, auto_tool_guards, no_hurt_camera and text_editor pass (target/scenario-runs/20261031-181944, -182256 and -182518).
