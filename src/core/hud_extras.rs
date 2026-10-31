@@ -181,6 +181,14 @@ impl Runtime {
     pub fn scoreboard_numbers(&self) -> bool {
         self.hud_flag(super::super::ui::scoreboard::SHOW_NUMBERS)
     }
+    /// "Replace scoreboard text" entries, in the order they were added.
+    pub fn scoreboard_replacements(&self) -> Vec<(String, String)> {
+        use super::super::ui::scoreboard;
+        self.settings
+            .get(scoreboard::REPLACE_TEXT)
+            .map(scoreboard::replacements)
+            .unwrap_or_default()
+    }
     pub(super) fn hud_flag(&self, id: &str) -> bool {
         self.settings
             .effective(id)

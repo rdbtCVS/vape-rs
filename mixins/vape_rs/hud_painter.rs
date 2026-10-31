@@ -770,11 +770,26 @@ pub(super) fn sidebar(
 /// Scoreboard: the sidebar painted at the panel's position.
 fn scoreboard(game: &crate::game::Game<'_>, batch: &mut HudBatch, panel: &HudPanel) -> Option<Rect> {
     use horizon_client::hud_layout::{GuiDraw, PoseOp};
-    let numbers = {
+    let (numbers, replacements) = {
         let client = game.__horizon_mixins_vape_rs_client().clone();
-        crate::game::vape_rs::core::with_client(&client, |runtime| runtime.scoreboard_numbers())
+        crate::game::vape_rs::core::with_client(&client, |runtime| {
+            (runtime.scoreboard_numbers(), runtime.scoreboard_replacements())
+        })
     };
-    let (draws, [left, top, right, bottom]) = sidebar(game, batch.width, batch.height, numbers)?;
+    let (mut draws, [left, top, right, bottom]) = sidebar(game, batch.width, batch.height, numbers)?;
+    // At or above 1.16.5 `renderScoreboard` draws the rows and the title
+    // components unreplaced; the replaced title only sets the centring.
+    if let Some(GuiDraw::Text { text, x, .. }) = draws.get_mut(2)
+        && !replacements.is_empty()
+    {
+        let font = &game.gui.atlas.font;
+        let plain = text.plain();
+        let replaced = crate::game::vape_rs::ui::scoreboard::replace_all(&replacements, &plain);
+        // The host centred the title by its own width (`title_width`).
+        let original = horizon_client::hud_layout::width(font, text);
+        let shown = horizon_client::hud_layout::width(font, &horizon_client::text::Text::legacy(&replaced));
+        *x += original / 2 - shown / 2;
+    }
     let (w, h) = ((right - left) as f32, (bottom - top) as f32);
     let x = panel.x.clamp(0.0, (batch.width - w).max(0.0));
     let y = panel.y.clamp(0.0, (batch.height - h).max(0.0));

@@ -1,4 +1,4 @@
-use super::super::core::settings::{Definition, Kind};
+use super::super::core::settings::{Definition, Kind, map_entries, map_put, map_remove, map_value};
 use super::super::input::KeyAction;
 use super::super::input::macros::{Delay, Macro};
 use super::client_settings::SearchStyle;
@@ -233,6 +233,12 @@ enum Hit {
     RemoveMacro(String),
     CaptureMacro,
     ToggleMacroDouble,
+    /// `StringMapValueComponent`'s ADD button, with the map's value.
+    MapAdd(String, Value),
+    /// A `StringMapEntryComponent`'s remove icon: map id, value and key.
+    MapRemove(String, Value, String),
+    /// The entry list's scroll window and how far it can scroll.
+    MapEntries(String, f32),
 }
 #[derive(Clone, Debug)]
 enum SettingDrag {
@@ -428,6 +434,9 @@ pub struct Gui {
     order: Vec<String>,
     scrolls: BTreeMap<String, f32>,
     panel_rects: Vec<(String, Rect)>,
+    /// `StringMap` key and value fields, by focus id "<id>#find" or
+    /// "<id>#replace".
+    map_drafts: BTreeMap<String, String>,
     hover: (f32, f32),
     scale: f32,
     dragging: Option<(String, f32, f32)>,
@@ -479,6 +488,7 @@ impl Default for Gui {
             order: Vec::new(),
             scrolls: BTreeMap::new(),
             panel_rects: Vec::new(),
+            map_drafts: BTreeMap::new(),
             hover: (-1.0, -1.0),
             scale: 1.0,
             dragging: None,
@@ -623,6 +633,9 @@ impl Gui {
                 Some("macro-name") => Some(&mut self.macro_name),
                 Some("macro-delay") => Some(&mut self.macro_delay),
                 Some("macro-double-delay") => Some(&mut self.macro_double_delay),
+                Some(f) if f.ends_with("#find") || f.ends_with("#replace") => {
+                    Some(self.map_drafts.entry(f.to_string()).or_default())
+                }
                 _ => None,
             }
         };
@@ -1037,6 +1050,66 @@ mod tests {
             )]
         );
         assert_eq!(gui.open_color.as_deref(), Some(color));
+    }
+    #[test]
+    fn string_maps_add_with_enter_between_fields_and_remove_entries() {
+        let mut gui = Gui {
+            open: true,
+            ..Gui::default()
+        };
+        let mut view = view();
+        let id = "render.fullbright.replace";
+        view.definitions = vec![Definition::new(
+            id,
+            "Replace",
+            Kind::StringMap {
+                max_entries: 8,
+                max_chars: 32,
+                placeholders: ["Find text", "Replace with"],
+            },
+            json!([]),
+        )];
+        view.values = json!({"client.search-bar": "Integrated", id: [["a", "1"]]});
+        click(&mut gui, &view, (30.0, 6.0 + NAV_HEADER_HEIGHT + 30.0));
+        gui.selected = Some("render.fullbright".into());
+        let centre = |gui: &Gui, wanted: &dyn Fn(&Hit) -> bool| {
+            let (Rect(x, y, w, h), _) = gui.hits.iter().rev().find(|(_, hit)| wanted(hit)).unwrap();
+            (x + w / 2.0, y + h / 2.0)
+        };
+        gui.frame(&view, (400.0, 300.0));
+        let find = format!("{id}#find");
+        let field = centre(&gui, &|hit| matches!(hit, Hit::Focus(f, _) if *f == find));
+        click(&mut gui, &view, field);
+        gui.commit_text("Server", false);
+        // Enter in the key field moves to the value field.
+        assert!(gui.key("Enter", KeyAction::Press).is_empty());
+        assert_eq!(gui.focus.as_deref(), Some(&*format!("{id}#replace")));
+        gui.commit_text("Vape", false);
+        gui.frame(&view, (400.0, 300.0));
+        let add = centre(&gui, &|hit| matches!(hit, Hit::MapAdd(..)));
+        assert_eq!(
+            click(&mut gui, &view, add),
+            vec![Action::Set(
+                id.into(),
+                json!([["a", "1"], ["Server", "Vape"]])
+            )]
+        );
+        assert!(gui.map_drafts.values().all(String::is_empty));
+        // ADD has no empty check, and an existing key keeps its place.
+        assert_eq!(
+            click(&mut gui, &view, add),
+            vec![Action::Set(id.into(), json!([["a", "1"], ["", ""]]))]
+        );
+        view.values[id] = json!([["a", "1"], ["b", "2"]]);
+        gui.frame(&view, (400.0, 300.0));
+        let remove = centre(
+            &gui,
+            &|hit| matches!(hit, Hit::MapRemove(_, _, k) if k == "a"),
+        );
+        assert_eq!(
+            click(&mut gui, &view, remove),
+            vec![Action::Set(id.into(), json!([["b", "2"]]))]
+        );
     }
     #[test]
     fn header_search_lists_matching_modules_in_the_navigation_frame() {

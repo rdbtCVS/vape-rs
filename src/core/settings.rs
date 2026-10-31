@@ -23,6 +23,13 @@ pub enum Kind {
         max_entries: usize,
         max_chars: usize,
     },
+    /// `StringMapValue`: an insertion-ordered map stored as `[key, value]`
+    /// pairs, edited through two placeholder fields (key, value).
+    StringMap {
+        max_entries: usize,
+        max_chars: usize,
+        placeholders: [&'static str; 2],
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -137,9 +144,61 @@ impl Definition {
                 }
                 Ok(Value::Array(result))
             }
+            Kind::StringMap {
+                max_entries,
+                max_chars,
+                ..
+            } => {
+                let text = |v: &Value| {
+                    v.as_str()
+                        .filter(|s| s.chars().count() <= *max_chars && !s.contains('\0'))
+                        .map(String::from)
+                        .ok_or_else(bad)
+                };
+                let mut entries = Vec::new();
+                for pair in value.as_array().ok_or_else(bad)? {
+                    let pair = pair.as_array().filter(|p| p.len() == 2).ok_or_else(bad)?;
+                    entries = map_put(&entries, text(&pair[0])?, text(&pair[1])?);
+                }
+                if entries.len() > *max_entries {
+                    return Err(bad());
+                }
+                Ok(map_value(&entries))
+            }
             _ => Err(bad()),
         }
     }
+}
+
+/// A `StringMap` value's entries in insertion order; anything else is empty.
+pub fn map_entries(value: &Value) -> Vec<(String, String)> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|pair| match pair.as_array()?.as_slice() {
+            [k, v] => Some((k.as_str()?.to_string(), v.as_str()?.to_string())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `LinkedHashMap.put`: an existing key keeps its place with the new value.
+pub fn map_put(entries: &[(String, String)], key: String, value: String) -> Vec<(String, String)> {
+    let mut entries = entries.to_vec();
+    match entries.iter_mut().find(|(k, _)| *k == key) {
+        Some(entry) => entry.1 = value,
+        None => entries.push((key, value)),
+    }
+    entries
+}
+
+pub fn map_remove(entries: &[(String, String)], key: &str) -> Vec<(String, String)> {
+    entries.iter().filter(|(k, _)| k != key).cloned().collect()
+}
+
+pub fn map_value(entries: &[(String, String)]) -> Value {
+    Value::Array(entries.iter().map(|(k, v)| json!([k, v])).collect())
 }
 
 #[derive(Clone, Debug, Default)]
@@ -398,5 +457,41 @@ mod tests {
             .unwrap();
         assert!(s.validate_conditions().is_err());
         assert!(s.define(Definition::boolean("a", "A", true)).is_err());
+    }
+    #[test]
+    fn string_maps_keep_insertion_order_and_replace_in_place() {
+        let m = Definition::new(
+            "replace",
+            "Replace",
+            Kind::StringMap {
+                max_entries: 2,
+                max_chars: 3,
+                placeholders: ["Find", "With"],
+            },
+            json!([]),
+        );
+        // A repeated key keeps its first place with the later value.
+        assert_eq!(
+            m.validate(&json!([["b", "1"], ["a", "2"], ["b", "3"]]))
+                .unwrap(),
+            json!([["b", "3"], ["a", "2"]])
+        );
+        // Empty keys and values are kept (the reference ADD has no check).
+        assert_eq!(m.validate(&json!([["", ""]])).unwrap(), json!([["", ""]]));
+        for bad in [
+            json!({"a": "b"}),
+            json!([["a"]]),
+            json!([["a", 1]]),
+            json!([["abcd", ""]]),
+            json!([["a", "\u{0}"]]),
+            json!([["a", ""], ["b", ""], ["c", ""]]),
+        ] {
+            assert!(m.validate(&bad).is_err(), "{bad}");
+        }
+        let entries = map_entries(&json!([["b", "3"], ["a", "2"]]));
+        let put = map_put(&entries, "a".into(), "x".into());
+        assert_eq!(map_value(&put), json!([["b", "3"], ["a", "x"]]));
+        assert_eq!(map_value(&map_remove(&put, "b")), json!([["a", "x"]]));
+        assert!(map_entries(&json!("nope")).is_empty());
     }
 }
