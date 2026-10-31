@@ -126,6 +126,9 @@ registry! {
     ThrowDebuff => "inventory.throw-debuff", "ThrowDebuff", "Inventory", None, [];
     AutoHeal => "inventory.auto-heal", "AutoHeal", "Hidden", None, [];
     InventoryFill => "inventory.inventory-fill", "InventoryFill", "Inventory", None, [];
+    HitSwap => "combat.hit-swap", "HitSwap", "Utility", None, [];
+    AutoMace => "combat.auto-mace", "AutoMace", "Combat", None, [];
+    ShieldBreaker => "combat.shield-breaker", "ShieldBreaker", "Combat", None, [];
 }
 
 impl ModuleId {

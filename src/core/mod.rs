@@ -6,6 +6,7 @@ pub mod inventory_fill;
 pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
+pub mod modern_combat_runtime;
 pub mod movement_input;
 pub mod movement_runtime;
 pub mod profiles;
@@ -93,6 +94,7 @@ pub struct Runtime {
     aim_clock: Option<std::time::Instant>,
     trigger_bot: super::modules::combat::trigger_bot::TriggerBot,
     combat: combat_runtime::Combat,
+    modern_combat: modern_combat_runtime::ModernCombat,
     velocity: super::modules::combat::velocity::Velocity,
     knockback: super::modules::combat::knockback::Knockback,
     backtrack: super::modules::blatant::backtrack::Backtrack,
@@ -363,6 +365,9 @@ impl Default for Runtime {
         for definition in combat_runtime::definitions() {
             settings.define(definition).unwrap();
         }
+        for definition in modern_combat_runtime::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::combat::aim_assist::definitions() {
             settings.define(definition).unwrap();
         }
@@ -487,6 +492,7 @@ impl Default for Runtime {
             aim_clock: None,
             trigger_bot: Default::default(),
             combat: Default::default(),
+            modern_combat: Default::default(),
             velocity: Default::default(),
             knockback: Default::default(),
             backtrack: Default::default(),
@@ -579,6 +585,7 @@ impl Runtime {
         self.movement_toggled(module, enabled);
         if !enabled {
             self.combat_disabled(module);
+            self.modern_combat_disabled(module);
         }
         if !enabled {
             match module {
@@ -1083,6 +1090,7 @@ impl Runtime {
     /// host action.
     fn reset_combat(&mut self) {
         self.combat_session_reset();
+        self.modern_combat_session_reset();
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();
@@ -2320,7 +2328,10 @@ impl Runtime {
                 | ModuleId::SpawnerFinder
                 | ModuleId::MurderFinder
                 | ModuleId::PropHunt
-                | ModuleId::InventoryBlur => continue,
+                | ModuleId::InventoryBlur
+                | ModuleId::HitSwap
+                | ModuleId::AutoMace
+                | ModuleId::ShieldBreaker => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

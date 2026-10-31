@@ -1,12 +1,16 @@
 pub mod aim_assist;
+pub mod auto_mace;
 pub mod click_timing;
 pub mod clicker;
+pub mod hit_swap;
 pub mod keep_sprint;
 pub mod kill_aura;
 pub mod knockback;
 pub mod reach;
 pub mod rotation;
+pub mod shield_breaker;
 pub mod silent_aura;
 pub mod trigger_bot;
 pub mod velocity;
+pub mod weapon_swap;
 pub mod wtap;

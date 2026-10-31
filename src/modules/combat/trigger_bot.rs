@@ -154,9 +154,12 @@ pub struct Tick {
     /// The crosshair hits nothing at all (`RayTraceResult` MISS).
     pub crosshair_miss: bool,
     pub cooldown: Cooldown,
-    /// An axe is held and its shield-disable bypass applies (`RotationUtil.u`
-    /// with a sword-free main hand); no ShieldBreaker/HitSwap/AutoMace yet.
+    /// `canBypassCooldown`: smashing with a ready AutoMace mace, HitSwap's
+    /// mace swap, or (HitSwap off) a held mace.
     pub cooldown_bypass: bool,
+    /// Shield check gives way: ShieldBreaker or HitSwap has an axe, or
+    /// AutoMace's Stun slam can take the player.
+    pub shield_exempt: bool,
 }
 
 /// What the adapter must do this tick.
@@ -232,6 +235,11 @@ impl TriggerBot {
         }
     }
 
+    /// A swap module cancelled the synthetic press
+    /// (`releasePending = requestSyntheticAttack(this)`).
+    pub fn attack_cancelled(&mut self) {
+        self.release_pending = false;
+    }
     /// `onDisable`: returns whether a held synthetic press must be released.
     pub fn reset(&mut self) -> bool {
         self.mouse_down = false;
@@ -254,8 +262,12 @@ impl TriggerBot {
         self.select_at = now;
     }
 
-    fn valid(options: &Options, entity: &EntityView, people: &impl People) -> bool {
-        if options.shield_check && entity.class == EntityClass::Player && entity.blocking {
+    fn valid(options: &Options, tick: &Tick, entity: &EntityView, people: &impl People) -> bool {
+        if options.shield_check
+            && !tick.shield_exempt
+            && entity.class == EntityClass::Player
+            && entity.blocking
+        {
             return false;
         }
         options.filter.valid(entity, people)
@@ -312,7 +324,7 @@ impl TriggerBot {
             let hovering = tick
                 .crosshair
                 .as_ref()
-                .is_some_and(|e| Self::valid(options, e, people));
+                .is_some_and(|e| Self::valid(options, tick, e, people));
             self.miss_pending =
                 hovering && options.miss_chance > 0 && self.random.int(100) < options.miss_chance;
         }
@@ -393,7 +405,7 @@ impl TriggerBot {
         }
         let offset = -(self.random.range(options.extra_delay) as f32) + self.early_ticks as f32;
         match &tick.crosshair {
-            Some(entity) if Self::valid(options, entity, people) => {
+            Some(entity) if Self::valid(options, tick, entity, people) => {
                 let id = entity.handle.id;
                 if self.select_first_hit(options, id, just_hurt, now)
                     && self.mouse_over_elapsed(options, id, now)
@@ -507,6 +519,9 @@ mod tests {
         let mut blocking = tick(100, true, 13.0);
         blocking.crosshair.as_mut().unwrap().blocking = true;
         assert!(!TriggerBot::new(4).tick(&shield, &blocking, &people).attack);
+        // ShieldBreaker, HitSwap or AutoMace can take the shield.
+        blocking.shield_exempt = true;
+        assert!(TriggerBot::new(4).tick(&shield, &blocking, &people).attack);
         // The 50 ms gate after a physical press.
         let o = options();
         let mut t = TriggerBot::new(5);

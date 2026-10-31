@@ -197,6 +197,7 @@ impl Runtime {
                 0 => String::new(),
                 n => n.to_string(),
             },
+            ModuleId::AutoMace => self.auto_mace_suffix().into(),
             _ => String::new(),
         }
     }

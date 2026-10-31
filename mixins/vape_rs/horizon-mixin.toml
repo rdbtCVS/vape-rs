@@ -637,3 +637,9 @@ bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "m", ty = "&horizon_client::mobs::Mob", value = "m" },
 ]
+
+[[module]]
+id = "modern-combat"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_modern_combat"
+source = "modern_combat.rs"

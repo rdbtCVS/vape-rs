@@ -36,7 +36,13 @@ fn mouse_bind(
         && !suppressed
         && crate::game::vape_combat::trigger_bot_input(game, pressed)
         && pressed;
-    if suppressed || swallowed {
+    // HitSwap, AutoMace and ShieldBreaker see the press, swallowed or not,
+    // and may cancel it.
+    let cancelled = button == MouseButton::Left
+        && pressed
+        && !suppressed
+        && crate::game::vape_modern_combat::press(game, swallowed);
+    if suppressed || swallowed || cancelled {
         core::ops::ControlFlow::Break(Ok(()))
     } else {
         core::ops::ControlFlow::Continue(())
