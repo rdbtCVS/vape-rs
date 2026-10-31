@@ -386,7 +386,9 @@ def armor_combat(case):
     GUI's Extended suffix shows "[In Combat]" meanwhile."""
     case.prepare({'inventory.auto-armor.inventory-only': False,
                   'inventory.auto-armor.combat-check': True,
-                  'hud.text-gui.suffix': 'Extended'},
+                  'hud.text-gui.suffix': 'Extended',
+                  # Left of the advancement and recipe toasts.
+                  'hud.text-gui.x': 4, 'hud.text-gui.y': 60},
                  {'hud.text-gui': {'enabled': True}})
     case.tap('inventory.auto-armor')
     case.s.call('wait', '10')
@@ -454,7 +456,8 @@ CASES = {
 def run(resources, names):
     summary = {}
     for name in names:
-        with NativeSession(resources, f'utility-{name}-') as session:
+        # Short home names: the control socket path must fit SUN_LEN.
+        with NativeSession(resources, f'ud-{name[:16]}-') as session:
             case = Case(session)
             CASES[name](case)
             session.close()

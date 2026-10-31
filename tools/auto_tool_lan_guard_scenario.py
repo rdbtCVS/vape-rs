@@ -48,8 +48,21 @@ def join(host, guest, address, name, friends=()):
     return names
 
 
-def hit(host, name):
+def move(host, x, y, z):
+    """Server-side teleport: a client-only move this far is "moved wrongly"."""
+    host.call('command', f'tp VapeHost {x} {y} {z}')
+    host.call('wait', '5')
+
+
+def hit(host, guest, name):
+    """Damage the guest and wait until its client has seen the hit, so the
+    guard is up before the guest starts mining."""
     host.call('command', f'damage {name} 1 minecraft:generic')
+    for _ in range(20):
+        if guest.call('state')['player']['hurt_time'] > 0:
+            return
+        guest.call('wait', '1')
+    raise AssertionError(f'{name} never saw the hit')
 
 
 def run(resources):
@@ -76,11 +89,10 @@ def run(resources):
             # Stationary, host 1.8 blocks away watching the guest, and the
             # guest's view within 60 degrees of the host: every 20-tick
             # expiry re-arms until five stationary expiries have passed.
-            host.call('tp', '1.5', '100', '2.0')
-            host.call('wait', '5')
+            move(host, '1.5', '100', '2.0')
             host.call('look-at', '0.5', '101.6', '0.5')
             guest.call('wait', '10')
-            hit(host, 'VapeGuest')
+            hit(host, guest, 'VapeGuest')
             guest.call('mouse', 'left', 'down')
             guest.call('wait', '45')
             assert selected(guest) == 1, 'mutual looking holds past the first expiry'
@@ -96,15 +108,18 @@ def run(resources):
             guest.call('wait', '5')
 
             # Moving with the host 3 blocks away: held past the 20 ticks.
-            host.call('tp', '3.5', '100', '0.5')
+            move(host, '3.5', '100', '0.5')
             guest.call('wait', '10')
-            hit(host, 'VapeGuest')
+            hit(host, guest, 'VapeGuest')
             guest.call('mouse', 'left', 'down')
             held = strafe(guest, 60)
             assert set(held) == {1}, held
             guest.capture('moving-enemy-near')
             # The host leaves (16 blocks): released on the next guard tick.
-            host.call('tp', '0.5', '100', '16.5')
+            move(host, '0.5', '100', '16.5')
+            checks['host_seen_after_leaving'] = [
+                e['pos'] for e in guest.call('entities', '32')['entities']
+                if e.get('type') == 'minecraft:player']
             released = strafe(guest, 20)
             assert released[-1] == 2, released
             checks['moving'] = {'held': held, 'after_host_left': released}
@@ -115,9 +130,9 @@ def run(resources):
 
         with NativeSession(resources, 'lan-guard-friend-') as guest:
             checks['friend_root'] = str(guest.root)
-            host.call('tp', '3.5', '100', '0.5')
+            move(host, '3.5', '100', '0.5')
             join(host, guest, address, 'VapeFriend', friends=['VapeHost'])
-            hit(host, 'VapeFriend')
+            hit(host, guest, 'VapeFriend')
             guest.call('mouse', 'left', 'down')
             early = strafe(guest, 10)
             late = strafe(guest, 30)
