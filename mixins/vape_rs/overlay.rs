@@ -94,6 +94,14 @@ fn frame(game: &Game<'_>, batch: &HudBatch, epoch: crate::game::vape_rs::core::l
         position: [player.position.x, player.position.y, player.position.z],
         yaw: game.yaw,
         hurt: player.health.hurt_animation_time > 0,
+        totems: game
+            .inventory
+            .iter()
+            .chain(std::iter::once(&game.offhand))
+            .flatten()
+            .filter(|s| s.item.contains("totem_of_undying"))
+            .map(|s| s.count)
+            .sum(),
     };
     let spawners = if with_client(&game.__horizon_mixins_vape_rs_client().clone(), |r| r.spawners_wanted()) {
         spawners(game)
@@ -137,6 +145,10 @@ fn paint(game: &Game<'_>, batch: &mut HudBatch, draws: &[Draw]) {
                 let left = match align {
                     Align::Left => *x,
                     Align::Center => *x - width * scale / 2.0,
+                    Align::CenterOn(n) => {
+                        let label = text.get(..*n).unwrap_or(text);
+                        *x - (HudBatch::text_width(atlas, label) * scale / 2.0).ceil() + scale
+                    }
                 };
                 let start = batch.vertices.len();
                 if let Some(b) = backdrop {

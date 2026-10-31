@@ -27,9 +27,10 @@ pub struct Throws {
     leases: Vec<Lease>,
     origin: Instant,
     seed: u64,
-    /// AutoHeal's "Delay" between heals.
+    /// AutoHeal's "Delay" between heals (the reference's one `useTimer`).
     heal_due: Option<Instant>,
-    silent_notified: bool,
+    /// A potion's hotbar slot between PreMotion and PostMotion.
+    potion: Option<u8>,
 }
 impl Default for Throws {
     fn default() -> Self {
@@ -40,7 +41,7 @@ impl Default for Throws {
             origin: Instant::now(),
             seed: 0x7417,
             heal_due: None,
-            silent_notified: false,
+            potion: None,
         }
     }
 }
@@ -63,6 +64,17 @@ pub enum ThrowEffect {
     Select(u8),
     Use,
     Drop,
+    /// AutoHeal Silent: the server's held slot moves to this hotbar slot for
+    /// one item use and back; the shown hotbar never changes.
+    SilentUse(u8),
+}
+
+/// AutoHeal's PreMotion: a SWAP click (game slot, hotbar button) bringing a
+/// potion into "Slot", and the pitch this motion packet sends.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HealMotion {
+    pub swap: Option<(u16, u8)>,
+    pub pitch: Option<f32>,
 }
 
 pub(super) fn definitions() -> Vec<Definition> {
@@ -208,6 +220,74 @@ impl Runtime {
             health: self.throw_number(&format!("{AH}.health"), 17.0) as f32,
         }
     }
+    /// Potions' options when they take effect (enabled, Silent, "Potions").
+    fn heal_potions(&self) -> Option<auto_heal::Potions> {
+        const AH: &str = "inventory.auto-heal";
+        let on = self.enabled(ModuleId::AutoHeal)
+            && self.throw_str(&format!("{AH}.mode")) == "silent"
+            && self.inventory_bool(&format!("{AH}.potions"), false);
+        on.then(|| auto_heal::Potions {
+            regen: self.inventory_bool(&format!("{AH}.regen"), true),
+            speed: self.inventory_bool(&format!("{AH}.speed"), false),
+            resistance: self.inventory_bool(&format!("{AH}.resistance"), false),
+            slot: self
+                .throw_number(&format!("{AH}.slot"), 6.0)
+                .clamp(1.0, 9.0) as u8
+                - 1,
+            replace: self.inventory_bool(&format!("{AH}.replace"), false),
+            health: self.throw_number(&format!("{AH}.health"), 17.0) as f32,
+        })
+    }
+    /// Whether AutoHeal's motion hooks have anything to do.
+    pub fn auto_heal_potions(&self) -> bool {
+        self.heal_potions().is_some()
+    }
+    fn heal_ready(&self, at: Instant) -> bool {
+        self.throws.heal_due.is_none_or(|due| at >= due)
+    }
+    fn heal_used(&mut self, at: Instant) {
+        let delay = self.throw_number("inventory.auto-heal.delay", 500.0);
+        self.throws.heal_due = Some(at + Duration::from_millis(delay.max(0.0) as u64));
+    }
+    /// AutoHeal's PreMotion (`EventPreMotion`, Potions only). As in the
+    /// reference the potion search, and so Replace's swap, runs on every
+    /// motion update; a use is armed only when one is needed on the ground
+    /// and the delay has passed, and then this packet looks down.
+    pub fn auto_heal_pre_motion(&mut self, snapshot: &Snapshot) -> HealMotion {
+        let Some(potions) = self.heal_potions() else {
+            self.throws.potion = None;
+            return HealMotion::default();
+        };
+        let pick = auto_heal::potion_slot(snapshot, &potions);
+        let mut out = HealMotion {
+            swap: pick.and_then(|p| p.swap).map(|slot| (slot, potions.slot)),
+            pitch: None,
+        };
+        match pick {
+            Some(pick)
+                if auto_heal::needs_potion(&snapshot.vitals, &potions)
+                    && self.heal_ready(snapshot.observed) =>
+            {
+                if self.throws.potion.is_none() {
+                    self.throws.potion = Some(pick.hotbar);
+                    out.pitch = Some(auto_heal::POTION_PITCH);
+                }
+            }
+            _ => self.throws.potion = None,
+        }
+        out
+    }
+    /// AutoHeal's PostMotion: the armed potion's hotbar slot to use
+    /// silently. The delay restarts whether or not the slot still holds it.
+    pub fn auto_heal_post_motion(&mut self, at: Instant) -> Option<u8> {
+        self.heal_potions()?;
+        if !self.heal_ready(at) {
+            return None;
+        }
+        let slot = self.throws.potion.take()?;
+        self.heal_used(at);
+        Some(slot)
+    }
     pub fn throws_module(&self) -> Option<ModuleId> {
         self.throws.module
     }
@@ -263,8 +343,7 @@ impl Runtime {
             if !self.throws.sequencer.active() {
                 self.cancel_throws();
                 if module == ModuleId::AutoHeal {
-                    let delay = self.throw_number("inventory.auto-heal.delay", 500.0);
-                    self.throws.heal_due = Some(at + Duration::from_millis(delay.max(0.0) as u64));
+                    self.heal_used(at);
                 } else {
                     self.set_enabled(module, false);
                 }
@@ -323,18 +402,17 @@ impl Runtime {
             return self.throw_frame(snapshot, playing);
         }
         if self.enabled(ModuleId::AutoHeal) && playing {
-            if self.throw_str("inventory.auto-heal.mode") == "silent" {
-                if !self.throws.silent_notified {
-                    self.throws.silent_notified = true;
-                    self.notify(
-                        "AutoHeal Silent needs a Horizon held-item/use API; it does nothing here"
-                            .into(),
-                    );
-                }
-                return Vec::new();
-            }
-            let ready = self.throws.heal_due.is_none_or(|due| at >= due);
+            let ready = self.heal_ready(at);
             let options = self.heal_options();
+            // Silent (onTick): `CPacketHeldItemChange(slot)`, `sendUseItem`,
+            // `CPacketHeldItemChange(current)`, then the delay restarts.
+            if self.throw_str("inventory.auto-heal.mode") == "silent" {
+                let Some(slot) = auto_heal::heal_slot(snapshot, &options).filter(|_| ready) else {
+                    return Vec::new();
+                };
+                self.heal_used(at);
+                return vec![ThrowEffect::SilentUse(slot)];
+            }
             if let Some(slot) = auto_heal::heal_slot(snapshot, &options).filter(|_| ready)
                 && self.throw_claims()
             {
@@ -469,5 +547,103 @@ mod tests {
         assert!(runtime.throw_frame(&s, true).is_empty());
         assert!(runtime.throws.module.is_none());
         assert!(runtime.enabled(ModuleId::AutoHeal));
+    }
+    fn silent_heal(runtime: &mut Runtime) {
+        for (key, value) in [
+            ("mode", json!("silent")),
+            ("soup", json!(true)),
+            ("delay", json!(500.0)),
+        ] {
+            runtime
+                .set_setting(&format!("inventory.auto-heal.{key}"), value)
+                .unwrap();
+        }
+        runtime.set_enabled(ModuleId::AutoHeal, true);
+    }
+    #[test]
+    fn silent_uses_the_item_once_per_delay_without_selecting_it() {
+        let mut runtime = Runtime::default();
+        silent_heal(&mut runtime);
+        let t = Instant::now();
+        let mut s = snapshot(false, t);
+        s.slots[4].item = Some(item("mushroom_stew", ItemClass::Other, 0.0));
+        s.vitals.health = 8.0;
+        s.vitals.max_health = 20.0;
+        // A screen stops it, as in the reference's onTick.
+        assert!(runtime.throw_frame(&s, false).is_empty());
+        assert_eq!(
+            runtime.throw_frame(&s, true),
+            vec![ThrowEffect::SilentUse(4)]
+        );
+        assert!(runtime.throws.module.is_none());
+        let mut effects = Vec::new();
+        for ms in 1..=500 {
+            s.observed = t + Duration::from_millis(ms);
+            effects.extend(runtime.throw_frame(&s, true));
+        }
+        assert_eq!(effects, vec![ThrowEffect::SilentUse(4)]);
+        s.vitals.health = 18.0;
+        s.observed = t + Duration::from_millis(2000);
+        assert!(runtime.throw_frame(&s, true).is_empty());
+    }
+    #[test]
+    fn potions_arm_at_pre_motion_and_fire_at_post_motion() {
+        let mut runtime = Runtime::default();
+        silent_heal(&mut runtime);
+        for (key, value) in [("potions", json!(true)), ("replace", json!(true))] {
+            runtime
+                .set_setting(&format!("inventory.auto-heal.{key}"), value)
+                .unwrap();
+        }
+        let t = Instant::now();
+        let mut s = snapshot(false, t);
+        let mut potion = item("splash_potion", ItemClass::Other, 0.0);
+        potion
+            .meta
+            .effects
+            .push(super::super::super::inventory::types::PotionEffect {
+                id: "instant_health".into(),
+                amplifier: 1,
+                duration: 1,
+            });
+        s.slots[30].item = Some(potion);
+        s.vitals.health = 8.0;
+        s.vitals.max_health = 20.0;
+        // In the air: Replace still swaps, nothing is armed.
+        assert_eq!(
+            runtime.auto_heal_pre_motion(&s),
+            HealMotion {
+                swap: Some((30, 5)),
+                pitch: None
+            }
+        );
+        assert_eq!(runtime.auto_heal_post_motion(t), None);
+        s.slots[5].item = s.slots[30].item.take();
+        s.vitals.on_ground = true;
+        assert_eq!(
+            runtime.auto_heal_pre_motion(&s),
+            HealMotion {
+                swap: None,
+                pitch: Some(auto_heal::POTION_PITCH)
+            }
+        );
+        assert_eq!(runtime.auto_heal_post_motion(t), Some(5));
+        // The shared delay holds both the next potion and silent soup.
+        s.observed = t + Duration::from_millis(100);
+        assert_eq!(runtime.auto_heal_pre_motion(&s), HealMotion::default());
+        assert_eq!(runtime.auto_heal_post_motion(s.observed), None);
+        s.slots[4].item = Some(item("mushroom_stew", ItemClass::Other, 0.0));
+        assert!(runtime.throw_frame(&s, true).is_empty());
+        s.observed = t + Duration::from_millis(500);
+        assert_eq!(
+            runtime.auto_heal_pre_motion(&s).pitch,
+            Some(auto_heal::POTION_PITCH)
+        );
+        // Legit hides Potions: nothing arms or fires.
+        runtime
+            .set_setting("inventory.auto-heal.mode", json!("legit"))
+            .unwrap();
+        assert_eq!(runtime.auto_heal_post_motion(s.observed), None);
+        assert_eq!(runtime.auto_heal_pre_motion(&s), HealMotion::default());
     }
 }

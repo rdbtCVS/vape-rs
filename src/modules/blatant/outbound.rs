@@ -188,7 +188,7 @@ impl Outbound {
         self.target
     }
     /// The average attack-to-damage delay in ticks (`getExpectedHurtTimeTicks`).
-    fn expected_hurt_ticks(&self) -> i32 {
+    pub fn expected_hurt_ticks(&self) -> i32 {
         let count = self.hit_delays.len() as u64;
         (self.hit_delays.iter().sum::<u64>() / count.max(1) / 50) as i32
     }
@@ -205,7 +205,7 @@ impl Outbound {
             }
         }
     }
-    fn average_hit_delay(&self) -> u64 {
+    pub fn average_hit_delay(&self) -> u64 {
         self.hit_delays.iter().sum::<u64>() / (self.hit_delays.len() as u64).max(1)
     }
     fn stop_blink(&mut self) {

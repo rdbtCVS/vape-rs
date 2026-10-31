@@ -224,6 +224,7 @@ pub(super) fn trigger_tick(game: &Game<'_>, now_ms: u64, epoch: crate::game::vap
     let entities = snapshot(game, epoch, walls.then_some(6.0));
     let (crosshair, crosshair_miss) = crosshair(game, &entities);
     let player = game.player.as_ref();
+    let (cooldown_bypass, shield_exempt) = crate::game::vape_modern_combat::trigger_assist(game, epoch, now_ms);
     Tick {
         now_ms,
         hurt_time: player.map_or(0, |p| p.health.hurt_animation_time),
@@ -240,9 +241,8 @@ pub(super) fn trigger_tick(game: &Game<'_>, now_ms: u64, epoch: crate::game::vap
             ticks: game.hand_strength.ticker as f32,
             delay: horizon_client::attack_strength::delay(game.main_hand_attack_speed()),
         },
-        // canBypassCooldown needs HitSwap/AutoMace or the axe-without-HitSwap
-        // case (RotationUtil.u), which is not ported yet: never bypass.
-        cooldown_bypass: false,
+        cooldown_bypass,
+        shield_exempt,
     }
 }
 
@@ -259,7 +259,12 @@ pub(super) fn trigger_bot(game: &mut Game<'_>) {
     let tick = trigger_tick(game, now, epoch, walls);
     let effects = with_client(&client, |runtime| runtime.trigger_bot_tick(&tick));
     if effects.attack && tick.playing {
-        crate::game::remote::vape_macros::attack_once(game);
+        use crate::game::vape_rs::modules::combat::weapon_swap::Source;
+        if crate::game::vape_modern_combat::request(game, Source::TriggerBot) {
+            crate::game::remote::vape_macros::attack_once(game);
+        } else {
+            with_client(&client, |runtime| runtime.trigger_bot_attack_cancelled());
+        }
     }
 }
 
@@ -501,18 +506,25 @@ pub(super) fn clickers(game: &mut Game<'_>) {
             entity_hit,
             block_hit,
             sneaking,
+            hit_select: !right && entity_hit && crate::game::vape_hit_select::defers(game),
         };
         let actions = with_client(&client, |runtime| runtime.clicker_frame(right, &input));
         if actions.release {
-            if right { game.right = false } else { game.left = false }
+            if right {
+                game.right = false
+            } else {
+                game.left = false;
+                crate::game::vape_block_hit::clicker_release(game);
+            }
         }
         if actions.press {
             if right {
                 crate::game::remote::vape_macros::use_once(game);
                 game.right = true;
-            } else {
+            } else if crate::game::vape_modern_combat::request(game, crate::game::vape_rs::modules::combat::weapon_swap::Source::AutoClicker) {
                 crate::game::remote::vape_macros::attack_once(game);
                 game.left = true;
+                crate::game::vape_block_hit::clicker_press(game);
             }
         }
         if actions.turn != (0, 0) {

@@ -53,6 +53,17 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `fly-move` | `horizon_client::motion::MotionWorld<'_,'_,'_>::move_self` | Cancellable HEAD (library crate). Substitutes Fly's per-tick movement vector. |
 | `send-state` | `horizon_client::game::remote::Game<'_>::remote_send_state` | NoFall/Fly pre-motion: AntiCheat's MovePlayerStatus true/false pair and the ground value for this send; Step's recognised step (Speed stage, 0.45 timer; the reference's two extra positions are not sent: 26.3 kicks a second position in one client tick). |
 | `send-state-ground` | `remote_send_state`, argument 2 of `r.position_sender.update` | MODIFY_ARG (`require = 1`, `ordinal = 0`). Replaces the sent `on_ground` with the pre-motion value when set. |
+| `hit-select-attack` | `horizon_client::game::remote::Game<'_>::remote_start_attack` | Cancellable HEAD, priority 110 (before `remote-attack`). HitSelect's `EventClickMouse`: a cancelled attack click does nothing (returns false: no instant block break); a passed one runs `ClientSettings.applyAttackEffects`. |
+| `hit-select-use` | `horizon_client::game::remote::Game<'_>::remote_use` | Cancellable HEAD. HitSelect Normal holds back use and right clicks until the next tick (`EventRightClickMouse`/`EventPlayerUseItem`). |
+| `hit-select-continue-attack` | `horizon_client::game::remote::Game<'_>::remote_continue_attack` | Cancellable HEAD. HitSelect Normal holds back block hitting (`EventSendClickBlockToController`). |
+| `block-hit-mouse` | `horizon_client::game::Game<'_>::play_mouse` | Cancellable HEAD, priority 90 (after `mouse-bind`). BlockHit's `EventMouseButton`: Manual's block at an attack press; Auto/Predict swallow a use press while attacking with a sword. |
+| `block-hit-send` | `horizon_client::game::remote::Game<'_>::send` | Cancellable HEAD, priority 90 (after `outbound-packet`, the reference's LOWEST). BlockHit Lag holds the release-use packet and what follows it until its delay ends or the target is lost; the held packets go out through the session, past the hooks. |
+
+| `auto-totem-attack` | `horizon_client::game::remote::Game<'_>::remote_start_attack` | Cancellable HEAD (`adapters/auto_totem_attack.rs`, binds `game`), ahead of `remote-attack`. While AutoTotem's Silent open holds input (`suppressInput`: the session plus one "Silent move delay"), the attack click returns false (no swing, no attack); `remote-attack` steps aside for the same hold. |
+| `auto-totem-use` | `horizon_client::game::remote::Game<'_>::remote_use` | Cancellable HEAD (`adapters/auto_totem_use.rs`). The same hold cancels the use click (no item use, block place or entity interaction). |
+| `auto-totem-break` | `horizon_client::game::remote::Game<'_>::remote_continue_attack` | Cancellable HEAD (`adapters/auto_totem_break.rs`). The same hold cancels held-attack block breaking. Movement keys (forward, back, left, right, jump, sprint) are held through the movement writer (owner `AutoTotem`, priority 5). |
+| `auto-heal-pre-motion` | `horizon_client::game::remote::Game<'_>::remote_send_state` | HEAD (`adapters/auto_heal_pre_motion.rs`, binds `game`), ahead of `send-state`. AutoHeal Silent with Potions (`EventPreMotion`): Replace's swap into "Slot" through `remote_menu_ops` (`Input::Swap`, no screen), and, when a potion is needed on the ground and the Delay has passed, this packet's pitch 88.99 through the managed rotation (`vape_combat_remote::set_rotation`; the camera is unchanged). |
+| `auto-heal-post-motion` | `horizon_client::game::native_hooks::Game<'_>::native_tick` | HEAD (`adapters/auto_heal_post_motion.rs`, binds `game`). `tick_remote` calls the empty `native_tick` right after `tick_remote_level`, which returns as soon as `remote_send_state` has sent the motion packet, so this is the first point after it (the audit takes no RETURN kind). Skips the server-side `Game`. AutoHeal PostMotion: puts back the managed rotation, then uses the pending potion silently (SetCarriedItem to the slot, `remote_use_item` with the sent look, SetCarriedItem back; `game.selected` and the camera are restored). |
 | `target-info-pot-use` | `horizon_client::game::potions::Game<'_>::use_potion_item` | HEAD (`adapters/target_info_pot_use.rs`). Target Info's pots strip: a heal potion the local player drinks counts against it (`vape_hud::target_heal_used`). |
 | `target-info-pot-remote-use` | `horizon_client::game::remote::Game<'_>::remote_use_item` | HEAD (`adapters/target_info_pot_remote_use.rs`). The same on a server, from the held stack of the used hand. |
 | `target-info-pot-launch` | `horizon_client::game::potions::Game<'_>::launch_thrown` | HEAD (`adapters/target_info_pot_launch.rs`). A heal splash potion the local player throws counts against it (`vape_hud::target_heal_joined`). |
@@ -88,6 +99,18 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_overlay` | `crates/horizon-client/src/game/fov.rs` | `mixins/vape_rs/overlay.rs` |
 | `vape_remote_tab` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/remote_tab.rs` |
 | `vape_esp_outline` | `crates/horizon-client/src/game/glowing.rs` | `mixins/vape_rs/esp_outline.rs` |
+| `vape_teams` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/teams.rs` |
+| `vape_hit_select` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/hit_select.rs` |
+| `vape_block_hit` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/block_hit.rs` |
+
+| `vape_modern_combat` | `crates/horizon-client/src/game.rs` | `mixins/vape_rs/modern_combat.rs` |
+
+Combat-b worker (2026-10-31, round 2), no new hooks, one new support module `vape_modern_combat`:
+
+- `mouse-bind` lets HitSwap, AutoMace and ShieldBreaker see a physical left press (swallowed or not) through `vape_modern_combat::press`; a cancelled press goes no further.
+- `client-tick` runs `vape_modern_combat::tick` (slot steps, synthetic attacks, swing releases) after TriggerBot. `vape_modern_combat::trigger_assist` gives TriggerBot its cooldown and Shield check bypasses, and `request(Source)` routes TriggerBot's and the AutoClicker's synthetic attacks through the dispatch.
+- `auto-tool-attack` and `remote-attack` call `vape_modern_combat::post_attack` after the host's own attack (AutoMace's two-tick swap back, Stun slam's follow-up).
+- AntiFireball (`src/core/anti_fireball_runtime.rs`) has no host hook yet.
 
 Inventory worker (2026-10-31), no new hooks:
 
@@ -107,3 +130,7 @@ Live entity snapshots come from `vape_combat::snapshot`: alive `Game::mobs` (rem
 Movement keys have one writer: `vape_input_delays::movement`, called from `client-tick` before local and remote movement, and from `client-frame` on screen/pause/unfocused frames. It reads the host's canonical key set and toggle mappings, resolves the per-tick requests from Sprint and Parkour (`vape_parkour::edge_ahead` answers the host collision query) through `core::movement_input::Writer`, and writes only the axes that differ from the user's state, or that it owned and must hand back. Host events reach the writer through the two key-capture adapters above. Host scenarios: docs/evidence/postmerge-validation.json.
 
 KillAura and SilentAura run from `client-tick` through `vape_aura::tick`, after TriggerBot: snapshots from `vape_combat::snapshot`, attacks by entity id through `vape_combat_remote::attack` (on a server: `Attack`, `remote_player_attack`, attack-strength reset, swing and `Punch`, in the host's order and respecting `miss_time`; locally `attack_mob` and the swing), misses through `vape_combat_remote::miss`. The shared rotation claim and managed rotation live in the runtime (`core/combat_runtime.rs`, `modules/combat/rotation.rs`).
+
+### 2026-10-31: combat part A (worker round 2) counts
+
+With the combat part A branch (`t3/1e32141e`) on main `97dbaa7`, stage and audit count **49 hooks (47 HEAD + 2 MODIFY_ARG) and 32 support modules**. The branch adds five hooks (`hit-select-attack`, `hit-select-use`, `hit-select-continue-attack`, `block-hit-mouse`, `block-hit-send`) and three support modules (`vape_teams`, `vape_hit_select`, `vape_block_hit`), all listed in the tables above. The header count at the top of this file predates both.

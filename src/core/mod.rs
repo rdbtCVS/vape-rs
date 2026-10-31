@@ -1,4 +1,6 @@
+pub mod anti_fireball_runtime;
 pub mod automation;
+pub mod combat_extra;
 pub mod combat_runtime;
 mod hud_extras;
 pub mod inventory_extra;
@@ -6,6 +8,7 @@ pub mod inventory_fill;
 pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
+pub mod modern_combat_runtime;
 pub mod movement_input;
 pub mod movement_runtime;
 pub mod profiles;
@@ -95,6 +98,9 @@ pub struct Runtime {
     aim_clock: Option<std::time::Instant>,
     trigger_bot: super::modules::combat::trigger_bot::TriggerBot,
     combat: combat_runtime::Combat,
+    combat_extra: combat_extra::State,
+    modern_combat: modern_combat_runtime::ModernCombat,
+    anti_fireball: super::modules::combat::anti_fireball::AntiFireball,
     velocity: super::modules::combat::velocity::Velocity,
     knockback: super::modules::combat::knockback::Knockback,
     backtrack: super::modules::blatant::backtrack::Backtrack,
@@ -372,6 +378,15 @@ impl Default for Runtime {
         for definition in combat_runtime::definitions() {
             settings.define(definition).unwrap();
         }
+        for definition in combat_extra::definitions() {
+            settings.define(definition).unwrap();
+        }
+        for definition in modern_combat_runtime::definitions() {
+            settings.define(definition).unwrap();
+        }
+        for definition in super::modules::combat::anti_fireball::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::combat::aim_assist::definitions() {
             settings.define(definition).unwrap();
         }
@@ -496,6 +511,8 @@ impl Default for Runtime {
             aim_clock: None,
             trigger_bot: Default::default(),
             combat: Default::default(),
+            modern_combat: Default::default(),
+            anti_fireball: Default::default(),
             velocity: Default::default(),
             knockback: Default::default(),
             backtrack: Default::default(),
@@ -509,6 +526,7 @@ impl Default for Runtime {
             outbound: Default::default(),
             no_slowdown: Default::default(),
             wtap: Default::default(),
+            combat_extra: Default::default(),
             sprint: Default::default(),
             anti_afk: Default::default(),
             speed: Default::default(),
@@ -555,6 +573,10 @@ impl Runtime {
             }
             return;
         }
+        // AntiFireball's `setEnabled` override (the silent return).
+        if module == ModuleId::AntiFireball && self.anti_fireball_set_enabled(enabled) {
+            return;
+        }
         if self.enabled(module) == enabled {
             return;
         }
@@ -590,6 +612,9 @@ impl Runtime {
         self.movement_toggled(module, enabled);
         if !enabled {
             self.combat_disabled(module);
+            self.combat_extra_disabled(module);
+            self.modern_combat_disabled(module);
+            self.anti_fireball_disabled(module);
         }
         if !enabled {
             match module {
@@ -1125,6 +1150,9 @@ impl Runtime {
     /// host action.
     fn reset_combat(&mut self) {
         self.combat_session_reset();
+        self.combat_extra_reset();
+        self.modern_combat_session_reset();
+        self.anti_fireball_session_reset();
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();
@@ -1622,7 +1650,7 @@ impl Runtime {
         let world = self.session.in_world();
         super::modules::blatant::outbound::Active {
             blink: world && self.enabled(ModuleId::Blink),
-            fake_lag: world && self.enabled(ModuleId::FakeLag),
+            fake_lag: world && self.enabled(ModuleId::FakeLag) && !self.fake_lag_yields(),
             no_item_release: world && self.enabled(ModuleId::NoItemRelease),
             potion_saver: world && self.enabled(ModuleId::PotionSaver),
         }
@@ -1642,7 +1670,11 @@ impl Runtime {
         let world = self.session.in_world();
         self.outbound
             .tick(&self.settings, active, world, target_hurt, queued);
-        self.outbound.take_flush()
+        self.outbound.take_flush() || self.fake_lag_flushes()
+    }
+    /// Repel flushes while BlockHit's Lag holds the claim; Blink keeps its own.
+    fn fake_lag_flushes(&self) -> bool {
+        self.fake_lag_yields() && !self.enabled(ModuleId::Blink)
     }
     /// The entity our last attack hit, whose hurt time Repel watches.
     pub fn outbound_target(&self) -> Option<i32> {
@@ -1654,7 +1686,7 @@ impl Runtime {
     }
     /// Whether a send just asked for every held packet to go.
     pub fn outbound_flush(&mut self) -> bool {
-        self.outbound.take_flush()
+        self.outbound.take_flush() || self.fake_lag_flushes()
     }
     /// AntiDebuff's effects to take off the local player this tick.
     pub fn anti_debuff(&self) -> Vec<&'static str> {
@@ -1731,7 +1763,7 @@ impl Runtime {
         super::modules::render::item_esp::labels(&self.settings, items)
     }
     /// The local friend (when "Use Friends" is on) and enemy name lists.
-    pub fn target_people(&self) -> super::targeting::filter::NameLists {
+    pub fn target_people(&self) -> super::modules::utility::target_filter::Targets {
         let names = |relation: &str| -> Vec<String> {
             self.document.0[relation]
                 .as_array()
@@ -1741,10 +1773,10 @@ impl Runtime {
                 .filter_map(|p| p["name"].as_str().map(str::to_owned))
                 .collect()
         };
-        super::targeting::filter::NameLists {
+        self.target_targets(super::targeting::filter::NameLists {
             friends: self.friend_keys(),
             enemies: names("enemies"),
-        }
+        })
     }
     /// Whether AimAssist needs a host snapshot this frame.
     pub fn aim_assist_active(&mut self) -> bool {
@@ -2387,7 +2419,15 @@ impl Runtime {
                 | ModuleId::SpawnerFinder
                 | ModuleId::MurderFinder
                 | ModuleId::PropHunt
-                | ModuleId::InventoryBlur => continue,
+                | ModuleId::InventoryBlur
+                | ModuleId::TargetFilter
+                | ModuleId::HitSelect
+                | ModuleId::BlockHit
+                | ModuleId::HitFlick
+                | ModuleId::HitSwap
+                | ModuleId::AutoMace
+                | ModuleId::ShieldBreaker
+                | ModuleId::AntiFireball => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

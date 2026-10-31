@@ -648,6 +648,126 @@ bindings = [
   { name = "m", ty = "&horizon_client::mobs::Mob", value = "m" },
 ]
 
+[[module]]
+id = "teams"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_teams"
+source = "teams.rs"
+
+# HitSelect: the click verdict before the host attacks (above remote-attack,
+# so a cancelled click skips it), and mode Normal's held-back use and block
+# hitting.
+[[module]]
+id = "hit-select"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_hit_select"
+source = "hit_select.rs"
+
+[[injection]]
+id = "hit-select-attack"
+target = "horizon_client::game::remote::Game<'_>::remote_start_attack"
+kind = "HEAD"
+cancellable = true
+priority = 110
+helper = "adapters/hit_select_attack.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "hit-select-use"
+target = "horizon_client::game::remote::Game<'_>::remote_use"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/hit_select_use.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "hit-select-continue-attack"
+target = "horizon_client::game::remote::Game<'_>::remote_continue_attack"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/hit_select_continue_attack.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+# BlockHit: the modes' use key, the cancelled use press under the binds,
+# Predict's damage notice (inbound-packet) and Lag's held release-use packet
+# below outbound-packet (LOWEST: what another hook held never reaches it).
+[[module]]
+id = "block-hit"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_block_hit"
+source = "block_hit.rs"
+
+[[injection]]
+id = "block-hit-mouse"
+target = "horizon_client::game::Game<'_>::play_mouse"
+kind = "HEAD"
+cancellable = true
+priority = 90
+helper = "adapters/block_hit_mouse.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "button", ty = "winit::event::MouseButton", value = "button" },
+  { name = "pressed", ty = "bool", value = "pressed" },
+]
+
+[[injection]]
+id = "block-hit-send"
+target = "horizon_client::game::remote::Game<'_>::send"
+kind = "HEAD"
+cancellable = true
+priority = 90
+helper = "adapters/block_hit_send.rs"
+bindings = [
+ { name = "game", ty = "&crate::game::Game<'_>", value = "self" },
+ { name = "packet", ty = "&horizon_protocol::packets::play::Serverbound", value = "&packet" },
+]
+
+# AutoTotem's silent open holds the attack, use and block-break clicks
+# (onClickMouse, onRightClickMouse, onSendClickBlock) on the remote paths.
+[[injection]]
+id = "auto-totem-attack"
+target = "horizon_client::game::remote::Game<'_>::remote_start_attack"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/auto_totem_attack.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "auto-totem-use"
+target = "horizon_client::game::remote::Game<'_>::remote_use"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/auto_totem_use.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "auto-totem-break"
+target = "horizon_client::game::remote::Game<'_>::remote_continue_attack"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/auto_totem_break.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "auto-heal-pre-motion"
+target = "horizon_client::game::remote::Game<'_>::remote_send_state"
+kind = "HEAD"
+helper = "adapters/auto_heal_pre_motion.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[injection]]
+id = "auto-heal-post-motion"
+target = "horizon_client::game::native_hooks::Game<'_>::native_tick"
+kind = "HEAD"
+helper = "adapters/auto_heal_post_motion.rs"
+bindings = [{ name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" }]
+
+[[module]]
+id = "modern-combat"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_modern_combat"
+source = "modern_combat.rs"
+
 # Target Info: `potsUsedStrip` counts heal potions used and thrown.
 [[injection]]
 id = "target-info-pot-use"

@@ -1,6 +1,8 @@
 // Click-planning helpers shared by the inventory arrangement planners. All
 // functions read one snapshot and return at most one next click; planners
 // re-plan from every new snapshot instead of replaying a queued script.
+use std::cmp::Ordering;
+
 use super::{
     rules::armor_slot_index,
     types::{ArmorSlot, Click, Item, Slot, SlotRole, Snapshot},
@@ -104,6 +106,43 @@ pub fn equip_next(snapshot: &Snapshot, origin: &mut Option<u16>) -> Option<(u16,
         });
     }
     None
+}
+
+/// `List.sort` as `TimSort` runs it on fewer than 32 elements: the leading
+/// run (reversed if descending), then binary insertion. A single chest
+/// (27 slots) always takes this path. For 32 or more, Java merges runs
+/// instead (and may give up midway on a non-transitive comparator); this
+/// keeps the insertion path there too.
+pub fn java_sort<T>(list: &mut [T], cmp: impl Fn(&T, &T) -> Ordering) {
+    let len = list.len();
+    if len < 2 {
+        return;
+    }
+    // `countRunAndMakeAscending`.
+    let mut run = 2;
+    if cmp(&list[1], &list[0]) == Ordering::Less {
+        while run < len && cmp(&list[run], &list[run - 1]) == Ordering::Less {
+            run += 1;
+        }
+        list[..run].reverse();
+    } else {
+        while run < len && cmp(&list[run], &list[run - 1]) != Ordering::Less {
+            run += 1;
+        }
+    }
+    // `binarySort`.
+    for start in run..len {
+        let (mut left, mut right) = (0, start);
+        while left < right {
+            let mid = (left + right) / 2;
+            if cmp(&list[start], &list[mid]) == Ordering::Less {
+                right = mid;
+            } else {
+                left = mid + 1;
+            }
+        }
+        list[left..=start].rotate_right(1);
+    }
 }
 
 #[cfg(test)]
