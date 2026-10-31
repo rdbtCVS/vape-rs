@@ -1,20 +1,19 @@
 // Runtime side of AutoPearl and PearlCatch: their state, the hotbar and
-// use claims a throw holds, the released silent aim returning the managed
-// rotation to the view, and the host's per-tick entry.
+// use claims a throw holds, and the host's per-tick entry.
 //
-// Both claim the shared rotation (priority 7) through the combat runtime,
-// so SilentAura stands down while a pearl aims and its managed-rotation
-// updates are skipped while a pearl controller drives that rotation.
+// Both claim the shared rotation (priority 7) and set their controllers on
+// the shared driver (`rotation_runtime`), which the host ticks before this
+// one, so SilentAura stands down while a pearl aims and a released silent
+// aim returns to the view on that driver.
 use super::super::actions::{Lease, Owner, Resource};
 use super::super::inventory::item_limit::HeldItem;
 use super::super::modules::utility::{
-    auto_pearl::{self, AutoPearl, Hit, Pearl, Person, Shared, State, drive_return},
+    auto_pearl::{self, AutoPearl, Hit, Pearl, Person, State},
     pearl_catch::{self, PearlCatch, Player},
-    pearl_rotation::{Controller, Frame},
 };
+use super::rotation_runtime::Shared;
 use super::settings::Definition;
 use super::{ModuleId, Runtime};
-use crate::modules::combat::rotation::{Claim, Managed};
 use std::time::Instant;
 
 const OWNERS: [Owner; 2] = [Owner(auto_pearl::ID), Owner(pearl_catch::ID)];
@@ -27,8 +26,6 @@ const PRIORITY: u16 = 150;
 pub struct Pearls {
     auto_pearl: AutoPearl,
     pearl_catch: PearlCatch,
-    /// A released silent aim still returning the managed rotation.
-    returning: Option<Controller>,
     leases: [Vec<Lease>; 2],
     /// `onEnable` ran for the module's current enable.
     started: [bool; 2],
@@ -41,7 +38,6 @@ impl Default for Pearls {
         Self {
             auto_pearl: AutoPearl::default(),
             pearl_catch: PearlCatch::default(),
-            returning: None,
             leases: [Vec::new(), Vec::new()],
             started: [false; 2],
             restore: None,
@@ -52,13 +48,6 @@ impl Default for Pearls {
 impl Pearls {
     fn now(&self, at: Instant) -> u64 {
         at.saturating_duration_since(self.origin).as_millis() as u64
-    }
-    /// A pearl controller turns the managed rotation this tick, so the
-    /// managed rotation's own updates must not run.
-    pub(super) fn drive_rotation(&self, claim: &Claim, managed: &Managed) -> bool {
-        (self.returning.is_some() && managed.active && managed.relative)
-            || self.auto_pearl.aiming_silently(claim)
-            || self.pearl_catch.aiming_silently(claim)
     }
 }
 
@@ -77,7 +66,7 @@ pub struct PearlInput<'a> {
     pub eye_height: f64,
     pub motion: [f64; 3],
     pub on_ground: bool,
-    /// The camera's rotation.
+    /// The camera's rotation, after the shared rotation's updates.
     pub view: (f32, f32),
     pub alive: bool,
     pub health: f32,
@@ -89,9 +78,6 @@ pub struct PearlInput<'a> {
     pub selected: u8,
     pub pearls: &'a [Pearl],
     pub people: &'a [Person],
-    pub sensitivity: f64,
-    pub screen: bool,
-    pub freecam: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -103,9 +89,7 @@ pub enum PearlAction {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PearlOutput {
-    /// The camera after a visible turn.
-    pub view: Option<(f32, f32)>,
-    /// In order, after the view.
+    /// In order.
     pub actions: Vec<PearlAction>,
 }
 
@@ -113,9 +97,7 @@ impl Runtime {
     /// The host should gather pearls and players this tick.
     pub fn pearls_wanted(&self) -> bool {
         self.session().in_world()
-            && (MODULES.iter().any(|m| self.enabled(*m))
-                || self.pearls.returning.is_some()
-                || self.pearls.restore.is_some())
+            && (MODULES.iter().any(|m| self.enabled(*m)) || self.pearls.restore.is_some())
     }
     /// `onPlayerUseItem` with an ender pearl.
     pub fn pearl_used(&mut self, at: Instant) {
@@ -134,20 +116,13 @@ impl Runtime {
         }
         let now = self.pearls.now(Instant::now());
         let p = &mut self.pearls;
-        let restore = self.combat.with_rotation(|claim, managed, yield_aura| {
-            let mut shared = Shared {
-                claim,
-                managed,
-                returning: &mut p.returning,
-                yield_aura,
-            };
-            if index == 0 {
-                p.auto_pearl.reset(&mut shared, now);
-                None
-            } else {
-                p.pearl_catch.disable(&mut shared)
-            }
-        });
+        let mut shared = Shared::of(&mut self.combat, &mut self.rotations);
+        let restore = if index == 0 {
+            p.auto_pearl.reset(&mut shared, now);
+            None
+        } else {
+            p.pearl_catch.disable(&mut shared)
+        };
         if restore.is_some() {
             self.pearls.restore = restore;
         }
@@ -158,7 +133,6 @@ impl Runtime {
         let p = &mut self.pearls;
         p.auto_pearl.session_reset();
         p.pearl_catch.session_reset();
-        p.returning = None;
         p.leases = [Vec::new(), Vec::new()];
         p.restore = None;
     }
@@ -199,7 +173,8 @@ impl Runtime {
         true
     }
 
-    /// One client tick: the returning aim, AutoPearl, then PearlCatch.
+    /// One client tick, after the shared rotation's: AutoPearl, then
+    /// PearlCatch.
     pub fn pearls_tick(
         &mut self,
         input: &PearlInput<'_>,
@@ -220,91 +195,62 @@ impl Runtime {
         if on[1] && !self.pearl_claims(1) {
             disable[1] = true;
         }
-        let frame = Frame {
-            view: input.view,
-            eye: [
-                input.position[0],
-                input.position[1] + input.eye_height,
-                input.position[2],
-            ],
-            sensitivity: input.sensitivity,
-            screen: input.screen,
-            freecam: input.freecam,
-        };
         let p = &mut self.pearls;
-        self.combat.with_rotation(|claim, managed, yield_aura| {
-            let mut shared = Shared {
-                claim,
-                managed,
-                returning: &mut p.returning,
-                yield_aura,
+        let mut shared = Shared::of(&mut self.combat, &mut self.rotations);
+        if on[0] {
+            if !p.started[0] {
+                p.started[0] = true;
+                p.auto_pearl.enabled(&auto_options, &mut shared, now);
+            }
+            let tick = auto_pearl::Tick {
+                now_ms: now,
+                position: input.position,
+                eye_height: input.eye_height,
+                view: input.view,
+                alive: input.alive,
+                health: input.health,
+                held: input.held.clone(),
+                held_pearl: input.held_pearl,
+                pearl_slot: input.pearl_slot,
+                selected: input.selected,
+                pearls: input.pearls,
+                people: input.people,
+                hotbar_free,
             };
-            drive_return(shared.returning, shared.managed, &frame);
-            if on[0] {
-                if !p.started[0] {
-                    p.started[0] = true;
-                    p.auto_pearl.enabled(&auto_options, &mut shared, now);
-                }
-                let tick = auto_pearl::Tick {
-                    now_ms: now,
-                    position: input.position,
-                    eye_height: input.eye_height,
-                    view: input.view,
-                    alive: input.alive,
-                    health: input.health,
-                    held: input.held.clone(),
-                    held_pearl: input.held_pearl,
-                    pearl_slot: input.pearl_slot,
-                    selected: input.selected,
-                    pearls: input.pearls,
-                    people: input.people,
-                    sensitivity: input.sensitivity,
-                    screen: input.screen,
-                    freecam: input.freecam,
-                    hotbar_free,
-                };
-                let fx = p.auto_pearl.tick(&auto_options, &tick, &mut shared, ray);
-                out.view = fx.view.or(out.view);
-                out.actions.extend(fx.select.map(PearlAction::Select));
-                out.actions.extend(fx.throw.map(PearlAction::Use));
-                disable[0] = fx.disable;
+            let fx = p.auto_pearl.tick(&auto_options, &tick, &mut shared, ray);
+            out.actions.extend(fx.select.map(PearlAction::Select));
+            out.actions.extend(fx.throw.map(PearlAction::Use));
+            disable[0] = fx.disable;
+        }
+        if on[1] && !disable[1] {
+            let player = Player {
+                position: input.position,
+                eye_height: input.eye_height,
+                motion: input.motion,
+                on_ground: input.on_ground,
+                view: input.view,
+            };
+            if !p.started[1] {
+                p.started[1] = true;
+                disable[1] = !p.pearl_catch.enable(
+                    &catch_options,
+                    &player,
+                    input.pearl_slot,
+                    input.charge_slot,
+                    input.selected,
+                    &mut shared,
+                );
             }
-            if on[1] && !disable[1] {
-                let player = Player {
-                    position: input.position,
-                    eye_height: input.eye_height,
-                    motion: input.motion,
-                    on_ground: input.on_ground,
-                    view: out.view.unwrap_or(input.view),
-                };
-                if !p.started[1] {
-                    p.started[1] = true;
-                    disable[1] = !p.pearl_catch.enable(
-                        &catch_options,
-                        &player,
-                        input.pearl_slot,
-                        input.charge_slot,
-                        input.selected,
-                        &mut shared,
-                    );
+            if !disable[1] {
+                let tick = pearl_catch::Tick { player };
+                let fx = p.pearl_catch.tick(&catch_options, &tick, &mut shared);
+                if let Some((slot, rotation)) = fx.throw {
+                    out.actions.push(PearlAction::Select(slot));
+                    out.actions.push(PearlAction::Use(rotation));
                 }
-                if !disable[1] {
-                    let tick = pearl_catch::Tick {
-                        player,
-                        sensitivity: input.sensitivity,
-                        screen: input.screen,
-                        freecam: input.freecam,
-                    };
-                    let fx = p.pearl_catch.tick(&catch_options, &tick, &mut shared);
-                    out.view = fx.view.or(out.view);
-                    if let Some((slot, rotation)) = fx.throw {
-                        out.actions.push(PearlAction::Select(slot));
-                        out.actions.push(PearlAction::Use(rotation));
-                    }
-                    disable[1] = fx.disable;
-                }
+                disable[1] = fx.disable;
             }
-        });
+        }
         if !matches!(
             self.pearls.auto_pearl.state(),
             State::PendingThrow | State::PendingReset
@@ -352,10 +298,21 @@ mod tests {
             selected: 0,
             pearls,
             people,
-            sensitivity: 0.5,
-            screen: false,
-            freecam: false,
         }
+    }
+    /// The host's order: the shared rotation's updates, then the pearls.
+    fn step(
+        runtime: &mut Runtime,
+        view: &mut (f32, f32),
+        at: Instant,
+        pearls: &[Pearl],
+        people: &[Person],
+    ) -> PearlOutput {
+        runtime.rotation_eye([0.0, 65.62, 0.0]);
+        if let Some([yaw, pitch]) = runtime.rotation_tick(*view, 0.5, true) {
+            *view = (yaw, pitch);
+        }
+        runtime.pearls_tick(&input(at, *view, pearls, people), &mut floor)
     }
     fn floor(a: [f64; 3], b: [f64; 3]) -> Option<Hit> {
         if b[1] > 64.0 || a[1] < 64.0 {
@@ -385,9 +342,8 @@ mod tests {
         let mut view = (0.0, 0.0);
         let mut actions = Vec::new();
         for tick in 0..80 {
-            let i = input(t + Duration::from_millis(50 * tick), view, &[], &[]);
-            let out = runtime.pearls_tick(&i, &mut floor);
-            view = out.view.unwrap_or(view);
+            let at = t + Duration::from_millis(50 * tick);
+            let out = step(&mut runtime, &mut view, at, &[], &[]);
             actions.extend(out.actions);
             if !runtime.enabled(ModuleId::PearlCatch) {
                 break;
@@ -406,6 +362,13 @@ mod tests {
         let epoch = runtime.session.epoch();
         assert!(!runtime.actions.claimed(Resource::Hotbar, epoch));
         assert!(runtime.combat.claim.owner().is_none());
+        // The released silent aim returns to the view on the shared driver.
+        assert!(runtime.combat.managed.relative);
+        for _ in 0..40 {
+            runtime.rotation_tick(view, 0.5, true);
+        }
+        assert!(!runtime.combat.managed.active);
+        assert_eq!(runtime.rotations.silent_owner(), None);
     }
 
     #[test]
@@ -451,7 +414,7 @@ mod tests {
         let t = Instant::now();
         let mut view = (0.0, 0.0);
         // Primed without the pearl, then it appears.
-        runtime.pearls_tick(&input(t, view, &[], &people), &mut floor);
+        step(&mut runtime, &mut view, t, &[], &people);
         let epoch = runtime.session.epoch();
         let blocker = runtime
             .actions
@@ -463,9 +426,8 @@ mod tests {
             if tick == 20 {
                 runtime.actions.release(blocker);
             }
-            let i = input(t + Duration::from_millis(50 * tick), view, &pearls, &people);
-            let out = runtime.pearls_tick(&i, &mut floor);
-            view = out.view.unwrap_or(view);
+            let at = t + Duration::from_millis(50 * tick);
+            let out = step(&mut runtime, &mut view, at, &pearls, &people);
             if tick < 20 {
                 assert!(out.actions.is_empty(), "tick {tick}: {:?}", out.actions);
             }

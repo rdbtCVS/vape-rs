@@ -11,6 +11,5 @@ pub mod inv_cleaner;
 pub mod inventory_guard;
 pub mod inventory_manager;
 pub mod pearl_catch;
-pub mod pearl_rotation;
 pub mod refill;
 pub mod throw_items;

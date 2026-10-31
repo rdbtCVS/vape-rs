@@ -3,7 +3,7 @@
 use super::super::modules::combat::{
     keep_sprint::{self, KeepSprint},
     kill_aura::{self, KillAura},
-    rotation::{Claim, Managed, UPDATES_PER_TICK},
+    rotation::{Claim, Claimant, Managed, UPDATES_PER_TICK},
     silent_aura::{self, Click, SilentAura},
 };
 use super::settings::Definition;
@@ -104,9 +104,13 @@ impl Runtime {
         let distance = c.silent_aura.distance_to_target(tick);
         let aura = &mut c.silent_aura;
         let view = (tick.player.yaw, tick.player.pitch);
-        // AutoPearl and PearlCatch drive the managed rotation themselves.
-        let pearls = self.pearls.drive_rotation(&c.claim, &c.managed);
-        if !pearls
+        // Another owner's silent rotation (still its own, or returning) is
+        // stepped by `rotation_runtime`.
+        let driven = c.managed.active
+            && self.rotations.silent_owner().is_some_and(|o| {
+                o != Claimant::SilentAura && (c.claim.owned_by(o) || c.managed.relative)
+            });
+        if !driven
             && c.managed
                 .tick(view, tick.sensitivity, UPDATES_PER_TICK, || {
                     aura.step(&options, distance)
@@ -134,19 +138,5 @@ impl Runtime {
         }
         let options = keep_sprint::Options::read(&self.settings);
         self.combat.keep_sprint.post_attack(&options, hit)
-    }
-}
-
-impl Combat {
-    /// The shared claim and managed rotation for another rotation owner,
-    /// with how to make SilentAura stand down when it takes them.
-    pub(super) fn with_rotation<R>(
-        &mut self,
-        f: impl FnOnce(&mut Claim, &mut Managed, &mut dyn FnMut(&mut Claim, &mut Managed)) -> R,
-    ) -> R {
-        let aura = &mut self.silent_aura;
-        f(&mut self.claim, &mut self.managed, &mut |claim, managed| {
-            aura.reset(claim, managed)
-        })
     }
 }

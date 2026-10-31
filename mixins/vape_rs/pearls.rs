@@ -7,7 +7,7 @@ use crate::game::vape_rs::core::pearl_runtime::{PearlAction, PearlInput};
 use crate::game::vape_rs::core::with_client;
 use crate::game::vape_rs::modules::utility::auto_pearl::{Hit, Pearl, Person};
 use crate::game::vape_rs::targeting::entities::EntityClass;
-use crate::game::{Game, Screen};
+use crate::game::Game;
 use horizon_client::projectiles::{ProjectileKind, ProjectileWorld};
 use horizon_core::geometry::Vec3;
 use std::time::Instant;
@@ -114,9 +114,6 @@ pub fn tick(game: &mut Game<'_>) {
         selected: game.selected as u8,
         pearls: &pearls,
         people: &people,
-        sensitivity: game.settings.sensitivity,
-        screen: game.screen != Screen::Playing || game.title.is_some() || game.dialog_open(),
-        freecam: false,
     };
     let base = game.mob_world_base(&[]);
     let world = crate::game::creatures::ProjWorld { w: &base, targets: Vec::new() };
@@ -126,10 +123,6 @@ pub fn tick(game: &mut Game<'_>) {
             .map(|(at, _, _)| Hit { position: [at.x, at.y, at.z], water: false })
     };
     let out = with_client(&client, |r| r.pearls_tick(&input, &mut ray));
-    if let Some((yaw, pitch)) = out.view {
-        game.yaw = yaw;
-        game.pitch = pitch;
-    }
     for action in out.actions {
         match action {
             PearlAction::Select(slot) => {

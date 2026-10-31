@@ -9,11 +9,11 @@
 // rotation and the delay. Each rotation claims the shared rotation
 // (priority 7) and turns there before the throw; the module disables after
 // the charge, restoring the slot it started on. A stage that is not reached
-// within 40 ticks aborts.
+// within 40 ticks aborts. The turns run on the shared rotation driver
+// (`rotation_runtime`).
+use super::super::super::core::rotation_runtime::{Shared, Silent};
 use super::super::super::core::settings::{Definition, Settings};
-use super::super::combat::rotation::{Claim, Claimant, direction, wrap};
-use super::auto_pearl::{Shared, drive};
-use super::pearl_rotation::{Controller, Frame, Options as Aim, Target};
+use super::super::combat::rotation::{Claimant, Fixed, Step, direction, wrap};
 use serde_json::Value;
 
 pub const ID: &str = "utility.pearl-catch";
@@ -57,18 +57,40 @@ impl Options {
             charge_delay: number("charge-delay", 0.0) as i32,
         }
     }
-    /// `setRotation`'s controller settings.
-    fn aim(&self) -> Aim {
-        Aim {
-            speed: self.aim_speed,
-            tolerance: 0.35,
-            clamp: true,
-            proportional: true,
-            linear: true,
-            retain: true,
-            ..Aim::default()
+    /// `setRotation`'s controller: adaptive with silent aim, else a
+    /// `FixedRotationController`; both clamp, scale their axes, accelerate
+    /// linearly and stay once complete (an adaptive one always does).
+    fn controller(&self, (yaw, pitch): (f32, f32)) -> Aim {
+        if self.silent {
+            Aim::Silent(Silent {
+                target: (yaw, pitch),
+                step: Step {
+                    counts: f64::from(self.aim_speed) * 0.25,
+                    clamp: true,
+                    proportional: true,
+                    linear: true,
+                },
+                tolerance: AIM_TOLERANCE,
+            })
+        } else {
+            let mut fixed = Fixed::new([yaw, pitch], self.aim_speed);
+            fixed.tolerance = AIM_TOLERANCE;
+            fixed.clamp = true;
+            fixed.scale_axes = true;
+            fixed.linear_acceleration = true;
+            fixed.retain = true;
+            Aim::Visible(fixed)
         }
     }
+}
+
+const AIM_TOLERANCE: f32 = 0.35;
+
+/// A built controller, set as the manager's once the claim is held.
+#[derive(Clone, Debug, PartialEq)]
+enum Aim {
+    Silent(Silent),
+    Visible(Fixed),
 }
 
 /// The local player as the plan sees it.
@@ -253,31 +275,15 @@ pub enum State {
     Finished,
 }
 
-/// One tick's inputs.
+/// One tick's inputs, after the rotation manager's updates turned the
+/// view.
 pub struct Tick {
     pub player: Player,
-    pub sensitivity: f64,
-    pub screen: bool,
-    pub freecam: bool,
-}
-impl Tick {
-    fn frame(&self) -> Frame {
-        let p = &self.player;
-        Frame {
-            view: p.view,
-            eye: [p.position[0], p.position[1] + p.eye_height, p.position[2]],
-            sensitivity: self.sensitivity,
-            screen: self.screen,
-            freecam: self.freecam,
-        }
-    }
 }
 
 /// What the host does this tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Effects {
-    /// The camera after a visible turn.
-    pub view: Option<(f32, f32)>,
     /// Select this slot and use it once; with silent aim, at this managed
     /// rotation.
     pub throw: Option<(u8, Option<(f32, f32)>)>,
@@ -287,7 +293,7 @@ pub struct Effects {
 #[derive(Debug, Default)]
 pub struct PearlCatch {
     state: State,
-    controller: Option<Controller>,
+    controller: Option<Aim>,
     /// The controller is the manager's active one.
     active: bool,
     plan: Option<Plan>,
@@ -296,17 +302,11 @@ pub struct PearlCatch {
     saved_slot: Option<u8>,
     state_ticks: i32,
     ticks_since_pearl: i32,
-    seed: u64,
 }
 
 impl PearlCatch {
     pub fn state(&self) -> State {
         self.state
-    }
-    pub fn aiming_silently(&self, claim: &Claim) -> bool {
-        self.active
-            && claim.owned_by(Claimant::PearlCatch)
-            && self.controller.as_ref().is_some_and(|c| c.silent)
     }
     /// `onEnable`: false when it cannot start (it then disables at once).
     pub fn enable(
@@ -344,86 +344,64 @@ impl PearlCatch {
     pub fn disable(&mut self, shared: &mut Shared<'_>) -> Option<u8> {
         self.release_rotation(shared);
         let saved = self.saved_slot.take();
-        *self = Self {
-            seed: self.seed,
-            ..Self::default()
-        };
+        *self = Self::default();
         saved
     }
     /// A world change: the session reset has already cleared the shared
     /// rotation.
     pub fn session_reset(&mut self) {
-        *self = Self {
-            seed: self.seed,
-            ..Self::default()
-        };
+        *self = Self::default();
     }
 
+    /// `setRotation`: a new controller, set at once while the claim is
+    /// held (else by `isRotationReady`).
     fn set_rotation(
         &mut self,
         o: &Options,
-        (yaw, pitch): (f32, f32),
+        rotation: (f32, f32),
         view: (f32, f32),
         shared: &mut Shared<'_>,
     ) {
-        self.seed = self
-            .seed
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        self.controller = Some(Controller::new(
-            o.aim(),
-            o.silent,
-            Target::Rotation(yaw, pitch),
-            self.seed,
-        ));
+        self.controller = Some(o.controller(rotation));
         self.active = false;
-        if shared.claim.owned_by(Claimant::PearlCatch) {
-            shared.set_controller(o.silent, view);
-            self.active = true;
+        if shared.owned_by(Claimant::PearlCatch) {
+            self.install(view, shared);
         }
     }
-    fn release_rotation(&mut self, shared: &mut Shared<'_>) {
-        if self.active
-            && shared.claim.owned_by(Claimant::PearlCatch)
-            && let Some(controller) = self.controller.take()
-        {
-            shared.release_controller(controller);
+    fn install(&mut self, view: (f32, f32), shared: &mut Shared<'_>) {
+        match self.controller.clone() {
+            Some(Aim::Silent(silent)) => shared.silent(Claimant::PearlCatch, view, silent),
+            Some(Aim::Visible(fixed)) => shared.visible(Claimant::PearlCatch, fixed),
+            None => return,
         }
+        self.active = true;
+    }
+    fn release_rotation(&mut self, shared: &mut Shared<'_>) {
+        if self.active && shared.owned_by(Claimant::PearlCatch) {
+            shared.release_controller(Claimant::PearlCatch);
+        }
+        self.controller = None;
         self.active = false;
         shared.claim.release(Claimant::PearlCatch);
     }
     /// `hasRotationControl`.
     fn has_control(&self, o: &Options, shared: &mut Shared<'_>) -> bool {
-        shared.claim.owned_by(Claimant::PearlCatch)
-            || shared
-                .claim
-                .acquire(Claimant::PearlCatch, o.silent, shared.managed.relative)
+        shared.claim(Claimant::PearlCatch, o.silent)
     }
     /// `isRotationReady`.
     fn ready(&mut self, view: (f32, f32), shared: &mut Shared<'_>) -> bool {
-        let Some(controller) = self.controller.as_ref() else {
-            return false;
-        };
-        if !shared.claim.owned_by(Claimant::PearlCatch) {
+        if self.controller.is_none() || !shared.owned_by(Claimant::PearlCatch) {
             return false;
         }
         if !self.active {
-            shared.set_controller(controller.silent, view);
-            self.active = true;
+            self.install(view, shared);
         }
-        controller.complete()
+        shared.complete(Claimant::PearlCatch)
     }
 
-    /// The manager's updates for the active turn (its render frames run
-    /// before the client tick), then `onTick` on the turned view.
+    /// `onTick`, after the rotation manager's updates turned the view.
     pub fn tick(&mut self, o: &Options, t: &Tick, shared: &mut Shared<'_>) -> Effects {
         let mut fx = Effects::default();
-        if self.active
-            && shared.claim.owned_by(Claimant::PearlCatch)
-            && let Some(controller) = self.controller.as_mut()
-        {
-            fx.view = drive(controller, shared.managed, &t.frame());
-        }
         let Some(plan) = self.plan else {
             fx.disable = true;
             return fx;
@@ -436,7 +414,7 @@ impl PearlCatch {
             fx.disable = true;
             return fx;
         }
-        let view = fx.view.unwrap_or(t.player.view);
+        let view = t.player.view;
         match self.state {
             State::AimingPearl => {
                 if self.has_control(o, shared) && self.ready(view, shared) {
@@ -485,8 +463,8 @@ impl PearlCatch {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::combat::rotation::Managed;
-    use super::super::auto_pearl::drive_return;
+    use super::super::super::super::core::rotation_runtime::Rotations;
+    use super::super::super::combat::rotation::{Claim, Managed};
     use super::*;
 
     fn player(view: (f32, f32)) -> Player {
@@ -531,56 +509,53 @@ mod tests {
         assert!(plan.miss_squared <= MAX_INTERCEPT_DISTANCE_SQUARED);
     }
 
+    #[derive(Default)]
     struct World {
         claim: Claim,
         managed: Managed,
-        returning: Option<Controller>,
+        rotations: Rotations,
+        view: (f32, f32),
     }
     impl World {
-        fn new() -> Self {
-            Self {
-                claim: Claim::default(),
-                managed: Managed::default(),
-                returning: None,
-            }
-        }
-        fn with<R>(&mut self, f: impl FnOnce(&mut Shared<'_>) -> R) -> R {
-            let mut nothing = |_: &mut Claim, _: &mut Managed| {};
-            let mut shared = Shared {
+        fn shared(&mut self) -> Shared<'_> {
+            Shared {
                 claim: &mut self.claim,
                 managed: &mut self.managed,
-                returning: &mut self.returning,
-                yield_aura: &mut nothing,
-            };
-            f(&mut shared)
+                rotations: &mut self.rotations,
+            }
         }
-    }
-    fn tick(view: (f32, f32)) -> Tick {
-        Tick {
-            player: player(view),
-            sensitivity: 0.5,
-            screen: false,
-            freecam: false,
+        /// The manager's updates (render frames before the client tick),
+        /// then `onTick` on the turned view.
+        fn drive(&mut self) {
+            let view = self.view;
+            if let Some([yaw, pitch]) = self.shared().tick(view, 0.5, true) {
+                self.view = (yaw, pitch);
+            }
+        }
+        fn run(&mut self, c: &mut PearlCatch, o: &Options) -> Effects {
+            self.drive();
+            let t = Tick {
+                player: player(self.view),
+            };
+            c.tick(o, &t, &mut self.shared())
         }
     }
 
     #[test]
     fn visible_catch_throws_the_pearl_then_the_charge() {
         let o = options(false, false);
-        let mut w = World::new();
+        let mut w = World {
+            view: (30.0, 0.0),
+            ..World::default()
+        };
         let mut c = PearlCatch::default();
-        let start = (30.0, 0.0);
-        assert!(w.with(|s| c.enable(&o, &player(start), Some(2), Some(3), 0, s)));
-        let mut view = start;
+        assert!(c.enable(&o, &player(w.view), Some(2), Some(3), 0, &mut w.shared()));
         let mut throws = Vec::new();
         for _ in 0..60 {
-            let fx = w.with(|s| c.tick(&o, &tick(view), s));
-            if let Some(v) = fx.view {
-                view = v;
-            }
+            let fx = w.run(&mut c, &o);
             if let Some((slot, rotation)) = fx.throw {
                 assert_eq!(rotation, None);
-                throws.push((slot, view));
+                throws.push((slot, w.view));
             }
             if fx.disable {
                 break;
@@ -592,21 +567,25 @@ mod tests {
         assert_eq!(throws[1].0, 3);
         assert!(throws[1].1.1 <= -85.0, "{throws:?}");
         assert_eq!(c.state(), State::Finished);
-        assert_eq!(w.with(|s| c.disable(s)), Some(0));
+        assert_eq!(c.disable(&mut w.shared()), Some(0));
         assert_eq!(w.claim.owner(), None);
+        assert!(!w.shared().active(Claimant::PearlCatch));
     }
 
     #[test]
     fn silent_catch_uses_the_managed_rotation_and_returns_it() {
         let o = options(true, true);
-        let mut w = World::new();
-        let mut c = PearlCatch::default();
         let view = (0.0, -30.0);
-        assert!(w.with(|s| c.enable(&o, &player(view), Some(2), Some(3), 5, s)));
+        let mut w = World {
+            view,
+            ..World::default()
+        };
+        let mut c = PearlCatch::default();
+        assert!(c.enable(&o, &player(view), Some(2), Some(3), 5, &mut w.shared()));
         let mut throws = Vec::new();
         for _ in 0..60 {
-            let fx = w.with(|s| c.tick(&o, &tick(view), s));
-            assert_eq!(fx.view, None);
+            let fx = w.run(&mut c, &o);
+            assert_eq!(w.view, view);
             if let Some((slot, rotation)) = fx.throw {
                 throws.push((slot, rotation.expect("managed")));
             }
@@ -620,26 +599,32 @@ mod tests {
             (charge.0 - 0.0).abs() < 1.0 && (charge.1 + 30.0).abs() < 1.0,
             "{throws:?}"
         );
-        assert_eq!(w.with(|s| c.disable(s)), Some(5));
-        assert!(w.managed.relative && w.returning.is_some());
+        assert_eq!(c.disable(&mut w.shared()), Some(5));
+        assert!(w.managed.relative && w.shared().active(Claimant::PearlCatch));
         for _ in 0..40 {
-            let frame = tick(view).frame();
-            drive_return(&mut w.returning, &mut w.managed, &frame);
+            w.drive();
         }
-        assert!(!w.managed.active && w.returning.is_none());
+        assert!(!w.managed.active && !w.shared().active(Claimant::PearlCatch));
     }
 
     #[test]
     fn missing_items_or_a_held_claim_abort() {
         let o = options(false, false);
-        let mut w = World::new();
+        let mut w = World::default();
         let mut c = PearlCatch::default();
-        assert!(!w.with(|s| c.enable(&o, &player((0.0, 0.0)), Some(2), None, 0, s)));
+        assert!(!c.enable(&o, &player((0.0, 0.0)), Some(2), None, 0, &mut w.shared()));
         assert!(w.claim.try_claim(Claimant::AutoTotem));
-        assert!(w.with(|s| c.enable(&o, &player((0.0, 0.0)), Some(2), Some(3), 0, s)));
+        assert!(c.enable(
+            &o,
+            &player((0.0, 0.0)),
+            Some(2),
+            Some(3),
+            0,
+            &mut w.shared()
+        ));
         let mut disabled = false;
         for _ in 0..41 {
-            disabled |= w.with(|s| c.tick(&o, &tick((0.0, 0.0)), s)).disable;
+            disabled |= w.run(&mut c, &o).disable;
         }
         assert!(disabled && c.state() == State::AimingPearl);
         assert!(w.claim.owned_by(Claimant::AutoTotem));

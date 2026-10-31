@@ -1,5 +1,5 @@
-// Host side of the movement/world modules (Scaffold Legit, InvWalk,
-// WindCharge, NoFall's jump release). It sits under game/remote.rs so the
+// Host side of the movement/world modules (the shared rotation manager,
+// Scaffold Legit, InvWalk, WindCharge, NoFall's jump release). It sits under game/remote.rs so the
 // remote use path, the open menu id and the physical keys are reachable.
 use crate::game::Game;
 use crate::game::vape_rs::core::movement_input::{Axis, HostView, Owner, Request};
@@ -102,8 +102,18 @@ pub(crate) fn tick(game: &mut Game<'_>) {
         return;
     }
     let client = game.__horizon_mixins_vape_rs_client().clone();
-    // InvWalk.
     let (gui_open, capturing) = with_client(&client, |runtime| (runtime.gui.open, runtime.gui.capturing()));
+    // The shared rotation manager (`RotationManager.onTick`): a visible
+    // controller turns the view; it waits while a screen is open.
+    let no_screen = matches!(game.screen, crate::game::Screen::Playing) && !gui_open;
+    let sensitivity = f64::from(game.settings.sensitivity);
+    let view = (game.yaw, game.pitch);
+    if let Some(p) = game.player.as_ref() { let eye = [p.position.x, p.position.y + f64::from(p.dimensions.eye_height), p.position.z]; with_client(&client, |runtime| runtime.rotation_eye(eye)); }
+    if let Some([yaw, pitch]) = with_client(&client, |runtime| runtime.rotation_tick(view, sensitivity, no_screen)) {
+        game.yaw = yaw;
+        game.pitch = pitch;
+    }
+    // InvWalk.
     let screen = inv_walk_screen(game, gui_open, capturing);
     let options = with_client(&client, |runtime| runtime.inv_walk(screen));
     let keys = options.map(|o| {
@@ -151,7 +161,6 @@ fn wind_charge_tick(game: &mut Game<'_>, client: &crate::game::vape_rs::core::Cl
         selected: game.selected,
         on_ground: player.ground.on_ground,
         view: [game.yaw, game.pitch],
-        sensitivity: game.settings.sensitivity,
     };
     let alive = player.health.health() > 0.0;
     let actions = with_client(client, |runtime| runtime.wind_charge_tick(&tick));
@@ -160,15 +169,9 @@ fn wind_charge_tick(game: &mut Game<'_>, client: &crate::game::vape_rs::core::Cl
             game.selected = slot;
         }
     }
-    if let Some([yaw, pitch]) = actions.rotation
-        && !actions.silent
-    {
-        game.yaw = yaw;
-        game.pitch = pitch;
-    }
     if actions.throw && game.remote.is_some() {
-        // Silent aim: the throw (UseItem carries the rotation) and its
-        // crosshair use the managed rotation; the camera stays.
+        // The throw (UseItem carries the rotation) and its crosshair use the
+        // managed rotation; with silent aim the camera stays.
         let view = (game.yaw, game.pitch);
         if let Some([yaw, pitch]) = actions.rotation {
             game.yaw = yaw;

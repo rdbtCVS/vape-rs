@@ -1,11 +1,14 @@
 // WindCharge (reference `WindCharge`, Category.UTILITY): on enable, with a
 // wind charge in the hotbar and standing on the ground, it selects the
-// charge, turns the pitch down to 90 (the yaw is left alone), throws once the
-// turn completes (or the pitch passes 80), jumps the next tick, then restores
-// the slot and disables itself. "Silent aim" keeps the camera still: the
-// throw carries the managed rotation instead.
+// charge, claims the shared rotation (priority 6) and turns the pitch down
+// to 90 (the yaw is left alone), throws once the turn completes (or the
+// managed pitch passes 80), jumps the next tick, then releases the rotation,
+// restores the slot and disables itself. "Silent aim" uses the silent
+// managed rotation (and may preempt a lower owner); otherwise a visible
+// controller turns the camera.
+use super::super::super::core::rotation_runtime::{Shared, Silent};
 use super::super::super::core::settings::{Definition, Settings};
-use super::rotation::{Controller, UNSET};
+use super::super::combat::rotation::{Claimant, Fixed, Step, UNSET};
 use serde_json::Value;
 
 pub const ID: &str = "utility.wind-charge";
@@ -47,14 +50,13 @@ pub struct Tick {
     pub on_ground: bool,
     /// The camera rotation `[yaw, pitch]`.
     pub view: [f32; 2],
-    pub sensitivity: f32,
 }
 
 /// What the host does this tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Actions {
     pub select: Option<usize>,
-    /// The rotation to use: the camera's own unless silent.
+    /// The throw's rotation (`getManagedYaw/Pitch`).
     pub rotation: Option<[f32; 2]>,
     pub silent: bool,
     /// Use the held item once, at `rotation`.
@@ -66,19 +68,25 @@ pub struct Actions {
     pub refused: Option<&'static str>,
 }
 
+const WHO: Claimant = Claimant::WindCharge;
+
 #[derive(Debug, Default)]
 pub struct WindCharge {
     stage: Option<Stage>,
     previous_slot: usize,
-    controller: Option<Controller>,
-    managed: [f32; 2],
+    /// `rotationController != null`.
+    controller: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
+    /// State 0: select the charge and claim the rotation.
     Select,
+    /// State 1: wait for the turn.
     Aim,
+    /// State 2: jump.
     Jump,
+    /// State -1: release, restore, disable.
     Finish,
 }
 
@@ -90,7 +98,14 @@ impl WindCharge {
     pub fn restore_slot(&self) -> Option<usize> {
         self.stage.map(|_| self.previous_slot)
     }
-    pub fn tick(&mut self, o: &Options, t: &Tick) -> Actions {
+    /// `releaseRotation`, from `onDisable` too.
+    pub fn release(&mut self, rotation: &mut Shared) {
+        if self.controller {
+            rotation.release(WHO);
+        }
+        self.controller = false;
+    }
+    pub fn tick(&mut self, o: &Options, t: &Tick, rotation: &mut Shared) -> Actions {
         let mut out = Actions {
             silent: o.silent,
             ..Default::default()
@@ -98,40 +113,70 @@ impl WindCharge {
         if self.stage.is_none() {
             // `onEnable`.
             match t.charge_slot {
-                Some(slot) if t.on_ground => {
+                Some(_) if t.on_ground => {
                     self.previous_slot = t.selected;
                     self.stage = Some(Stage::Select);
-                    self.managed = t.view;
-                    return self.run(o, t, slot, out);
                 }
                 Some(_) => out.refused = Some("you must be on the ground"),
                 None => out.refused = Some("no wind charge in your hotbar"),
             }
-            out.disable = true;
-            return out;
+            if self.stage.is_none() {
+                out.disable = true;
+                return out;
+            }
         }
-        let slot = t.charge_slot.unwrap_or(t.selected);
-        self.run(o, t, slot, out)
-    }
-
-    fn run(&mut self, o: &Options, t: &Tick, slot: usize, mut out: Actions) -> Actions {
+        let view = (t.view[0], t.view[1]);
         match self.stage.unwrap_or(Stage::Finish) {
             Stage::Select => {
+                let Some(slot) = t.charge_slot.filter(|_| t.on_ground) else {
+                    return out;
+                };
                 out.select = Some(slot);
-                let mut c = Controller::new([UNSET, 90.0], o.aim_speed as i32 as f32, o.silent);
-                c.tolerance = 5.0;
-                c.linear_acceleration = true;
-                c.scale_axes = false;
-                self.controller = Some(c);
+                if !rotation.claim(WHO, o.silent) {
+                    return out;
+                }
+                let speed = o.aim_speed as i32;
+                if o.silent {
+                    // `AdaptiveRotationController(-999, 90)`.
+                    rotation.silent(
+                        WHO,
+                        view,
+                        Silent {
+                            target: (UNSET, 90.0),
+                            step: Step {
+                                counts: f64::from(speed) * 0.25,
+                                clamp: false,
+                                proportional: false,
+                                linear: true,
+                            },
+                            tolerance: 5.0,
+                        },
+                    );
+                } else {
+                    let mut fixed = Fixed::new([UNSET, 90.0], speed as f32);
+                    fixed.scale_axes = false;
+                    fixed.linear_acceleration = true;
+                    fixed.tolerance = 5.0;
+                    rotation.visible(WHO, fixed);
+                }
+                self.controller = true;
                 self.stage = Some(Stage::Aim);
-                self.aim(o, t, &mut out);
             }
-            Stage::Aim => self.aim(o, t, &mut out),
+            Stage::Aim if !self.controller => self.stage = Some(Stage::Finish),
+            Stage::Aim => {
+                let managed = rotation.managed(view);
+                if rotation.complete(WHO) || managed.1 > 80.0 {
+                    out.throw = true;
+                    out.rotation = Some([managed.0, managed.1]);
+                    self.stage = Some(Stage::Jump);
+                }
+            }
             Stage::Jump => {
                 out.jump = true;
                 self.stage = Some(Stage::Finish);
             }
             Stage::Finish => {
+                self.release(rotation);
                 out.select = Some(self.previous_slot);
                 out.disable = true;
                 self.reset();
@@ -139,24 +184,11 @@ impl WindCharge {
         }
         out
     }
-
-    fn aim(&mut self, o: &Options, t: &Tick, out: &mut Actions) {
-        let Some(c) = self.controller.as_mut() else {
-            return;
-        };
-        let from = if o.silent { self.managed } else { t.view };
-        let to = c.tick(from, t.sensitivity);
-        self.managed = to;
-        out.rotation = Some(to);
-        if c.complete() || to[1] > 80.0 {
-            out.throw = true;
-            self.stage = Some(Stage::Jump);
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::super::core::Runtime;
     use super::*;
 
     fn tick(view: [f32; 2]) -> Tick {
@@ -165,36 +197,77 @@ mod tests {
             selected: 1,
             on_ground: true,
             view,
-            sensitivity: 0.5,
         }
+    }
+
+    fn run(wc: &mut WindCharge, o: &Options, r: &mut Runtime, view: [f32; 2]) -> Actions {
+        // The rotation manager ticks before the module (client tick HEAD).
+        let turned = r.rotation_tick((view[0], view[1]), 0.5, true);
+        let mut t = tick(turned.unwrap_or(view));
+        t.view = turned.unwrap_or(view);
+        wc.tick(o, &t, &mut r.rotation())
     }
 
     #[test]
     fn selects_aims_down_throws_jumps_and_restores() {
+        for silent in [true, false] {
+            let o = Options {
+                aim_speed: 7.0,
+                silent,
+            };
+            let mut r = Runtime::default();
+            let mut wc = WindCharge::default();
+            let mut view = [30.0, 0.0];
+            let first = run(&mut wc, &o, &mut r, view);
+            assert_eq!(first.select, Some(4));
+            assert!(r.rotation().owned_by(WHO));
+            let mut ticks = 1;
+            let thrown = loop {
+                if let Some(turned) = r.rotation_tick((view[0], view[1]), 0.5, true) {
+                    view = turned;
+                }
+                let a = wc.tick(&o, &tick(view), &mut r.rotation());
+                ticks += 1;
+                assert!(ticks < 10, "never threw");
+                if a.throw {
+                    break a;
+                }
+            };
+            let rotation = thrown.rotation.unwrap();
+            assert_eq!(rotation[0], 30.0);
+            assert!(rotation[1] > 80.0);
+            // Silent aim leaves the camera; visible aim turned it.
+            assert_eq!(view[1] > 80.0, !silent);
+            let jump = run(&mut wc, &o, &mut r, view);
+            assert!(jump.jump && !jump.disable);
+            let done = run(&mut wc, &o, &mut r, view);
+            assert_eq!(done.select, Some(1));
+            assert!(done.disable);
+            assert_eq!(r.rotation().claim.owner(), None);
+        }
+    }
+
+    #[test]
+    fn waits_for_a_higher_owner_and_preempts_only_when_silent() {
+        let mut r = Runtime::default();
+        assert!(r.rotation().claim(Claimant::Mlg, false));
+        let mut wc = WindCharge::default();
         let o = Options {
             aim_speed: 7.0,
             silent: true,
         };
-        let mut wc = WindCharge::default();
-        let first = wc.tick(&o, &tick([30.0, 0.0]));
-        assert_eq!(first.select, Some(4));
-        let mut thrown = first.throw;
-        let mut rotation = first.rotation.unwrap();
-        let mut ticks = 1;
-        while !thrown {
-            let a = wc.tick(&o, &tick([30.0, 0.0]));
-            rotation = a.rotation.unwrap();
-            thrown = a.throw;
-            ticks += 1;
-            assert!(ticks < 10, "never threw");
+        // Mlg outranks WindCharge: it keeps selecting and waits.
+        for _ in 0..3 {
+            let a = run(&mut wc, &o, &mut r, [0.0, 0.0]);
+            assert_eq!(a.select, Some(4));
+            assert!(!a.throw && !a.disable);
         }
-        assert_eq!(rotation[0], 30.0);
-        assert!(rotation[1] > 80.0);
-        let jump = wc.tick(&o, &tick([30.0, 0.0]));
-        assert!(jump.jump && !jump.disable);
-        let done = wc.tick(&o, &tick([30.0, 0.0]));
-        assert_eq!(done.select, Some(1));
-        assert!(done.disable);
+        r.rotation().release(Claimant::Mlg);
+        let a = run(&mut wc, &o, &mut r, [0.0, 0.0]);
+        assert_eq!(a.select, Some(4));
+        assert!(r.rotation().owned_by(WHO));
+        // SilentAura (5) cannot take it back.
+        assert!(!r.rotation().claim(Claimant::SilentAura, true));
     }
 
     #[test]
@@ -203,13 +276,14 @@ mod tests {
             aim_speed: 7.0,
             silent: false,
         };
+        let mut r = Runtime::default();
         let mut wc = WindCharge::default();
         let mut t = tick([0.0, 0.0]);
         t.on_ground = false;
-        assert!(wc.tick(&o, &t).disable);
+        assert!(wc.tick(&o, &t, &mut r.rotation()).disable);
         t.charge_slot = None;
         t.on_ground = true;
-        let a = wc.tick(&o, &t);
+        let a = wc.tick(&o, &t, &mut r.rotation());
         assert!(a.disable && a.refused.is_some());
     }
 }
