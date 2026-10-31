@@ -1,11 +1,12 @@
 // Trajectories: the predicted flight of the held bow, throwable or trident,
 // drawn through walls with the shared `world::predict` integrator. Launch
 // speeds and gravity are the modern items' (`BowItem`, `SnowballItem`,
-// `ThrowablePotionItem`, `ExperienceBottleItem`, `TridentItem`); the shooter's
-// own motion is not added yet.
+// `ThrowablePotionItem`, `ExperienceBottleItem`, `TridentItem`,
+// `CrossbowItem`), and the shooter's known movement is added as
+// `Projectile.shootFromRotation` does (its vertical part only off the ground).
 use super::super::super::core::settings::{Definition, Kind, Settings};
 use super::super::super::targeting::entities::EntityView;
-use super::world::{Impact, ImpactKind, Line, Point, outline_box, predict};
+use super::world::{Impact, ImpactKind, Line, Point, outline_box, predict_with_drag};
 use serde_json::{Value, json};
 
 pub const ID: &str = "render.trajectories";
@@ -44,6 +45,34 @@ pub struct Launch {
     pub speed: f64,
     pub gravity: f64,
     pub pitch_offset: f32,
+    /// The per-tick velocity factor (0.99 in air; 1.0 for a firework).
+    pub drag: f64,
+    /// Ticks simulated (a firework's flight is short-lived).
+    pub steps: usize,
+    /// The shooter's movement added to the launch velocity.
+    pub shooter: [f64; 3],
+}
+
+/// What a held crossbow is loaded with (`charged_projectiles`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Loaded {
+    #[default]
+    Empty,
+    Arrow,
+    Firework,
+}
+
+impl Launch {
+    /// Adds the shooter's known movement, its vertical part only while
+    /// airborne (`Projectile.shootFromRotation`).
+    pub fn with_shooter(mut self, movement: [f64; 3], on_ground: bool) -> Self {
+        self.shooter = [
+            movement[0],
+            if on_ground { 0.0 } else { movement[1] },
+            movement[2],
+        ];
+        self
+    }
 }
 
 /// `BowItem.getPowerForTime`.
@@ -55,12 +84,24 @@ fn bow_power(ticks: u32) -> f64 {
 /// The launch for `item` used for `use_ticks` (None when not in use). A
 /// bow needs at least 0.1 power, as `BowItem.releaseUsing`; "Ghost Bow
 /// Charge" shows a full-power shot while the bow is not drawn.
-pub fn launch(item: &str, use_ticks: Option<u32>, ghost_bow: bool) -> Option<Launch> {
+/// A crossbow shoots only when loaded: an arrow at 3.15, a firework at
+/// 1.6 in a straight line (`CrossbowItem.getShootingPower`,
+/// `FireworkRocketEntity` shot at an angle); "Ghost Bow Charge" shows an
+/// unloaded crossbow's arrow, as the reference does.
+pub fn launch(
+    item: &str,
+    use_ticks: Option<u32>,
+    ghost_bow: bool,
+    loaded: Loaded,
+) -> Option<Launch> {
     let item = item.trim_start_matches("minecraft:");
     let throw = |speed, gravity, pitch_offset| Launch {
         speed,
         gravity,
         pitch_offset,
+        drag: f64::from(0.99_f32),
+        steps: 300,
+        shooter: [0.0; 3],
     };
     Some(match item {
         "bow" => {
@@ -74,6 +115,16 @@ pub fn launch(item: &str, use_ticks: Option<u32>, ghost_bow: bool) -> Option<Lau
             }
             throw(power * 3.0, 0.05, 0.0)
         }
+        "crossbow" => match loaded {
+            Loaded::Arrow => throw(3.15, 0.05, 0.0),
+            Loaded::Firework => Launch {
+                drag: 1.0,
+                steps: 40,
+                ..throw(1.6, 0.0, 0.0)
+            },
+            Loaded::Empty if ghost_bow => throw(3.15, 0.05, 0.0),
+            Loaded::Empty => return None,
+        },
         "snowball" | "egg" | "ender_pearl" => throw(1.5, 0.03, 0.0),
         "splash_potion" | "lingering_potion" => throw(0.5, 0.05, -20.0),
         "experience_bottle" => throw(0.7, 0.07, -20.0),
@@ -132,37 +183,45 @@ pub fn lines(
     );
     let direction = [-y.sin() * p.cos(), -p.sin(), y.cos() * p.cos()];
     let start = Point([eye[0], eye[1] - 0.1, eye[2]]);
-    let velocity = direction.map(|d| d * launch.speed);
+    let velocity: [f64; 3] =
+        std::array::from_fn(|i| direction[i] * launch.speed + launch.shooter[i]);
     let mut struck = None;
-    let prediction = predict(start, velocity, launch.gravity, 300, |a, b| {
-        let block_hit = block(a.0, b.0);
-        let limit = block_hit.map_or(1.0, |hit| {
-            let full = super::super::super::targeting::entities::distance(a.0, b.0);
-            if full < 1e-9 {
-                0.0
-            } else {
-                super::super::super::targeting::entities::distance(a.0, hit) / full
-            }
-        });
-        let nearest = entities
-            .iter()
-            .filter(|e| e.alive())
-            .filter_map(|e| entity_hit(a.0, b.0, e).map(|t| (t, e)))
-            .filter(|(t, _)| *t <= limit)
-            .min_by(|x, y| x.0.total_cmp(&y.0));
-        if let Some((t, e)) = nearest {
-            struck = Some(e.bounds);
-            let at = [0, 1, 2].map(|i| a.0[i] + (b.0[i] - a.0[i]) * t);
-            return Some(Impact {
-                position: Point(at),
-                kind: ImpactKind::Entity,
+    let prediction = predict_with_drag(
+        start,
+        velocity,
+        launch.gravity,
+        launch.drag,
+        launch.steps,
+        |a, b| {
+            let block_hit = block(a.0, b.0);
+            let limit = block_hit.map_or(1.0, |hit| {
+                let full = super::super::super::targeting::entities::distance(a.0, b.0);
+                if full < 1e-9 {
+                    0.0
+                } else {
+                    super::super::super::targeting::entities::distance(a.0, hit) / full
+                }
             });
-        }
-        block_hit.map(|at| Impact {
-            position: Point(at),
-            kind: ImpactKind::Block,
-        })
-    });
+            let nearest = entities
+                .iter()
+                .filter(|e| e.alive())
+                .filter_map(|e| entity_hit(a.0, b.0, e).map(|t| (t, e)))
+                .filter(|(t, _)| *t <= limit)
+                .min_by(|x, y| x.0.total_cmp(&y.0));
+            if let Some((t, e)) = nearest {
+                struck = Some(e.bounds);
+                let at = [0, 1, 2].map(|i| a.0[i] + (b.0[i] - a.0[i]) * t);
+                return Some(Impact {
+                    position: Point(at),
+                    kind: ImpactKind::Entity,
+                });
+            }
+            block_hit.map(|at| Impact {
+                position: Point(at),
+                kind: ImpactKind::Block,
+            })
+        },
+    );
     let on_entity = matches!(
         prediction.impact,
         Some(Impact {
@@ -201,6 +260,37 @@ pub fn lines(
             Point([x + 0.15, y + 0.15, z + 0.15]),
             path,
             1.5,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crossbows_shoot_only_when_loaded() {
+        assert_eq!(
+            launch("minecraft:crossbow", None, false, Loaded::Empty),
+            None
+        );
+        let arrow = launch("minecraft:crossbow", None, false, Loaded::Arrow).unwrap();
+        assert!((arrow.speed - 3.15).abs() < 1e-9 && arrow.gravity == 0.05);
+        let rocket = launch("crossbow", None, false, Loaded::Firework).unwrap();
+        assert!(rocket.gravity == 0.0 && rocket.drag == 1.0 && rocket.steps == 40);
+        assert!(launch("crossbow", None, true, Loaded::Empty).is_some());
+    }
+
+    #[test]
+    fn shooter_motion_drops_vertical_on_ground() {
+        let l = launch("snowball", None, false, Loaded::Empty).unwrap();
+        assert_eq!(
+            l.with_shooter([0.2, -0.08, 0.1], true).shooter,
+            [0.2, 0.0, 0.1]
+        );
+        assert_eq!(
+            l.with_shooter([0.2, 0.3, 0.1], false).shooter,
+            [0.2, 0.3, 0.1]
         );
     }
 }

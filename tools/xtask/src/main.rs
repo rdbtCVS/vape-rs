@@ -503,7 +503,13 @@ fn audit(root: &Path) -> Result<()> {
         }
         let name = syn::parse_str::<syn::Ident>(string(planned, "name")?)?;
         let items = source.items;
-        let wrapper: syn::File = syn::parse2(quote!(pub(crate) mod #name { #(#items)* }))?;
+        let visibility =
+            if declaration.get("visibility").and_then(toml::Value::as_str) == Some("pub") {
+                quote!(pub)
+            } else {
+                quote!(pub(crate))
+            };
+        let wrapper: syn::File = syn::parse2(quote!(#visibility mod #name { #(#items)* }))?;
         let item = syn::parse_file(&prettyplease::unparse(&wrapper))?
             .items
             .remove(0);

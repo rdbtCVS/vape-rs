@@ -100,6 +100,13 @@ registry! {
     KnockbackDelay => "combat.knockback-delay", "KnockbackDelay", "Utility", None, [];
     Backtrack => "blatant.backtrack", "BackTrack", "Utility", None, [];
     AntiDebuff => "render.anti-debuff", "AntiDebuff", "Render", None, [];
+    Health => "render.health", "Health", "Render", None, [];
+    Arrows => "render.arrows", "Arrows", "Render", None, [];
+    Explosions => "render.explosions", "Explosions", "Render", None, [];
+    Search => "render.search", "Search", "Render", None, [];
+    SpawnerFinder => "render.spawner-finder", "SpawnerFinder", "Render", None, [];
+    MurderFinder => "render.murder-finder", "MurdererFinder", "World", None, [];
+    PropHunt => "render.prop-hunt", "PropHunt", "World", None, [];
 }
 
 impl ModuleId {

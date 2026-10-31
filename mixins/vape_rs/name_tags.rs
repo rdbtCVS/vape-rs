@@ -59,6 +59,7 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
         let world = game.mob_world_base(&[]);
         let eye = horizon_core::geometry::Vec3::new(feet.x, feet.y + f64::from(player.dimensions.eye_height), feet.z);
         let players = game.other_players();
+        let tab = crate::game::remote::vape_remote_tab::players(game);
         for m in game.mobs.iter().filter(|m| m.alive()) {
             let name = players.iter().find(|(p, _)| p.id == m.id).map(|(_, n)| n.clone());
             let class = if name.is_some() {
@@ -83,7 +84,7 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
                 invisible: m.invisible || m.has_effect("minecraft:invisibility"),
                 visible: world.line_of_sight(eye, head),
                 bot: false,
-                creative: false,
+                creative: tab.iter().any(|t| i64::from(t.0) == m.id as i64 && t.1 == 1),
                 threat: score(e.main_hand.as_deref(), false) + worn.iter().map(|w| score(*w, true)).sum::<f64>(),
             };
             let Some(tag) = with_client(&client, |runtime| runtime.name_tag(&subject, own_threat)) else {
@@ -135,6 +136,38 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
     out
 }
 
+/// StorageESP's (and later modules') filled through-wall quads, in the
+/// see-through name tag pass as name tag backgrounds are: the HUD atlas's
+/// white texel, unlit, tinted.
+fn world_quads(
+    game: &Game<'_>,
+    client: &crate::game::vape_rs::core::Client,
+    camera: glam::DVec3,
+    alpha: f64,
+    see_through: &mut Vec<Vertex>,
+) {
+    let storage = crate::game::fishing::vape_world_lines::storage_blocks(game, alpha as f32);
+    let tnts = crate::game::fishing::vape_world_lines::tnts(game, alpha);
+    let props = crate::game::fishing::vape_world_lines::falling_blocks(game, alpha);
+    let quads = with_client(client, |runtime| runtime.world_quads(&storage, &tnts, &props, alpha as f32));
+    if quads.is_empty() {
+        return;
+    }
+    let mut white = horizon_client::hud::HudBatch::new([1, 1]);
+    white.fill(&game.gui.atlas, 0.0, 0.0, 1.0, 1.0, 0);
+    let Some(uv) = white.vertices.first().map(|v| v.uv) else {
+        return;
+    };
+    for q in quads {
+        let c = q.color;
+        let color = (c & 0xff00_ff00) | ((c & 0x00ff_0000) >> 16) | ((c & 0x0000_00ff) << 16);
+        for corner in q.corners {
+            let at = glam::DVec3::from_array(corner.0) - camera;
+            see_through.push(Vertex { normal: [0; 4], pos: at.as_vec3().to_array(), uv, layer: 2, color, light: 0, glint_uv: [0.0, 0.0] });
+        }
+    }
+}
+
 /// `name_tag_geometry` HEAD: NameTags' and ItemESP's tags over everything,
 /// and, while NameTags renders players, the host's other tags without the
 /// players' (the rest of the host body, unchanged).
@@ -146,6 +179,9 @@ pub(crate) fn geometry(
     see_through: &mut Vec<Vertex>,
 ) -> ControlFlow<()> {
     let client = game.__horizon_mixins_vape_rs_client().clone();
+    if with_client(&client, |runtime| runtime.world_quads_active()) {
+        world_quads(game, &client, camera, alpha, see_through);
+    }
     let (tags_on, items_on, replace) = with_client(&client, |runtime| {
         let (t, i) = runtime.world_tag_sources();
         (t, i, runtime.name_tags_replace_players())

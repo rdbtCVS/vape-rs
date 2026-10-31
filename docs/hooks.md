@@ -1,6 +1,6 @@
 # Native hook catalogue (development)
 
-Current audited configuration: **33 hooks (32 HEAD + 1 MODIFY_ARG), 18 support modules, no owned state**. Horizon `8f91f896a5d47d034318569940e775d8bd854bd6` (main, 2026-10-31); published, unpatched horizon-mixins main `07dab17387480ac03829584d9d1ee9912c9bb515`, the pin the `.hnmod` names.
+Current audited configuration: **38 hooks (37 HEAD + 1 MODIFY_ARG), 25 support modules, no owned state**. Horizon `8f91f896a5d47d034318569940e775d8bd854bd6` (main, 2026-10-31); published, unpatched horizon-mixins main `07dab17387480ac03829584d9d1ee9912c9bb515`, the pin the `.hnmod` names.
 
 The manifest is authoritative for exact targets and bindings. All targets resolve against the committed pristine export under target; neither adjacent checkout is modified. The audit removes exactly the declared helpers and modules, rejects any owned state, then checks that the original host AST and other source hashes are restored. Runtime compilation and actual gameplay evidence are separate checks.
 
@@ -37,6 +37,8 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `world-lines-hook` | `horizon_client::game::fishing::Game<'_>::fishing_line` | Cancellable HEAD. Preserves fishing lines and adds StorageESP, ESP (3D), Tracers and Trajectories lines from the runtime's `world_lines`, marked (negative width) for the always-on-top pass. |
 | `name-tags-hook` | `horizon_client::game::names::Game<'_>::name_tag_geometry` | Cancellable HEAD (support module `vape_name_tags` in `game/names.rs`, so it reuses the private `name_tags`/`name_tag_quads`). Adds NameTags and ItemESP tags to the see-through set, scaled about the camera. While NameTags renders players it replays the host body without other players' tags and cancels; otherwise it continues into the host body. |
 | `outbound-packet` | `horizon_client::game::remote::Game<'_>::send` | Cancellable HEAD (support module `vape_packets` in `game/remote.rs`). Classifies the serverbound packet (movement, attack with the target's hurt time, release-use-item) and drops it (NoItemRelease, PotionSaver), holds a clone with a due time (Blink, FakeLag) or continues. Held packets are released in order from the send and from the client tick hook straight to the session, bypassing the hook; the tick also sends Regen's packets. Remote servers only; `net.rs` ClientTickEnd bypasses it. |
+| `overlay-hook` | `horizon_client::game::fov::Game<'_>::draw_spyglass` | HEAD (support module `vape_overlay` in `game/fov.rs`, which reaches the private FOV, bob and spin matrices). Builds the frame projection from the gizmos camera and paints the screen-space render modules (ESP 2D, Health, Arrows, NameTags equipment row, SpawnerFinder, MurdererFinder) into the HUD batch under the host HUD. |
+| `esp-outline-hook` | `horizon_client::game::glowing::Game<'_>::mob_outline` | Cancellable HEAD (support module `vape_esp_outline` in `game/glowing.rs`). In ESP Outline mode it returns the ESP colour for shown players through the host's glowing-outline pass; otherwise it continues into the host body. |
 | `on-top-hook` | `horizon_client::gizmos::camera_relative` | Cancellable HEAD. Moves marked lines from the frame's depth-tested set to its always-on-top set, so StorageESP shows through walls. |
 | `entity-pick` | `horizon_client::game::Game<'_>::mob_hit` | Cancellable HEAD. Reach and HitBoxes replicate the host pick with a longer ray and inflated boxes; creative, serving and dedicated keep the host pick. Uses `try_with_client` so a held runtime lock falls through. |
 | `remote-attack` | `horizon_client::game::remote::Game<'_>::remote_start_attack` | Reach's post-attack bookkeeping on the remote (and single-player) path; `auto-tool-attack` covers the local path. |
@@ -69,6 +71,9 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_motion_flags` | `crates/horizon-client/src/motion.rs` | `mixins/vape_rs/motion_flags.rs` |
 | `vape_movement` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/movement.rs` |
 | `vape_smooth_text` | `crates/horizon-client/src/ui_theme.rs` | `mixins/vape_rs/smooth_text.rs` |
+| `vape_overlay` | `crates/horizon-client/src/game/fov.rs` | `mixins/vape_rs/overlay.rs` |
+| `vape_remote_tab` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/remote_tab.rs` |
+| `vape_esp_outline` | `crates/horizon-client/src/game/glowing.rs` | `mixins/vape_rs/esp_outline.rs` |
 
 The runtime source is deterministically expanded from src/lib.rs. The published tool can't add a field to `Game<'_>`, so `vape_client_owner` keeps one Arc<Mutex<Runtime>> per thread behind the same `__horizon_mixins_vape_rs_client` accessor. Only the window thread's client Game uses it; hooks return before using it on a server or dedicated Game, and that thread drops its unused runtime when it ends. Adapters release runtime borrows before calling host actions. Session generations invalidate stale entity, slot, container and hook observations. Transient state never enters local profiles.
 

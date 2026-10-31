@@ -78,3 +78,11 @@
 - **Pinned to Horizon main `8f91f896a`** (2,292 commits after `cc7bcbf`; Minecraft 26.3 / protocol 777 unchanged) and **published horizon-mixins main `0e9229d`** (0.6.0: named hooks, bundle crates/data, post-build steps; unpatched), at the user's request. Still an untagged main commit; choose a tagged release before a public build.
 - **Drift:** `game/mod_input.rs` was deleted with the Wasm code mods (hashed, never hooked; hash dropped). `name_tag_quads` gained a `unit` argument, which the NameTags copy now passes. All 36 hook targets resolved unchanged.
 - **KeepSprint is unblocked:** Horizon #3251 applies the attacker's 0.6 speed cut and sprint stop on the remote attack path (`attack_strength::ATTACKER_SLOWDOWN`), which the module can now change.
+
+## 2026-10-31: render worker
+
+- **Trajectories follow vanilla where the reference differs.** Shooter motion is added as in `shootFromRotation` (the reference omits it). A crossbow arrow flies at 3.15 (the reference uses about 3.0). Multishot side arrows are not drawn.
+- **Search** keeps the reference's block list and colours but not its per-block tracer toggle; one tracers setting covers all entries.
+- **MurdererFinder and PropHunt are in World**, because the GUI has no Minigames frame. The MurdererFinder callout is blocked: there is no chat-send path. PropHunt drops the reference's 0..256 y bound (worlds go from -64 to 320).
+- **SpawnerFinder's label** sits at y-0.25 inside the block, as in the reference.
+- **Limits recorded as open:** skeleton ESP needs bone poses that the host does not expose. Equipment items draw without enchantment glint. Arrows draws a filled triangle. The Explosions fill draws through walls. XRay and Chams are blocked: they need chunk-mesher and entity-render hooks that the pinned host does not offer, so they are not worked around.
