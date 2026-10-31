@@ -1038,3 +1038,16 @@ Validation:
   - AutoTotem (random slot): one of two main-inventory totems moved to the offhand and the screen returned to playing.
 - AutoFish recovery has no scenario yet; it stays integrated.
 - Validation on worker/inventory (main 604d679 already merged): `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` clean; `cargo test --workspace --locked --offline` 140 lib + 3 integration passed; `cargo run -p xtask --locked --offline -- payload-test` 140 passed.
+
+## 2026-10-31: validation — merged main, verification
+
+worker/validation was merged with main, which brings the inventory worker's
+arrangement planners, use sequences and Refill extras. After the merge:
+
+- `cargo fmt --check`, `clippy -D warnings` and `cargo test` pass
+  (140 + 3 tests).
+- `xtask payload-test`, `stage` and the host `check` against Horizon
+  8f91f896a pass. The audit restores the original AST after removing 36 hooks
+  and 22 support modules.
+- The Refill run above was made before the merge. Main's Refill extras are
+  covered by the inventory worker's own scenarios.
