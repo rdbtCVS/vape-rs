@@ -106,6 +106,7 @@ pub struct Runtime {
     outbound: super::modules::blatant::outbound::Outbound,
     no_slowdown: super::modules::blatant::no_slowdown::NoSlowdown,
     wtap: super::modules::combat::wtap::WTap,
+    sprint: super::modules::combat::sprint::Sprint,
     anti_afk: super::modules::world::anti_afk::AntiAfk,
     speed: super::modules::blatant::speed::State,
     long_jump: super::modules::blatant::long_jump::State,
@@ -500,6 +501,7 @@ impl Default for Runtime {
             outbound: Default::default(),
             no_slowdown: Default::default(),
             wtap: Default::default(),
+            sprint: Default::default(),
             anti_afk: Default::default(),
             speed: Default::default(),
             long_jump: Default::default(),
@@ -601,6 +603,7 @@ impl Runtime {
                 ModuleId::NoFall => self.no_fall.reset(),
                 ModuleId::NoSlowdown => self.no_slowdown.reset(),
                 ModuleId::WTap => self.wtap.reset(),
+                ModuleId::Sprint => self.sprint.reset(),
                 ModuleId::AntiAfk => self.anti_afk.reset(),
                 ModuleId::Speed => self.speed.reset(),
                 ModuleId::LongJump => self.long_jump.reset(),
@@ -1387,6 +1390,28 @@ impl Runtime {
         let now = self.now_ms();
         self.wtap
             .tick(&options, now, screen || !self.session.interactive())
+    }
+    /// Sprint's pre-entity update: whether the latched sprint press is held.
+    /// `again` (the writer re-run after an attack in the same tick) reuses
+    /// this tick's decision.
+    pub fn sprint_press(
+        &mut self,
+        tick: &super::modules::combat::sprint::Tick,
+        again: bool,
+    ) -> bool {
+        if !self.enabled(ModuleId::Sprint) {
+            self.sprint.reset();
+            return false;
+        }
+        if again {
+            return self.sprint.latched();
+        }
+        let cancel_invis = self
+            .settings
+            .get("combat.sprint.cancel-invis")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        self.sprint.tick(cancel_invis, tick)
     }
     pub fn anti_afk_tick(
         &mut self,

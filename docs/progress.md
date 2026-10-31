@@ -1410,3 +1410,72 @@ Every other number and random range the audit can parse matches the reference.
 Current report: 26 missing settings on integrated rows, all routed (3 are SilentAura's excluded AI settings). Plus 2 missing on the blocked Reach row, 2 range differences (AutoArmor Delay, Text GUI Scale), 1 default difference (AutoArmor Delay) and 9 values hidden in the reference. The validated count is 57 and integrated is 39.
 
 Tests: `settings_dump` passes (1/1, 645 definitions).
+
+## 2026-10-31: clicker and movement debt (worker round 3)
+
+Worker clicker-movement-debt, branch t3/63456628 from main 4ff7488. This round closes the scenario debt on LeftClicker modes, TriggerBot, Sprint, Velocity and SafeWalk, with LAN runs on two owned local processes. It also ports Sprint's reference latch.
+
+Changed files:
+- src/modules/combat/sprint.rs (new): the reference `Sprint.onPreEntityUpdate` latch, with 4 unit tests. The press is made only while the key is up, the player is not sprinting and not collided horizontally. It stays down until disable, a screen, or the user's own key release. Cancel Invis is gated on `allowFlying` (may fly). Cancel Invis and the movement-input claim only skip new presses.
+- src/core/mod.rs: the `sprint` state, its reset on disable, and `Runtime::sprint_press` (append-only). src/modules/combat/mod.rs: `pub mod sprint;`.
+- mixins/vape_rs/input_delays.rs: `resolve_movement` builds the Sprint tick from host state (sprinting, horizontal collision, invisibility, may fly). Before, it pressed every active tick.
+- mixins/vape_rs/combat.rs: the LAN host's snapshot of each guest takes `blocking` from the server's model of the guest, so Shield check works against guests. It used to be always false.
+- src/modules/combat/click_timing.rs: Normal stores its 1000/CPS delay as the last delay (reference).
+- New scenarios:
+  - tools/clicker_modes_scenario.py
+  - tools/trigger_bot_options_scenario.py
+  - tools/trigger_bot_lan_scenario.py
+  - tools/velocity_lan_scenario.py
+  - tools/sprint_safe_walk_lan_scenario.py
+
+Scenarios (fresh isolated homes through native_session.py, HORIZON_SERVER_THREAD=1). Every run used one build: bundle 792ed691e319, built after the last source edit from 4ff7488 plus these changes, Horizon 8f91f89, mixins 0e9229d, fast profile.
+
+- **clicker_modes: 18/18.** Integrated server, 10 CPS on a NoAI, Invulnerable cow for 30 s each, server TPS 20.
+  - Normal: 9.79 CPS, gaps {1:2, 2:284, 3:15} ticks.
+  - Extra: 9.45 CPS, 31 long gaps against Normal's 15.
+  - Extra+: 10.73 CPS, with 112 under-interval gaps.
+- **trigger_bot_options: 19/19.**
+  - Defaults hit at full strength with no air attack.
+  - Miss chance 100 gives one air attack per click. Early chance 100 hits at scale 0.92.
+  - Limit to items (swords): no hit with dirt.
+  - Select first hit: 0 hits while waiting, 4 after being hurt, 0 after a second looking away.
+- **trigger_bot_lan: 34/34.** Host world opened to LAN plus a guest client; both players have shields.
+  - Host TriggerBot: 12 hits on the open guest. While the server sees the guest's shield in use: 0 hits and 0 swings, and a physical click is fully blocked. 12 hits once the shield is lowered.
+  - Guest TriggerBot, Shield check off: 12 hits on the raised shield, each blocked.
+  - Guest TriggerBot, Shield check on: 0 hits and 0 swings behind the shield, 12 once lowered.
+  - Select first hit: no hit until the host's click, then 8 hits back, none after looking away.
+- **velocity_lan: 26/26.** Guest Velocity against the remote server's SetEntityMotion and the Explode knockback.
+  - Off: pushes of 0.99 and 2.38 blocks. On: both cancelled.
+  - Only when targeting: follows the reference, including the `applyBridgeVelocity` explosion quirk.
+  - Kite 200%: 1.99 and 4.77 blocks. Always Kite: doubled while facing.
+- **sprint_safe_walk_lan: 42/42.**
+  - Sprint on host and guest: 5.51 b/s against a 4.32 b/s walk. A pause menu releases the key, and it is pressed again after resuming. Disable releases it. Cancel Invis blocks sprinting in invisible survival but allows it in invisible creative.
+  - Guest SafeWalk: held at both edges without sneaking, Direction Check lets a forward walk off, and after a rejoin with it off a forward walk is held.
+
+Feature ids (ledger update target/ledger-updates/clicker-movement-debt.json; evidence docs/evidence/clicker-movement-debt-r3-*):
+- module.leftclicker.mode.normal and .extra: implemented-core → validated.
+- module.triggerbot, module.sprint, module.velocity, module.safewalk: integrated → validated.
+- module.backtrackpacketstate, module.backtrackpacketreplaystate, module.backtrackpacketqueueentry: not-started → validated. These helpers follow module.backtrack (docs/evidence/validation-hold.json); see decisions.md.
+- module.autoclickerentitypositionstate: stays not-started. Only Reach's Misplace uses it, and Misplace is unported (Reach is blocked and in combat-b's scope).
+
+Gates:
+- `cargo fmt --all --check`: clean.
+- Clippy `-D warnings` (workspace, all targets): clean.
+- `cargo test --workspace`: 198 lib, 1 settings_dump, 4 xtask and 0 doc tests, all passing.
+- `xtask payload-test`: 198/198.
+- `xtask stage`: the audit restored the original AST after removing exactly 43 hooks and 29 support modules.
+- `xtask check` on the pin, under the shared lock: the same 43 hooks and 29 support modules, 68 warnings, 0 errors.
+- `xtask build` (fast): 68 warnings, 0 errors, bundle 792ed691e319. That is the bundle every scenario above ran on.
+- `settings_parity.py`: no entries for these rows.
+- No new hooks.
+
+Failures on the way, all fixed in the scenarios:
+- Velocity needs `mob_attack` damage, because `generic` gives no knockback. The players must stand off-axis because of the reference's yaw-to quirk.
+- The SUN_LEN socket path limit needs short session prefixes.
+- `looking_at` lists mobs only.
+- The host's hurt-log entry carries its profile name, not "host".
+
+Limits and next steps:
+- TriggerBot's ShieldBreaker, HitSwap and AutoMace bypasses need those combat-b modules.
+- Sprint's movement-input lock needs Scaffold Blatant/Telly.
+- AutoClickerEntityPositionState follows Reach Misplace.
