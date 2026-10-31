@@ -170,3 +170,24 @@
 - **HUD icons are geometry, not the reference textures.** Armor Status's shield and broken bar and the compass arrow are drawn from the reference textures' shapes (rects, triangles and a fan), because Vape's PNGs are not shipped. Piece and effect icons are the host's own item and effect sprites.
 - **The Vape GUI-scale factor is 1.** Panel sizes come only from each module's Scale setting, in the host's GUI units, so they follow the host's GUI scale like the vanilla HUD.
 - **The foreground colour tints what the reference tints.** It applies to the text the reference draws in the editor foreground colour and to the compass arrow; tick marks, divider lines and the biome and durability colours keep the reference's fixed colours.
+
+## 2026-10-31: modern-item combat (combat-b, worker round 2)
+
+- **HitSwap, AutoMace and ShieldBreaker share one synthetic-attack dispatch.** It follows the reference handler order. Each module's own synthetic attacks pass the others (`Source::ShieldBreaker`, `Source::HitSwap`, `Source::AutoMace(true)`). TriggerBot's and the AutoClicker's presses go through `vape_modern_combat::request`, so a swap can cancel or carry them.
+- **The swap and the hit share a server tick.** HitSwap's and Stun slam's hit is sent in the same client tick as the slot change. The host server then credits the guest's last-tick weapon, as vanilla does. The LAN scenario records this rather than hiding it.
+- **AutoMace's Aim, Silent aim and Elytra settings exist but do nothing.** The reference predicts the fall by ticking a copy of the local player. Pin 8f91f89 only steps the live player (with world, sound and stat side effects), so module.automacerotationcontroller is blocked. Nothing is faked.
+- **TriggerBot's bypasses are wired.**
+  - `canBypassCooldown`: a ready AutoMace smash, HitSwap's mace swap, or a held mace with HitSwap off.
+  - The Shield check exemption: ShieldBreaker or HitSwap has an axe, or Stun slam can take the player.
+  - Both come from `vape_modern_combat::trigger_assist`.
+- **AntiFireball (module.bowaimbot) is ported as core only.** The deviations below are recorded for the host mixin to keep.
+  - The owner is recorded at first sight (a `seen` set), not on the join event.
+  - The HashMap iteration is approximated by entity-id order.
+  - Only large fireballs count.
+  - The local player as owner is valid.
+  - A silent controller starts from SilentAura's last sent rotation when SilentAura is active.
+  - Releasing the claim promotes the pending requester.
+  - The press is one click, not a held button. There is no mouse-button lock.
+  - The reference keeps the movement lock after the silent return until the next clearTarget, and the port keeps that quirk.
+  - A real disable releases the target, movement, rotation and claim at once (the reference has no `onDisable`).
+- **Reach and Misplace stay blocked on the server's re-pick.** Horizon's integrated/LAN server handles a guest's attack packet by re-aiming the guest at the entity (`lan_actions.rs` `look_at_entity`), then re-running the guest's own 3-block pick (5 in creative). Vanilla instead accepts any id inside `canInteractWithEntity(box, 3.0)`. Misplace moves rendered positions client-side, but its hit is still an id beyond 3 real blocks, so it is blocked by the same missing capability. module.autoclickerentitypositionstate follows it.
