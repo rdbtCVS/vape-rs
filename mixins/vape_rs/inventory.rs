@@ -195,7 +195,18 @@ pub(super) fn auto_tool(game: &mut Game<'_>, attack_event: bool) {
                     &mut LegacyRandom::new(0),
                     0.0,
                 );
-                info.map_or(0.0, |info| info.attack_damage)
+                // `getWeaponDamageScore`: the sum of every main-hand attribute
+                // modifier amount (attack speed included, so a diamond sword
+                // scores 6 - 2.4), the enchantment damage bonus and a
+                // hundredth per Fire Aspect level.
+                let mainhand: f64 = info.map_or(0.0, |info| {
+                    info.modifiers
+                        .iter()
+                        .filter(|(_, _, _, _, group)| group == "mainhand")
+                        .map(|(_, _, amount, _, _)| *amount)
+                        .sum()
+                });
+                mainhand as f32
                     + damage
                     + stack.enchantment_level("minecraft:fire_aspect") as f32 * 0.01
                     + if stack.item.ends_with("_sword") {
@@ -218,7 +229,9 @@ pub(super) fn auto_tool(game: &mut Game<'_>, attack_event: bool) {
         target,
         candidates,
         attack_down: attack_event || game.left,
-        sneaking: game.keys.contains(&winit::keyboard::KeyCode::ShiftLeft),
+        // `isSneaking`: the player's shift-key-down state from its last
+        // movement tick, as the reference reads it.
+        sneaking: game.player.as_ref().is_some_and(|p| p.shift_key_down),
         using_item: game.using.is_some(),
         combat_blocked: false,
     };
