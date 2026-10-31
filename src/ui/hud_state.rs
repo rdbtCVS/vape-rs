@@ -48,7 +48,9 @@ impl HudState {
         let now = Instant::now();
         for i in 0..4 {
             if let Some(piece) = &snapshot.armor[i] {
-                self.low_armor[i] = piece.percent().is_some_and(|v| v <= 2);
+                // The reference's -1 for no durability counts as low too, so
+                // removing such a piece also shows it broken.
+                self.low_armor[i] = piece.percent().is_none_or(|v| v <= 2);
                 self.broken_until[i] = None;
             } else if self.low_armor[i] {
                 self.broken_until[i] = Some(now + Duration::from_secs(4));
