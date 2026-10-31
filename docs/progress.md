@@ -2001,3 +2001,11 @@ Not run on a current build:
 - `tools/gui_scenario.py`, `tools/text_editor_scenario.py` and `tools/hud_editor_scenario.py`: not rerun after the GUI changes.
 
 The coordinator runs the host check and build after merging this branch.
+
+Gates after merging main cdc0228 (merge a44cfab), with no host build:
+- `cargo fmt --all --check`: exit 0.
+- clippy `-D warnings`: exit 0.
+- `cargo test --workspace`: 297 + 1 + 4 + 0 passed.
+- payload-test: 297 passed.
+
+The scenario evidence above comes from bundle `d07bec67…`, built before that merge.
