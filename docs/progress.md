@@ -1651,7 +1651,7 @@ Changed files:
   - Then the effects counting down, legs removed (broken, then gone), and every module off and back on through its bind.
 - `tools/no_hurt_camera_scenario.py`: a real `damage` hit while facing a brick wall, frames over the hurt tilt compared with the still frame before the hit, for on / off / on again.
   - Command feedback is off, because the feedback lines scrolled the chat and polluted the diff.
-  - The GUI toggle now goes through the floating search ("cam"), since NoHurtCam moved to the Render frame in 1336a94.
+  - The GUI toggle finds the Render frame and the NoHurtCam row through main's `tools/gui_layout.py` (resolved in the merge). The old fixed clicks toggled Reach Display after NoHurtCam moved frames in 1336a94.
 - `tools/weather_modes_scenario.py` (new): Raining under a clear server sky and Clear under a raining one (seeded through a restart). Each captures off / on / off frames, plus a frame of the server weather the mode should look like.
 - `tools/settings_parity.py`: `VAPE_RS_REFERENCE` names the reference from a worktree.
 - `docs/decisions.md`: infinite effects, geometry icons, the Vape GUI scale factor, and foreground tinting.
@@ -1667,29 +1667,29 @@ Feature ids (ledger update target/ledger-updates/hud-modules.json, all `validate
 
 The validated parent module.weatherchangerhudmodule gains the mode evidence and hook `client-frame`. module.hudmodule stays with hud-client (not-applicable-reviewed).
 
-Scenarios, each in a fresh isolated home. Evidence is in docs/evidence/hud-modules-*.
-- `hud_detail_scenario.py --part layouts` (`hud-layouts-pokp7tue`): 8/8, 12 captures inspected. Every element sits where the reference draws it at both scales. The settings change it, and with every module off the host view is unchanged.
-- `no_hurt_camera_scenario.py` (`no-hurt-camera-hyms7sjv`): 7/7.
-  - The maximum frame diff over the hurt ticks was 0.51 on, 21.27 off and 0.10 on again; frames are level when on and tilted when off.
-  - The bind, the GUI search toggle, restart persistence and Panic all pass.
-- `weather_modes_scenario.py` (`weather-modes-sm833i4s`): 13/13.
-  - Raining: sky luma off 191.1, on 93.9 (server rain 92.0), after 191.1; the server stays clear.
-  - Clear: off 93.2, on 189.9 (server clear 192.3), after 93.4; the server keeps raining.
-- Regressions: `hud_detail_scenario.py --part details` 7/7 (`hud-details-1h6yuls5`), `hud_editor_scenario.py` 9/9 (`hud-editor-jg3sp6nx`), `hud_modes_scenario.py` 5/5 (`hud-modes-cpxfkdi3`), `hud_readouts_scenario.py` 7/7 (`hud-readouts-b2j7ahsx`).
+Scenarios, each in a fresh isolated home. Evidence is in docs/evidence/hud-modules-*. The final runs are on head 74a9aa4 (main 7e48db7 merged); the pre-merge runs are on base 4ff7488. The same three scenarios also passed after the first merge (608c800): `hud-layouts-8rz4urv1` 8/8, `no-hurt-camera-gxtq2c3t` 7/7, `weather-modes-6ww1o5th` 13/13.
+- `hud_detail_scenario.py --part layouts`: 8/8 final (`hud-layouts-hxgrbp9r`, hud-modules-final-layouts) and 8/8 pre-merge (`hud-layouts-pokp7tue`, hud-modules-layouts).
+  - 12 captures each, inspected. Every element sits where the reference draws it at both scales, the settings change it, and with every module off the host view is unchanged.
+- `no_hurt_camera_scenario.py`: 7/7 final (`no-hurt-camera-jhph_tam`) and 7/7 pre-merge (`no-hurt-camera-hyms7sjv`).
+  - Largest frame diff over the hurt tilt: 0.62 on, 20.88 off, 0.15 on again (pre-merge 0.51 / 21.27 / 0.10). Frames are level when on and tilted when off.
+  - The bind, the GUI toggle, restart persistence and Panic all pass.
+- `weather_modes_scenario.py`: 13/13 final (`weather-modes-ywj9gvqr`) and 13/13 pre-merge (`weather-modes-sm833i4s`).
+  - Raining: sky luma off 191.2, on 93.9 (server rain 92.5), after 191.2. The server stays clear.
+  - Clear: off 93.2, on 190.1 (server clear 192.5), after 93.5. The server keeps raining.
+- Pre-merge regressions: `hud_detail_scenario.py --part details` 7/7 (`hud-details-1h6yuls5`), `hud_editor_scenario.py` 9/9 (`hud-editor-jg3sp6nx`), `hud_modes_scenario.py` 5/5 (`hud-modes-cpxfkdi3`), `hud_readouts_scenario.py` 7/7 (`hud-readouts-b2j7ahsx`).
 - Settings parity: 645 definitions, no entries for these rows. Armor 1/1, Coordinates 1/1, Potions 2/2 and Weather 1/1 match; Compass, FPS and NoHurtCam declare no settings of their own.
 
 Failures fixed along the way:
 - Chat and the tutorial toast covered the panels; the layouts part hides them.
 - Compass clamping and expired effects.
 - The no-hurt-camera on-again pass measured 4.45 until command feedback was turned off.
-- The old GUI clicks toggled Reach Display after NoHurtCam moved frames.
 
-Gates:
+Gates, final on 74a9aa4:
 - `cargo fmt --all --check`: ok.
 - clippy `-D warnings`: ok.
-- `cargo test --workspace`: 198 + 1 + 4 + 0 passed, 0 failed.
-- payload-test: 198 passed.
-- stage + audit: 43 hooks and 29 support modules, original AST restored.
+- `cargo test --workspace`: 213 + 1 + 4 + 0 passed, 0 failed (198 + 1 + 4 + 0 before the merges).
+- payload-test: 213 passed.
+- stage + audit: 44 hooks and 29 support modules, original AST restored. Main's `gui-blur` is the 44th; this branch adds none.
 - host check: exit 0, 68 warnings, the same count as main.
 - host build: exit 0.
 
