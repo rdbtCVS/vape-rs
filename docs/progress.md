@@ -1711,3 +1711,71 @@ Limits and open items:
 - The textures (armor, bar-1, compass*) are drawn as geometry and not shipped.
 
 Next: a reference-font decision for the HUD and editor alpha, coordinated with hud-client.
+
+## 2026-10-31: inventory utility debt (worker round 3)
+
+Worker inventory-utility-debt, branch t3/a66f4a9c. Merged main 7e48db7 (7ceb21f) and 10bd7ad (a2eb4a1); main's Refill::observe is kept. This round brings Refill, Throwpot, ThrowDebuff, AutoArmor and AutoTool to the reference. All five pass the settings-parity audit, and every mode was run in fresh homes.
+
+Changed files:
+- src/modules/utility/auto_armor.rs: the reference AutoArmor flow.
+  - Open timer 100 + Delay and inventory-key timer 200 + Delay, both reset on screen change, in combat and before closing.
+  - Queued clicks run one per Delay sample. This fixes the Delay gap.
+  - Drop equipped clicks outside the menu (slot −999).
+  - Check durability, Inventory only, Open inventory and Combat check follow the reference.
+  - mixins/vape_rs/inventory.rs scores armor values from the host's ItemInfo.
+- src/modules/utility/refill.rs: the reference onEnable check. With no empty or junk hotbar slot, or no healing item for the Type, the module disables without opening the inventory.
+- src/modules/utility/throw_items.rs and src/core/throw_runtime.rs (Throwpot and ThrowDebuff only; AutoHeal untouched):
+  - Throwpot's Type × Mode choice: Dynamic's budget counts the stew's 8 HP, ties are broken by distance from the saved slot, and scrolling starts from the current slot.
+  - ThrowDebuff's All, First and One of each modes; its Delay and Scroll timers start elapsed.
+  - mixins/vape_rs/transactions.rs drives the sequences.
+- src/modules/utility/auto_tool.rs:
+  - The reference getWeaponDamageScore: a slot must beat the empty hand's 1.0.
+  - The guards hold a swap without cancelling it.
+  - Pending swaps keep their timers. The sneak state comes from the host.
+- src/core/inventory_runtime.rs and src/core/hud_extras.rs: small hooks for the above. The Text GUI suffix "[In Combat]" shows for AutoArmor. src/inventory/types.rs: armor parts.
+- New scenarios: tools/utility_debt_scenario.py (18 cases) and tools/auto_tool_lan_guard_scenario.py (LAN host, guest and friend). The home prefix in tools/auto_tool_guards_scenario.py is shortened for SUN_LEN.
+
+Scenarios: fresh isolated homes through native_session.py, HORIZON_SERVER_THREAD=1. Every run used one build: bundle 4f0131d5c301 from d8a4783 (clean tree, main 10bd7ad merged), Horizon 8f91f89, mixins 0e9229d, fast profile. Evidence is in docs/evidence/inventory-utility-debt-r3/ (31 homes, index.json, build-identity.json).
+
+- **utility_debt: 18/18.**
+  - Throwpot: Dynamic 10→18 HP, keeping the Instant Health II and the last pot. Single 10→14. Pots threw slots 4, 3, 2 and left the stew (6→18). Both threw the pot in slot 2, pressed the stew in slot 1, and kept two pots (6→10, trace [2,1,6]).
+  - Throwpot Soup selects, presses and restores (trace [[1,false],[1,true],[1,false],[6,false]]). The stew is not eaten (blocked, see below).
+  - ThrowDebuff: All threw both Poisons and the Weakness and kept Healing. First threw only the Weakness.
+  - Refill Both moved 2 stews and 1 splash into hotbar slots 7-9 (inventory, then playing). Pots moved only the splash. The precheck never opened the inventory.
+  - AutoArmor:
+    - Full set: 0.923 s at Delay 200 against 0.185 s at Delay 1.
+    - Inventory only waits for the inventory. Open inventory opens and closes it. Drop equipped drops the old piece.
+    - Check durability: off keeps a damage-100 helmet, on replaces it.
+    - Combat check blocks after damage and equips 1.52 s later. The Text GUI shows "AutoArmor [In Combat]".
+  - AutoTool weapon: a wooden sword (0.61) never wins; a stone sword is chosen.
+- **auto_tool_lan_guard: pass.** Host world opened to LAN, guest and friend clients as two owned local processes. Host moves use the server's tp, because a client-only ctl tp is rejected as "moved wrongly". Each hit waits for the guest to see it.
+  - Stationary with mutual looking: held, then released after 105 ticks.
+  - Moving with the host 3 blocks away: held 12/12 ticks, released once the host is 16 blocks off.
+  - A friends-list host is not a threat.
+- **auto_tool_guards, auto_tool and throw_scenario: pass.**
+  - auto_tool_guards (7 homes): pending deadlines survive disable and the menu; only while sneaking; item use; the damage guard and its expiry; require-mouse off; weapon instant, disabled, delayed and enchanted.
+  - throw_scenario: the legacy Throwpot, One of each and AutoHeal case.
+
+Feature ids (ledger update target/ledger-updates/inventory-utility-debt.json):
+- module.refill.mode.both and .pots: implemented-core → validated.
+- module.throwpot.mode.single, .dynamic and .pots: implemented-core → validated.
+- module.throwdebuff.mode.all and .first: implemented-core → validated.
+- module.autotool: implemented-core → validated.
+- module.throwpot.mode.soup and .both: implemented-core → blocked. Both's choice logic is validated in-world. The missing host capability is a per-stack consumable component, synced to the client and honoured by the item-use path.
+- module.autoarmor: integrated → blocked, only for Open inventory off with Inventory only off. The missing host capability is a screenless window-0 ContainerClick. Every other setting is validated above.
+
+Gates on d8a4783 (main 10bd7ad merged); the final rerun after merging main 97dbaa7 follows below:
+- `cargo fmt --all --check`: clean.
+- Clippy `-D warnings` (workspace, all targets): clean.
+- `cargo test --workspace`: 223 lib, 1 settings_dump, 4 xtask and 0 doc tests, all passing.
+- `xtask payload-test`: 223/223.
+- `xtask stage`: the audit restored the original AST after removing exactly 44 hooks and 29 support modules.
+- `xtask check` under the shared lock: 44 injections, 29 modules, 69 warnings, 0 errors.
+- `xtask build` (fast) under the shared lock: 69 warnings, 0 errors, bundle 4f0131d5c301.
+- settings_parity.py (VAPE_RS_REFERENCE): 73 report rows, none for these five modules.
+- No new hooks or support modules.
+
+Open items in this scope:
+- Throwpot soup consumption and the "Throw bowls" drop are blocked on the host consumable capability above.
+- AutoArmor's screenless clicking is blocked on the window-0 ContainerClick above.
+- Two UI items remain. The reference's "ms" unit on number settings (AutoTool's Swap to delay and Swap back delay, Throwpot and ThrowDebuff Scroll delay, and the Refill Delay range) is missing because the settings Definition has no unit field. The reference setting descriptions are not shown as tooltips. Both are settings-model and GUI work, not host work.
