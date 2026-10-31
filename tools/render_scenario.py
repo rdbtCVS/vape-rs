@@ -48,6 +48,12 @@ def changed(a, b, threshold=48, box=None):
     return sum(1 for p in pixels(diff) if sum(p) > threshold)
 
 
+def red(path, box):
+    """Strongly red pixels inside `box`."""
+    image = Image.open(path).convert('RGB').crop(box)
+    return sum(1 for p in pixels(image) if p[0] > 200 and p[1] < 70 and p[2] < 70)
+
+
 def near(path, rgb, tolerance=40):
     image = Image.open(path).convert('RGB')
     return sum(1 for p in pixels(image) if all(abs(p[i] - rgb[i]) <= tolerance for i in range(3)))
@@ -265,7 +271,10 @@ def single_player(resources, allow_stale, results):
 
         t.compare('render.trajectories', 'trajectories-bow-block',
                   views(s, (0.5, 99, 5), NEAR, NEAR, setup=floor), rgb=(255, 255, 255), wait=4)
-        s.call('command', 'summon zombie 0.5 100 9 {NoAI:1b,PersistenceRequired:1b}')
+        # A carved pumpkin (never damaged) keeps the zombies from burning in
+        # the daylight while they are captured.
+        s.call('command', 'summon zombie 0.5 100 9 {NoAI:1b,PersistenceRequired:1b,'
+               'equipment:{head:{id:"minecraft:carved_pumpkin",count:1}}}')
         s.call('wait', '6')
         zombie = next((e for e in s.call('entities', '16', 'zombie').get('entities', []) if 'id' in e), None)
 
@@ -280,16 +289,18 @@ def single_player(resources, allow_stale, results):
         checks.check('trajectories: the cross is target blue on a mob',
                      all(on > off + 5 for on, off in blue.values()), {'zombie': zombie, 'blue': blue})
         # The trajectory colour: facing a near mob the path runs along the
-        # view axis under the cross, so a zombie 55 blocks off with the bow
-        # aimed 9.2 degrees up, where the arc drops onto its chest.
+        # view axis under the cross, so a lob instead: the bow aimed 82
+        # degrees up drops the arrow onto a zombie 27 blocks off (inside the
+        # 2-chunk render distance's entity tracking, about 32 blocks), the
+        # path falling away below the cross.
         s.call('command', 'kill @e[type=zombie]')
-        s.call('fill', '-2', '99', '21', '3', '99', '42', 'minecraft:stone')
-        s.call('fill', '-2', '100', '21', '3', '106', '42', 'minecraft:air')
-        s.call('command', 'summon zombie 0.5 100 40.5 {NoAI:1b,PersistenceRequired:1b}')
-        s.call('wait', '6')
+        s.call('command', 'kill @e[type=item]')
+        s.call('command', 'summon zombie 0.5 100 12.5 {NoAI:1b,PersistenceRequired:1b,'
+               'equipment:{head:{id:"minecraft:carved_pumpkin",count:1}}}')
+        s.call('wait', '30')
         back = (0.5, 100, -14.5)
         t.compare('render.trajectories', 'trajectories-bow-far-mob',
-                  views(s, (0.5, 101, 40.5), back, back, setup=lambda _d: s.call('look', '0', '-9.2')),
+                  views(s, (0.5, 101, 12.5), back, back, setup=lambda _d: s.call('look', '0', '-82')),
                   rgb=(255, 0, 0), wait=4)
         s.call('mouse', 'right', 'up')
         s.call('command', 'kill @e[type=zombie]')
@@ -317,6 +328,7 @@ def single_player(resources, allow_stale, results):
             s.call('options-set', 'guiScale', '2')
             s.call('tp', *map(str, NEAR))
             s.call('look', '0', '0')
+            s.call('command', 'kill @e[type=item]')
             s.call('wait', '10')
 
         def passing(aside):
@@ -337,11 +349,13 @@ def single_player(resources, allow_stale, results):
             t.tap('render.indicators')
             s.call('wait', '1')
             s.capture(f'indicators-hit-only-miss-{phase}')
-        # Around the crosshair only: the relaunch's toasts slide between
-        # the two frames.
-        miss = changed(s.root / 'indicators-hit-only-miss-on.png', s.root / 'indicators-hit-only-miss-off.png',
-                       box=(100, 70, 700, 460))
-        checks.check('indicators (Hit Only): an arrow passing 3 aside is not shown', miss < 40, {'changed': miss})
+        # The indicator's red arrow, around the crosshair only: clouds drift
+        # and dropped items bob between the two frames.
+        ring = (200, 150, 600, 420)
+        miss = {phase: red(s.root / f'indicators-hit-only-miss-{phase}.png', ring) for phase in ('on', 'off')}
+        hit = red(s.root / 'indicators-hit-only-hit-near-gui2-on.png', ring)
+        checks.check('indicators (Hit Only): an arrow passing 3 aside is not shown',
+                     miss['on'] <= miss['off'] + 5 and hit > miss['on'] + 50, {'red': miss, 'red-on-hit': hit})
         s.call('command', 'kill @e[type=arrow]')
 
         # Last: the pinned host's selectors cannot target primed TNT, so the
@@ -505,15 +519,25 @@ def lan(resources, allow_stale, results):
         guest.call('options-set', 'guiScale', '2')
         host.call('tp', '0.5', '100', '6.5')
         guest.call('look-at', '-3.5', '101', '6.5')
-        # Until the join's teleport message has faded from chat.
+        # Until the join's teleport message has faded from chat; the sand
+        # PropHunt's falling blocks dropped bobs between frames.
         guest.call('wait', '220')
+        host.call('command', 'kill @e[type=item]')
+        host.call('command', 'kill @e[type=falling_block]')
+        guest.call('wait', '10')
+        host.call('command', 'kill @e[type=item]')
+        guest.call('wait', '10')
         friend = {}
         for phase in ('on', 'off'):
             t.tap('render.tracers')
             guest.call('wait', '6')
             guest.capture(f'tracers-enemy-only-friend-{phase}')
             friend[phase] = enabled(guest, 'render.tracers')
-        pixels = changed(guest.root / 'tracers-enemy-only-friend-on.png', guest.root / 'tracers-enemy-only-friend-off.png')
+        # Between the view centre and the host (at the left), below the
+        # drifting clouds and right of the host's idle sway: where a tracer
+        # to the host would run.
+        pixels = changed(guest.root / 'tracers-enemy-only-friend-on.png', guest.root / 'tracers-enemy-only-friend-off.png',
+                         box=(160, 230, 800, 600))
         checks.check('tracers (Enemy Only): no tracer to a friend', friend['on'] and pixels < 40,
                      {'changed': pixels, **friend})
 
