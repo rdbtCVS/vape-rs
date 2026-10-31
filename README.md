@@ -6,11 +6,12 @@ A from-scratch recreation of the **Vape** Minecraft client as a native Rust mod 
 
 ## What works today
 
-- **HUD:** seven widgets with an in-game layout editor.
-- **Combat:** AimAssist (Simple mode), TriggerBot, Velocity, clickers, Reach, HitBoxes, AutoArmor, AutoTotem (partial).
-- **Movement:** Sprint, SafeWalk, Parkour (experimental), Speed, LongJump, Fly, NoFall, NoSlowdown, Step, WTap, AntiFall.
+- **HUD:** eleven widgets (incl. Text GUI module list, Scoreboard, Target Info) with an in-game layout editor.
+- **Combat:** AimAssist, TriggerBot, KillAura, SilentAura, KeepSprint, Velocity, clickers, WTap, JumpReset, HitBoxes (Reach needs host support).
+- **Movement:** Sprint, SafeWalk, Scaffold (Legit), InvWalk, Parkour (experimental), Speed, LongJump, Fly, NoFall, NoSlowdown, Step, AntiFall.
 - **Inventory:** Refill, ChestSteal, Throwpot, ThrowDebuff, AutoHeal (Legit), AutoTotem (partial), InventoryManager/InvCleaner/AutoHotbar/ArmorSwitch (untested).
-- **World / utility:** AutoTool, FastPlace, AutoFish, NoJumpDelay, NoClickDelay, Fullbright, Clear Water, NoHurtCam, StorageESP (partial), Panic.
+- **World / utility:** AutoTool, FastPlace, AutoFish, WindCharge, Blink, Backtrack, FakeLag, KnockbackDelay, NoJumpDelay, NoClickDelay, Panic.
+- **Render:** Fullbright, Clear Water, NoHurtCam, ItemESP, NameTags, StorageESP, Time Changer, Weather, AntiDebuff; ESP, Tracers, Trajectories, Search and others are untested.
 - **Client:** click GUI (Right Shift), module settings and key binding, local profiles, friends/enemies, macros.
 
 Modules start disabled. F10 turns every active module off. AI behavior and the online product are intentionally not part of this project.

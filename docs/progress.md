@@ -1259,3 +1259,20 @@ Validation:
 - Scenario fixes: survival worlds have no cheats, so commands now go through ctl `command` instead of chat. The 26.3 gamerule is `natural_health_regeneration`. Creative mode is switched with `gamemode`.
 - After merging main: fmt, Clippy -D warnings, 194 + 3 tests and payload-test pass. Stage/audit restored 43 hooks and 29 support modules, and the host check passed with 68 warnings (all in other workers' merged code) and 0 errors. The fast build passes.
 - Scenarios have not been rerun on the merged build.
+
+## 2026-10-31: worker round merged into main
+
+All six worker branches (inventory, validation, combat, movement, render,
+HUD/UI) are merged into main at `4390bc3`; worktrees and branches removed.
+Merge conflicts were append-only (registry entries, manifest blocks, hook
+tables, dated doc sections) and kept both sides. HUD's duplicate Health was
+dropped in favour of render's.
+
+Validation on main `4390bc3`: fmt and all-target Clippy `-D warnings` clean;
+194 lib + 3 integration tests and payload-test pass; stage/audit removes
+exactly 43 hooks and 29 support modules; host check passes (verified by the
+HUD worker on this exact tree; earlier merge commits `d33f53f`, the movement
+merge and `3973987` were each host-checked on main). Ledger after the round:
+64 validated, 32 integrated, 66 implemented-core, 6 blocked, 287 not-started.
+Pending: render scenarios have never run; HUD scenarios ran on pre-merge
+`ca264f4` and need a rerun on the merged tree.
