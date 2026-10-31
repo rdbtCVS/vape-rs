@@ -40,7 +40,9 @@ impl Timing {
             minimum + 1 + self.random(maximum - minimum)
         };
         if mode == Mode::Normal {
-            return 1000 / u64::from(cps);
+            // The reference keeps it: a switch to Extra mid-burst reuses it.
+            self.last_delay = 1000 / u64::from(cps);
+            return self.last_delay;
         }
         if self.burst == 0 {
             self.last_delay = 1000 / u64::from(cps);

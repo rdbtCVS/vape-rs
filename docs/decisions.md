@@ -150,6 +150,20 @@
 - TextGuiSettings Scale is 0.1..2.0 in tenths. Rescale is stored, because the reference never reads it. "Match GUI color" uses the fixed GUI accent, because our GUI has no theme colour setting to follow. Click disable is not ported: the reference only handles it while the click GUI is open, and our HUD is not drawn under the GUI yet.
 - A cleared ClientSettings GUI bind falls back to Right Shift, as `ClientSettingsGuiBindBendable.setBoundInputs` does, so the GUI cannot become unreachable.
 
+## 2026-10-31: clicker and movement debt (clicker-movement-debt worker)
+
+- **Sprint is a latch, as in the reference.** `Sprint.onPreEntityUpdate` presses the sprint key once, and only while the key is up, the player is not sprinting and not collided horizontally. The port (src/modules/combat/sprint.rs) keeps the press down until the module is disabled, a screen releases every key, or the user's own sprint key goes up. Cancel Invis and a movement-input claim only skip new presses. Before this round the port pressed every tick and Cancel Invis ignored `allowFlying`; both now follow the reference.
+- **Sprint's two reference no-ops are exact.** `Scaffold.isActivelyScaffolding()` is constant false in the reference. The `movementInput` claim's only takers, Scaffold's Blatant and Telly modes, are not ported, so the lock is false. When those modes land they must set `Tick::movement_locked`.
+- **The LAN host reads a guest's shield from the server model.** The guest snapshot in mixins/vape_rs/combat.rs used to report `blocking: false`. It now takes the raised shield from the guest's model (`lan_update_models`), so Shield check works against guests. Remote players on a server were already read from entity data.
+- **TriggerBot's shield and cooldown bypasses wait on combat-b.** The reference lets ShieldBreaker (axe in hotbar), HitSwap (alternate axe) and AutoMace override Shield check and the cooldown wait. None of those modules is ported, so the port matches the reference with them disabled. Wire the bypasses when they land, as for the auras.
+- **LeftClicker Normal stores its delay as the last delay.** The reference does this, so a switch to Extra in the middle of a burst reuses it. Before this round the port left the last delay at its old value.
+- **Backtrack's packet helpers are already ported.**
+  - The encoded position state is in backtrack.rs (`Packet::Moved/Synced/Teleported` on the 1/4096 grid).
+  - The destroyed-entities wrapper is `Packet::Removed`.
+  - The bundle unpacking needs no port: the pinned client ignores `BundleDelimiter` (net.rs:625), so each sub-packet reaches `tracked()` on its own, and the delimiter is never held.
+  - These rows follow module.backtrack.
+- **AutoClickerEntityPositionState stays with Reach Misplace.** Only Misplace uses it. Misplace is unported, and Reach is blocked and in combat-b's scope, so the row stays not-started. No placeholder.
+
 ## 2026-10-31: HUD modules (worker round 3)
 
 - **Infinite effects in Potion Status show "∞" with a full green ring.** The reference predates infinite effects: it divides by the duration and prints "00:00" in red. That is a modernization; finite effects follow the reference ring, colours and countdown.
