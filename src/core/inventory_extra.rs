@@ -5,7 +5,7 @@
 // planner steps to scheduler outcomes.
 use super::super::{
     inventory::{
-        rules::{Profile, parse_presets, parse_profiles},
+        rules::{Profile, find_profile, parse_presets, parse_profiles},
         session::{Effect, Policy, Step},
         types::Snapshot,
     },
@@ -176,18 +176,14 @@ impl Runtime {
             ModuleId::InventoryManager | ModuleId::InvCleaner | ModuleId::AutoHotbar
         ) && self.extra_str(&format!("{}.trigger", module.id())) != "toggle"
     }
-    /// The selected InventoryManager profile (first profile when the
-    /// selection is empty or unknown).
+    /// The selected InventoryManager profile: `findByName` matches the saved
+    /// selection case-insensitively, and nothing is selected without a match.
     pub fn inventory_profile(&self) -> Result<Option<Profile>, String> {
         const IM: &str = "inventory.inventory-manager";
         let presets = parse_presets(self.extra_str(&format!("{IM}.presets")))?;
         let mut profiles = parse_profiles(self.extra_str(&format!("{IM}.profiles")), &presets)?;
         let selected = self.extra_str(&format!("{IM}.profile"));
-        let index = profiles
-            .iter()
-            .position(|p| p.name == selected)
-            .unwrap_or(0);
-        Ok((index < profiles.len()).then(|| profiles.swap_remove(index)))
+        Ok(find_profile(&profiles, selected).map(|index| profiles.swap_remove(index)))
     }
     /// Steps one of [`MODULES`]; `combat_blocked` is the shared combat guard.
     pub(super) fn extra_step(&mut self, module: ModuleId, snapshot: &Snapshot) -> Outcome {

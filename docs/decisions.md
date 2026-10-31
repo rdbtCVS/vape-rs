@@ -158,7 +158,7 @@
 
 ## 2026-10-31: inventory worker round 2, planners, ChestSteal and AutoTotem Silent open
 
-- **InventoryManager idles without a profile.** With no profile at all, the module stays on and plans nothing (`shouldSkipProcessing`). It used to fall back to an empty default profile, which still sorted armor. An empty or unknown selection still picks the first profile.
+- **InventoryManager idles without a profile.** With no profile at all, the module stays on and plans nothing (`shouldSkipProcessing`). It used to fall back to an empty default profile, which still sorted armor. The selection is the profile whose name matches the saved `selected` name case-insensitively (`findByName`); an empty or unknown selection selects nothing, so the module idles.
 - **Best armor and condensing.** Only a carried armor piece belongs to the armor step. A carried non-armor stack is a condense in progress and goes on to its condense target. The old code put it back at its origin, which looped (host planner scenario, case 5).
 - **AutoHotbar "Any material"** takes the rule item's kind (tool/weapon class, armor slot) from the rule id, as the reference compares classes against the rule item itself. It no longer requires a copy of the exact rule item in the inventory.
 - **ArmorSwitch reads the worn material from the first worn piece** and needs the whole other set in slots 9-44 (`hasEquippedArmor`/`findArmorSlots`). After an interrupted run that already swapped the helmet, the rerun sees a diamond helmet and an incomplete diamond set, and turns off without a click. This is the reference's behaviour, kept as is.

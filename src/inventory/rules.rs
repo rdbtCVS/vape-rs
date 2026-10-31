@@ -1018,6 +1018,21 @@ pub fn parse_profiles(text: &str, presets: &[Preset]) -> Result<Vec<Profile>, St
         _ => Err("profiles must be a JSON object or array".into()),
     }
 }
+/// `String.equalsIgnoreCase`: equal length, and each character pair equal
+/// as is, upper-cased or lower-cased.
+pub fn equals_ignore_case(a: &str, b: &str) -> bool {
+    a.chars().count() == b.chars().count()
+        && a.chars().zip(b.chars()).all(|(x, y)| {
+            x == y || x.to_uppercase().eq(y.to_uppercase()) || x.to_lowercase().eq(y.to_lowercase())
+        })
+}
+/// `InventoryCleanerProfileValue.findByName`: the first profile named `name`
+/// ignoring case.
+pub fn find_profile(profiles: &[Profile], name: &str) -> Option<usize> {
+    profiles
+        .iter()
+        .position(|p| equals_ignore_case(&p.name, name))
+}
 pub fn parse_presets(text: &str) -> Result<Vec<Preset>, String> {
     if text.trim().is_empty() {
         return Ok(Vec::new());
@@ -1128,6 +1143,15 @@ pub(crate) mod tests {
         wool.meta.block = true;
         assert!(Matcher::BuildingBlocks.matches(Some(&wool)));
         assert_eq!(Matcher::find("Any Weapon"), Some(Matcher::Weapons));
+    }
+    #[test]
+    fn selection_finds_profiles_by_name_ignoring_case() {
+        let profiles = parse_profiles(r#"[{"name":"PvP"},{"name":"Bridge"}]"#, &[]).unwrap();
+        assert_eq!(find_profile(&profiles, "bridge"), Some(1));
+        assert_eq!(find_profile(&profiles, "PVP"), Some(0));
+        assert_eq!(find_profile(&profiles, ""), None);
+        assert_eq!(find_profile(&profiles, "Bridges"), None);
+        assert!(equals_ignore_case("ÉTÉ", "été"));
     }
     #[test]
     fn profile_json_round_trips_and_rejects_unsupported() {
