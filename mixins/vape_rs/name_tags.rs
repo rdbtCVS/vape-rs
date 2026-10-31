@@ -60,6 +60,9 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
         let eye = horizon_core::geometry::Vec3::new(feet.x, feet.y + f64::from(player.dimensions.eye_height), feet.z);
         let players = game.other_players();
         let tab = crate::game::remote::vape_remote_tab::players(game);
+        // Each type's translated name, looked up once a frame.
+        let mut type_names: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+        let (mut subjects, mut ats) = (Vec::new(), Vec::new());
         for m in game.mobs.iter().filter(|m| m.alive()) {
             let name = players.iter().find(|(p, _)| p.id == m.id).map(|(_, n)| n.clone());
             let class = if name.is_some() {
@@ -76,7 +79,9 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
             let head = horizon_core::geometry::Vec3::new(at.x, at.y + f64::from(m.kind.eye_height), at.z);
             let subject = Subject {
                 class,
-                name: name.clone().unwrap_or_else(|| m.custom_name.clone().unwrap_or_else(|| entity_name(&m.kind.id))),
+                name: name.clone().unwrap_or_else(|| {
+                    m.custom_name.clone().unwrap_or_else(|| type_names.entry(&*m.kind.id).or_insert_with(|| entity_name(&m.kind.id)).clone())
+                }),
                 distance: feet.distance(at),
                 health: m.health,
                 max_health: horizon_client::mobs::finalize::max_health(m),
@@ -87,43 +92,21 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
                 creative: tab.iter().any(|t| i64::from(t.0) == m.id as i64 && t.1 == 1),
                 threat: score(e.main_hand.as_deref(), false) + worn.iter().map(|w| score(*w, true)).sum::<f64>(),
             };
-            let Some(tag) = with_client(&client, |runtime| runtime.name_tag(&subject, own_threat)) else {
+            let height = if class == EntityClass::Player && e.crouching { 1.5 } else { f64::from(m.height()) };
+            subjects.push(subject);
+            ats.push(lerp(m.previous, m.position) + glam::DVec3::new(0.0, height + 0.4, 0.0));
+        }
+        let tags = with_client(&client, |runtime| runtime.name_tags(&subjects, own_threat));
+        for (at, tag) in ats.into_iter().zip(tags) {
+            let Some(tag) = tag else {
                 continue;
             };
-            let height = if class == EntityClass::Player && e.crouching { 1.5 } else { f64::from(m.height()) };
-            out.push(Extra {
-                at: lerp(m.previous, m.position) + glam::DVec3::new(0.0, height + 0.4, 0.0),
-                lines: vec![(text(&tag.text, tag.color), 0.0)],
-                scale: tag.scale,
-                alpha: tag.alpha,
-            });
+            out.push(Extra { at, lines: vec![(text(&tag.text, tag.color), 0.0)], scale: tag.scale, alpha: tag.alpha });
         }
     }
     if items_on {
-        let items: Vec<Dropped> = game
-            .dropped
-            .iter()
-            .take(512)
-            .map(|d| {
-                let info = game.res.items().get(&d.stack.item);
-                let position = lerp(d.previous, d.position);
-                Dropped {
-                    item: HeldItem {
-                        id: Some(d.stack.item.trim_start_matches("minecraft:").to_owned()),
-                        display_name: horizon_client::stations::hover_name(&|id| game.pack.names.display_item(id), &d.stack),
-                        block: info.is_some_and(|i| i.block.is_some()),
-                        food: info.is_some_and(|i| i.food.is_some()),
-                        potion: d.stack.item.ends_with("potion"),
-                        slot: 0,
-                    },
-                    count: d.stack.count,
-                    max_stack: info.map_or(64, |i| i.max_stack),
-                    position: position.to_array(),
-                    distance: feet.distance(glam::DVec3::new(d.position.x, d.position.y, d.position.z)),
-                }
-            })
-            .collect();
-        for label in with_client(&client, |runtime| runtime.item_labels(&items)) {
+        let labels = item_labels(game, &client, alpha);
+        for label in labels {
             let n = label.lines.len();
             out.push(Extra {
                 at: glam::DVec3::from_array(label.at),
@@ -136,9 +119,84 @@ fn extras(game: &Game<'_>, alpha: f64, tags_on: bool, items_on: bool) -> Vec<Ext
     out
 }
 
-/// StorageESP's (and later modules') filled through-wall quads, in the
-/// see-through name tag pass as name tag backgrounds are: the HUD atlas's
-/// white texel, unlit, tinted.
+/// ItemESP's groups between ticks, with the world session and game time
+/// they were last advanced at.
+static ITEM_GROUPS: std::sync::Mutex<(Option<(u64, i64)>, crate::game::vape_rs::modules::render::item_esp::Groups)> =
+    std::sync::Mutex::new((None, crate::game::vape_rs::modules::render::item_esp::Groups::new()));
+
+/// ItemESP's tags, advancing its groups by the world's dropped items once a
+/// tick (`onPostTick`).
+fn item_labels(game: &Game<'_>, client: &crate::game::vape_rs::core::Client, alpha: f64) -> Vec<crate::game::vape_rs::modules::render::item_esp::Label> {
+    let Some(player) = game.player.as_ref() else {
+        return Vec::new();
+    };
+    let Ok(mut state) = ITEM_GROUPS.lock() else {
+        return Vec::new();
+    };
+    let feet = [player.position.x, player.position.y, player.position.z];
+    let epoch = with_client(client, |runtime| runtime.session().epoch().value());
+    let tick = (epoch, game.world.game_time);
+    if state.0.is_some_and(|(e, _)| e != epoch) {
+        state.1.clear();
+    }
+    let items: Option<Vec<Dropped>> = (state.0 != Some(tick)).then(|| {
+        let v = |v: horizon_core::geometry::Vec3| [v.x, v.y, v.z];
+        game.dropped
+            .iter()
+            .take(512)
+            .map(|d| {
+                let info = game.res.items().get(&d.stack.item);
+                Dropped {
+                    id: d.id,
+                    item: HeldItem {
+                        id: Some(d.stack.item.trim_start_matches("minecraft:").to_owned()),
+                        display_name: horizon_client::stations::hover_name(&|id| game.pack.names.display_item(id), &d.stack),
+                        block: info.is_some_and(|i| i.block.is_some()),
+                        food: info.is_some_and(|i| i.food.is_some()),
+                        potion: d.stack.item.ends_with("potion"),
+                        slot: 0,
+                    },
+                    count: d.stack.count,
+                    max_stack: info.map_or(64, |i| i.max_stack),
+                    position: v(d.position),
+                    previous: v(d.previous),
+                }
+            })
+            .collect()
+    });
+    state.0 = Some(tick);
+    with_client(client, |runtime| runtime.item_labels(&mut state.1, items.as_deref(), feet, alpha))
+}
+
+/// The HUD atlas's white texel, which tints to any colour.
+fn white_uv(game: &Game<'_>) -> Option<[f32; 2]> {
+    let mut white = horizon_client::hud::HudBatch::new([1, 1]);
+    white.fill(&game.gui.atlas, 0.0, 0.0, 1.0, 1.0, 0);
+    white.vertices.first().map(|v| v.uv)
+}
+
+/// World quads as vertices relative to `camera`, unlit and tinted, on
+/// `layer` with `light`.
+fn push_quads(
+    quads: Vec<crate::game::vape_rs::modules::render::world::Quad>,
+    uv: [f32; 2],
+    camera: glam::DVec3,
+    layer: u32,
+    light: u32,
+    out: &mut Vec<Vertex>,
+) {
+    for q in quads {
+        let c = q.color;
+        let color = (c & 0xff00_ff00) | ((c & 0x00ff_0000) >> 16) | ((c & 0x0000_00ff) << 16);
+        for corner in q.corners {
+            let at = glam::DVec3::from_array(corner.0) - camera;
+            out.push(Vertex { normal: [0; 4], pos: at.as_vec3().to_array(), uv, layer, color, light, glint_uv: [0.0, 0.0] });
+        }
+    }
+}
+
+/// StorageESP's and PropHunt's filled through-wall quads, in the
+/// see-through name tag pass as name tag backgrounds are.
 fn world_quads(
     game: &Game<'_>,
     client: &crate::game::vape_rs::core::Client,
@@ -146,26 +204,41 @@ fn world_quads(
     alpha: f64,
     see_through: &mut Vec<Vertex>,
 ) {
-    let storage = crate::game::fishing::vape_world_lines::storage_blocks(game, alpha as f32);
-    let tnts = crate::game::fishing::vape_world_lines::tnts(game, alpha);
-    let props = crate::game::fishing::vape_world_lines::falling_blocks(game, alpha);
-    let quads = with_client(client, |runtime| runtime.world_quads(&storage, &tnts, &props, alpha as f32));
+    let (storage_on, props_on) = with_client(client, |runtime| (runtime.world_line_sources().0, runtime.props_wanted()));
+    let storage = if storage_on { crate::game::fishing::vape_world_lines::storage_blocks(game, alpha as f32) } else { Vec::new() };
+    let props = if props_on { crate::game::fishing::vape_world_lines::falling_blocks(game, alpha) } else { Vec::new() };
+    let quads = with_client(client, |runtime| runtime.world_quads(&storage, &props));
     if quads.is_empty() {
         return;
     }
-    let mut white = horizon_client::hud::HudBatch::new([1, 1]);
-    white.fill(&game.gui.atlas, 0.0, 0.0, 1.0, 1.0, 0);
-    let Some(uv) = white.vertices.first().map(|v| v.uv) else {
+    if let Some(uv) = white_uv(game) {
+        push_quads(quads, uv, camera, 2, 0, see_through);
+    }
+}
+
+/// Explosions' blast sphere and Block Overlay's fill: depth-tested and
+/// blended without writing depth (the translucent item overlay), at full
+/// light.
+fn depth_quads(
+    game: &Game<'_>,
+    client: &crate::game::vape_rs::core::Client,
+    camera: glam::DVec3,
+    alpha: f64,
+    explosions_on: bool,
+    overlay_on: bool,
+    out: &mut Vec<Vertex>,
+) {
+    let tnt = if explosions_on { crate::game::fishing::vape_world_lines::tnts(game, alpha) } else { Vec::new() };
+    let target = if overlay_on { crate::game::fishing::vape_world_lines::overlay_target(game) } else { Vec::new() };
+    let quads = with_client(client, |runtime| runtime.depth_quads(&tnt, alpha as f32, &target));
+    if quads.is_empty() {
+        return;
+    }
+    let Some(uv) = white_uv(game) else {
         return;
     };
-    for q in quads {
-        let c = q.color;
-        let color = (c & 0xff00_ff00) | ((c & 0x00ff_0000) >> 16) | ((c & 0x0000_00ff) << 16);
-        for corner in q.corners {
-            let at = glam::DVec3::from_array(corner.0) - camera;
-            see_through.push(Vertex { normal: [0; 4], pos: at.as_vec3().to_array(), uv, layer: 2, color, light: 0, glint_uv: [0.0, 0.0] });
-        }
-    }
+    game.mark_translucent_entity(out.len(), "minecraft:name_tag");
+    push_quads(quads, uv, camera, horizon_client::gfx::TRANSLUCENT_ITEM_OVERLAY, vertex_light(0xFF), out);
 }
 
 /// `name_tag_geometry` HEAD: NameTags' and ItemESP's tags over everything,
@@ -179,8 +252,12 @@ pub(crate) fn geometry(
     see_through: &mut Vec<Vertex>,
 ) -> ControlFlow<()> {
     let client = game.__horizon_mixins_vape_rs_client().clone();
-    if with_client(&client, |runtime| runtime.world_quads_active()) {
+    let (quads_on, (explosions_on, overlay_on)) = with_client(&client, |runtime| (runtime.world_quads_active(), runtime.depth_active()));
+    if quads_on {
         world_quads(game, &client, camera, alpha, see_through);
+    }
+    if explosions_on || overlay_on {
+        depth_quads(game, &client, camera, alpha, explosions_on, overlay_on, out);
     }
     let (tags_on, items_on, replace) = with_client(&client, |runtime| {
         let (t, i) = runtime.world_tag_sources();

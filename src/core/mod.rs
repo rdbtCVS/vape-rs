@@ -405,6 +405,10 @@ impl Default for Runtime {
             .chain(super::modules::render::search::definitions())
             .chain(super::modules::render::spawner_finder::definitions())
             .chain(super::modules::render::murder_finder::definitions())
+            .chain(super::modules::render::block_overlay::definitions())
+            .chain(super::modules::render::projectiles::definitions())
+            .chain(super::modules::render::indicators::definitions())
+            .chain(super::modules::render::bed_plates::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -1578,8 +1582,7 @@ impl Runtime {
             self.enabled(ModuleId::StorageEsp),
             self.enabled(ModuleId::Esp)
                 || self.enabled(ModuleId::Tracers)
-                || self.enabled(ModuleId::Trajectories)
-                || self.enabled(ModuleId::Explosions),
+                || self.enabled(ModuleId::Trajectories),
         )
     }
     /// Trajectories' launch for the held item, when the module is on.
@@ -1714,53 +1717,24 @@ impl Runtime {
         self.enabled(ModuleId::NameTags)
             && super::modules::render::name_tags::replaces_players(&self.settings)
     }
-    /// The NameTags tag for one entity; friends show their alias and,
-    /// with "Recolor visuals", the friend colour.
-    pub fn name_tag(
-        &self,
-        subject: &super::modules::render::name_tags::Subject,
-        own_threat: f64,
-    ) -> Option<super::modules::render::name_tags::Tag> {
-        if !self.enabled(ModuleId::NameTags) {
-            return None;
-        }
-        let friends = self.friend_keys();
-        let friend = friends
-            .iter()
-            .any(|f| !subject.name.is_empty() && f.eq_ignore_ascii_case(&subject.name));
-        let alias = friend.then(|| {
-            self.people()
-                .into_iter()
-                .find(|p| p.relation == "friends" && p.name.eq_ignore_ascii_case(&subject.name))
-                .map_or_else(|| subject.name.clone(), |p| p.alias)
-        });
-        let recolor = self
-            .settings
-            .get("friends.recolor")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-        let color = recolor.then(|| {
-            self.settings
-                .get("friends.color")
-                .and_then(Value::as_u64)
-                .map_or(0xff42_f489, |c| c as u32)
-        });
-        super::modules::render::name_tags::tag(
-            &self.settings,
-            subject,
-            own_threat,
-            alias.as_deref().map(|a| (a, color)),
-        )
-    }
-    /// ItemESP's tags for the frame's dropped items.
+    /// ItemESP's tags at `partial` of the tick: `groups` are kept between
+    /// ticks and advanced by a new tick's dropped `items`; `feet` is the
+    /// player's position.
     pub fn item_labels(
         &self,
-        items: &[super::modules::render::item_esp::Dropped],
+        groups: &mut super::modules::render::item_esp::Groups,
+        items: Option<&[super::modules::render::item_esp::Dropped]>,
+        feet: [f64; 3],
+        partial: f64,
     ) -> Vec<super::modules::render::item_esp::Label> {
         if !self.enabled(ModuleId::ItemEsp) {
+            groups.clear();
             return Vec::new();
         }
-        super::modules::render::item_esp::labels(&self.settings, items)
+        if let Some(items) = items {
+            groups.tick(&self.settings, items, feet);
+        }
+        groups.labels(&self.settings, feet, partial)
     }
     /// The local friend (when "Use Friends" is on) and enemy name lists.
     pub fn target_people(&self) -> super::modules::utility::target_filter::Targets {
@@ -2420,6 +2394,10 @@ impl Runtime {
                 | ModuleId::MurderFinder
                 | ModuleId::PropHunt
                 | ModuleId::InventoryBlur
+                | ModuleId::BlockOverlay
+                | ModuleId::Projectiles
+                | ModuleId::Indicators
+                | ModuleId::BedPlates
                 | ModuleId::TargetFilter
                 | ModuleId::HitSelect
                 | ModuleId::BlockHit

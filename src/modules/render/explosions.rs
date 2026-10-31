@@ -2,9 +2,9 @@
 // sphere of the entity damage radius (8) and, with "Blast ring", a yellow
 // wire sphere of the block damage radius (4). The pulse is the reference's:
 // solid for five ticks, then fading in over five, by the entity's age.
-// Differences: the fill is drawn through walls (the host's only filled world
-// quad pass is the see-through name tag one) and the age is `80 - fuse`, the
-// age of TNT primed with the default fuse.
+// Both are depth-tested as the reference's (the fill in the name tag pass's
+// translucent layer, without depth writes). Difference: the age is
+// `80 - fuse`, the age of TNT primed with the default fuse.
 use super::super::super::core::settings::{Definition, Settings};
 use super::world::{Line, Point, Quad};
 use serde_json::Value;

@@ -164,6 +164,13 @@
   - These rows follow module.backtrack.
 - **AutoClickerEntityPositionState stays with Reach Misplace.** Only Misplace uses it. Misplace is unported, and Reach is blocked and in combat-b's scope, so the row stays not-started. No placeholder.
 
+
+## 2026-10-31: inventory worker round 2, item text matching and the centre stack
+
+- **Item text is the host's tooltip text.** Display name, item name and lore come from `horizon_client::item_tooltip` (`name_line`, `lore_texts`) with the resource pack's translations. Item name is the same line with the custom name removed, which is `getItemStackDisplayName` in the reference. Both sides are lowercased before comparing, as in `TextMatchMode`.
+- **Regex is a bounded subset of `java.util.regex`** (`src/inventory/text_regex.rs`). The only dependency is `serde_json`, so there is no regex crate. Literals, classes, groups, alternation, anchors, `\b` and greedy or lazy quantifiers are supported, with whole-input `String.matches` semantics. Lookaround, backreferences and possessive or atomic forms are rejected, which behaves like a `PatternSyntaxException`: the condition never matches, for both "matches" and "does not match". Backtracking has a step budget, so a pathological pattern fails instead of stalling the tick.
+- **Active-module stack.** `ActiveModuleStackFrame` is ported as the centre-screen stack in `src/modules/render/center_stack.rs`, with the reference layout: 10 below centre, one font line plus 4 per entry, the label centred, and a grey module-name suffix once there is more than one entry. Its entries are Health and AutoTotem's totem count, in that fixed order. The reference orders by module enable order. Our runtime does not keep an enable order, and with two entries a fixed order is the only visible difference. Scaffold, Clutch, AutoLadder and CrystalAura publish display info in the reference and will join the stack when those modules are ported. The ClientSettings visibility gates (`isInputEnabled`, main GUI stack) belong to the HUD/ClientSettings worker and are not applied here.
+
 ## 2026-10-31: HUD modules (worker round 3)
 
 - **Infinite effects in Potion Status show "∞" with a full green ring.** The reference predates infinite effects: it divides by the duration and prints "00:00" in red. That is a modernization; finite effects follow the reference ring, colours and countdown.
@@ -253,3 +260,32 @@
   - The reference keeps the movement lock after the silent return until the next clearTarget, and the port keeps that quirk.
   - A real disable releases the target, movement, rotation and claim at once (the reference has no `onDisable`).
 - **Reach and Misplace stay blocked on the server's re-pick.** Horizon's integrated/LAN server handles a guest's attack packet by re-aiming the guest at the entity (`lan_actions.rs` `look_at_entity`), then re-running the guest's own 3-block pick (5 in creative). Vanilla instead accepts any id inside `canInteractWithEntity(box, 3.0)`. Misplace moves rendered positions client-side, but its hit is still an id beyond 3 real blocks, so it is blocked by the same missing capability. module.autoclickerentitypositionstate follows it.
+
+## 2026-10-31: render worker round 2
+
+These bullets replace the round-1 render bullets they name.
+
+- **Trajectories multishot.** The reference draws one path for a multishot crossbow too. `WideArrowProjectile`'s 0.5 radius only grows the entity candidate box, and `TrajectoriesProjectileRenderState` holds one path. So one path is the faithful port, not a gap. This replaces "Multishot side arrows are not drawn".
+- **Search per-block tracers are ported.** Each "Blocks" entry has its own enabled toggle (a leading `!` turns it off) and tracer toggle (a trailing `+tracer`, off by default, as in `SearchBlock`). A tracer needs the module's "Use tracers" too. A tracer starts at the frame's view centre (the on-top pass resolves `VIEW_CENTRE` to the real camera plus its look vector, as Tracers does), so it converges on the crosshair in every perspective. This replaces "not its per-block tracer toggle".
+- **Equipment glint and Explosions depth are done.** Equipment items carry the host's foil when enchanted. Explosions' blast sphere and rings are depth-tested, as the reference keeps the depth test on. These leave the round-1 "Limits recorded as open" bullet with: skeleton ESP (no bone poses), Arrows' filled triangle and XRay/Chams.
+- **Arrows keeps a filled triangle.** The reference's `exo` arrow image is a Vape asset, which commits may not carry.
+- **SpawnerFinder** keeps the reference's "刷怪笼" suffix (`SpawnerFinder.java` 110 and 143). Its whitelist is labelled "Spawners" (id `render.spawner-finder.whitelist`).
+- **Tracers** registers only its own "Enemy Only". The reference never registers "Enemies List Only", so it is not offered. ESP has no Enemy Only item.
+- **BedPlates** surveys the renderer's visible bed heads every half second, where the reference uses its per-version scans. Its panel is square-cornered, and the distance is in the host font at 0.7 (see `bed_plates.rs`).
+- **ItemESP groups** (`ItemESPGroup`) advance once a game tick from the world's dropped items, as `onPostTick` does, and are drawn at the partial tick. Ours reads at most 512 dropped items a tick, a per-frame bound that the reference does not have.
+- **Fullbright fade-out.** With Gamma and Fade, the reference keeps the module enabled until the fade-out ends. Ours shows it disabled at once while the gamma still eases back. The visual result is the same.
+- **Render frame cost is bounded by what is on.** Twelve render/HUD modules took 1.75 ms CPU a frame to 4.11 ms in the round-1 run. The host now builds the overlay's entity snapshot only when ESP is in 2D mode, NameTags shows its equipment row, or Arrows or MurdererFinder is on. It follows Indicators' projectiles and surveys BedPlates' beds only while those modules are on. Explosions no longer forces the world-lines entity snapshot (it draws only depth-tested shapes). NameTags makes one runtime call a frame for every tag and caches entity names within the frame, instead of a call and a friend-list read per entity. Projectiles' paths are simulated once a game tick. These skip work and do not change what is drawn.
+- **MurdererFinder's Callout goes through the host's own chat send.** The overlay hook sends each queued callout with `Game::send_chat` when connected to a server (single player included) and `Game::handle_chat_input` in a serverless world. It sends one per "Delay" (3100 ms), as `sendChatMessage`. The settings string list has no per-entry toggle, so every "Messages" entry is a candidate. The reference's two default messages are both enabled, so the default behaviour matches.
+- **Chams stays blocked.** Re-checked at pin 8f91f89 in every crate a mixin target may name, horizon-client-render included.
+  - Textured needs an entity draw with the reference's polygon offset (1, -2500000). Entity pipelines are built once, inside the Renderer constructor's `entity_pipeline` closure (gfx.rs:2158-2275), and their largest depth biases are 128 and 10. No hookable function builds or selects an entity pipeline per draw.
+  - Colored with "Color Behind Walls" needs a depth-tested entity pass after `see_through_pipeline`. That pass would sit inside `Renderer::draw_frame` (gfx.rs:5730-5740), whose body has closures, so only HEAD hooks are accepted there.
+  - A re-tint through the world-lines hook would also paint over armour, so it is not used.
+- **XRay stays blocked.**
+  - Opacity (default 60) draws non-target terrain at Opacity/255. But terrain.wgsl:287 writes alpha 1.0, and the alpha byte carries emission (:288). The solid/translucent layer is the inline `face.translucent` test in `Mesher::face` (horizon-client-render mesher.rs:1141-1145), not a call. `mesh_reusing` has closures, so interior hooks are rejected.
+  - With Cave Mode off (the default), buried ores never reach a hook. The inline six-solid-neighbour skip (mesher.rs:1015-1022) runs before any hookable call, and `MeshTables` is an immutable `Arc` built once (horizon-client game.rs:1631).
+  - These pieces are reachable: hiding non-targets (`StateModels::models_at`, `Mesher::face`), fluids (`fluid::tesselate`), target faces (`FaceVisibility::should_render_face` in horizon-world), re-meshing (`Game::all_sections_changed`) and gamma (`Renderer.fullbright`). They alone would not match the reference.
+- **MotionBlur is not host-blocked.** Real hook targets exist at the pin:
+  - HEAD on `horizon_client_render::gfx::readback::Readback::present(&mut self, device, encoder, surface)` (gfx.rs:6039-6041). This runs after the screenshot readback, and with HDR on, `hdr.present` writes the surface after it (6043-6044).
+  - Or after the second `Hud::draw_range` (hud.rs:1857), where `MenuBlur::apply` (menu_blur.rs:166) already copies and blends the frame. Captures would show it there.
+  - A `pub` support module on `crates/horizon-client-render/src/gfx.rs` (`pub mod gfx` in lib.rs) can hold the history texture and the blend pipeline. The surface has COPY_SRC only when caps allow (gfx.rs:1343-1345), so the pass needs its own copy target.
+  - The row belongs to worker/hud and is recorded as not-started with this plan.

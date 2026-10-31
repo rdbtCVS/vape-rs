@@ -126,6 +126,10 @@ registry! {
     ThrowDebuff => "inventory.throw-debuff", "ThrowDebuff", "Inventory", None, [];
     AutoHeal => "inventory.auto-heal", "AutoHeal", "Hidden", None, [];
     InventoryFill => "inventory.inventory-fill", "InventoryFill", "Inventory", None, [];
+    BlockOverlay => "hud.block-overlay", "Block Overlay", "HUD", None, [];
+    Projectiles => "render.projectiles", "Projectiles", "Render", None, [];
+    Indicators => "render.indicators", "Indicators", "Render", None, [];
+    BedPlates => "render.bed-plates", "BedPlates", "World", None, [];
     TargetFilter => "utility.target-filter", "TargetFilter", "Utility", None, [];
     HitSelect => "combat.hit-select", "HitSelect", "Combat", None, [];
     BlockHit => "combat.block-hit", "BlockHit", "Combat", None, [];

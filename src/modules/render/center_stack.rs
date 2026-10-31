@@ -74,6 +74,8 @@ mod tests {
             first_person: true,
             now_ms: 0,
             spawners: Vec::new(),
+            indicators: Vec::new(),
+            bed_plates: Vec::new(),
         }
     }
 

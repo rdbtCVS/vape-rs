@@ -67,6 +67,15 @@ impl Projection {
         let length = x.hypot(y);
         (length > 1e-6).then(|| [x / length, y / length])
     }
+    /// HUD units per block at a world point's depth, for billboards that
+    /// face the camera (BedPlates): the projection's vertical scale (the
+    /// length of its up row) over the point's distance along the view.
+    pub fn units_per_block(&self, p: [f64; 3]) -> Option<f32> {
+        let w = self.clip(p)[3];
+        let m = &self.matrix;
+        let up = (m[1] * m[1] + m[5] * m[5] + m[9] * m[9]).sqrt();
+        (w > 1e-4).then(|| up / w * 0.5 * self.height)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -136,6 +145,13 @@ pub enum Draw {
         y: f32,
         scale: f32,
         item: Item,
+    },
+    /// A draw turned `degrees` clockwise (y down) about `pivot`
+    /// (Indicators' item).
+    Turned {
+        pivot: [f32; 2],
+        degrees: f32,
+        inner: Box<Draw>,
     },
 }
 
@@ -215,6 +231,10 @@ pub struct Frame {
     pub now_ms: u64,
     /// Monster spawners with their mob id (SpawnerFinder).
     pub spawners: Vec<([i32; 3], String)>,
+    /// The projectiles Indicators follows.
+    pub indicators: Vec<super::indicators::Shot>,
+    /// The beds BedPlates surveyed.
+    pub bed_plates: Vec<super::bed_plates::Plate>,
 }
 
 #[cfg(test)]

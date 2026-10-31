@@ -19,7 +19,7 @@ pub fn definitions() -> Vec<Definition> {
         Definition::boolean(&key("show-distance"), "Show distance", true),
         Definition::new(
             &key("whitelist"),
-            "Spawner names-whitelist",
+            "Spawners",
             Kind::StringList {
                 max_entries: 64,
                 max_chars: 64,

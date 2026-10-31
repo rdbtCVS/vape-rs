@@ -162,15 +162,123 @@ fn search_found(game: &Game<'_>, query: Option<crate::game::vape_rs::modules::re
         .collect()
 }
 
+/// A projectile in flight at the tick: entity type, position, the position
+/// before the tick, motion, in water, stuck in the ground.
+pub(crate) type InFlight = (&'static str, [f64; 3], [f64; 3], [f64; 3], bool, bool);
+
+fn in_water(game: &Game<'_>, p: [f64; 3]) -> bool {
+    let state = game.world.block(p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32);
+    game.res.facts().get(state).fluid == horizon_client::blocks::Fluid::Water
+}
+
+/// Every projectile in flight: the host's projectiles (a server's too, on a
+/// guest), thrown tridents and thrown potions (not experience bottles, whose
+/// previous position is one motion back).
+pub(crate) fn in_flight(game: &Game<'_>) -> Vec<InFlight> {
+    let v = |v: horizon_core::geometry::Vec3| [v.x, v.y, v.z];
+    let mut out: Vec<InFlight> = game
+        .creatures
+        .projectiles
+        .iter()
+        .map(|p| (p.kind.id(), v(p.position), v(p.previous), v(p.velocity), p.touching_water, p.stuck))
+        .collect();
+    out.extend(game.tridents.iter().map(|t| {
+        let at = v(t.position);
+        ("minecraft:trident", at, v(t.previous), v(t.velocity), in_water(game, at), t.in_ground)
+    }));
+    for (kind, position, velocity) in game.potions.thrown_entities() {
+        if kind == "minecraft:experience_bottle" {
+            continue;
+        }
+        let (at, m) = (v(position), v(velocity));
+        out.push((kind, at, [0, 1, 2].map(|i| at[i] - m[i]), m, in_water(game, at), false));
+    }
+    out
+}
+
+/// The living entities a projectile can hit besides the player (the
+/// reference's `EntityLivingBase` that can be collided with, not endermen):
+/// living mobs and a server's guests here.
+fn targets(game: &Game<'_>) -> Vec<crate::game::vape_rs::modules::render::projectiles::Target> {
+    let mut out: Vec<_> = game
+        .mobs
+        .iter()
+        .filter(|m| m.alive() && &*m.kind.id != "minecraft:enderman")
+        .map(|m| {
+            let b = m.bounds();
+            let (lo, hi) = (b.min_position(), b.max_position());
+            ([lo.x, lo.y, lo.z], [hi.x, hi.y, hi.z])
+        })
+        .collect();
+    if let Some(host) = &game.lan {
+        for g in host.hub.guests.iter().filter(|g| host.hub.here(g) && g.loaded && !g.dead) {
+            let min = [g.position[0] - 0.3, g.position[1], g.position[2] - 0.3];
+            out.push((min, [min[0] + 0.6, min[1] + 1.8, min[2] + 0.6]));
+        }
+    }
+    out
+}
+
+/// Projectiles' paths, simulated once a tick (the projectiles only move per
+/// tick): the tick's flights and their lines.
+static PROJECTILE_PATHS: std::sync::Mutex<(i64, Vec<InFlight>, Vec<crate::game::vape_rs::modules::render::world::Line>)> =
+    std::sync::Mutex::new((i64::MIN, Vec::new(), Vec::new()));
+
+fn projectile_lines(
+    game: &Game<'_>,
+    client: &crate::game::vape_rs::core::Client,
+    block: &mut dyn FnMut([f64; 3], [f64; 3]) -> Option<[f64; 3]>,
+) -> Vec<crate::game::vape_rs::modules::render::world::Line> {
+    use crate::game::vape_rs::modules::render::projectiles::{Flight, Kind};
+    let flying = in_flight(game);
+    let Ok(mut cache) = PROJECTILE_PATHS.lock() else {
+        return Vec::new();
+    };
+    if cache.0 == game.world.game_time && cache.1 == flying {
+        return cache.2.clone();
+    }
+    let flights: Vec<Flight> = flying
+        .iter()
+        .filter_map(|&(id, position, previous, velocity, in_water, stuck)| {
+            Some(Flight { kind: Kind::from_entity(id)?, position, previous, velocity, in_water, stuck })
+        })
+        .collect();
+    let lines = if flights.is_empty() {
+        Vec::new()
+    } else {
+        let targets = targets(game);
+        let bottom = f64::from(game.world.bottom_y());
+        with_client(client, |runtime| runtime.projectile_lines(&flights, &targets, bottom, block))
+    };
+    *cache = (game.world.game_time, flying, lines.clone());
+    lines
+}
+
+/// Block Overlay's target: the outline boxes of the block under the
+/// crosshair, unless a mob under it is nearer (`objectMouseOver` is then
+/// the entity).
+pub(crate) fn overlay_target(game: &Game<'_>) -> Vec<[f64; 6]> {
+    let Some(hit) = game.pick() else {
+        return Vec::new();
+    };
+    let eye = game.eye_position().unwrap_or_default();
+    let d = (0..3).map(|a| (hit.point[a] - eye[a]).powi(2)).sum::<f64>().sqrt();
+    if game.mob_hit().is_some_and(|(_, m)| m < d) {
+        return Vec::new();
+    }
+    game.outline_boxes(hit.pos)
+}
+
 pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> ControlFlow<Vec<Line>> {
     let client = game.__horizon_mixins_vape_rs_client().clone();
-    let (storage_on, entities_on, epoch) =
-        with_client(&client, |runtime| {
-            let (s, e) = runtime.world_line_sources();
-            (s, e, runtime.session().epoch())
-        });
-    if !storage_on && !entities_on {
+    let (storage_on, entities_on, scene_on, (explosions_on, overlay_on), epoch) = with_client(&client, |runtime| {
+        let (s, e) = runtime.world_line_sources();
+        (s, e, runtime.scene_active(), runtime.depth_active(), runtime.session().epoch())
+    });
+    if !entities_on {
         crate::game::glowing::vape_esp_outline::set(Default::default());
+    }
+    if !storage_on && !entities_on && !scene_on && !explosions_on && !overlay_on {
         return ControlFlow::Continue(());
     }
     // The first-person eye at the camera's partial tick, as `camera_view`
@@ -204,8 +312,10 @@ pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> Contr
     } else {
         Vec::new()
     };
-    let outlines = with_client(&client, |runtime| runtime.esp_outlines(&entities));
-    crate::game::glowing::vape_esp_outline::set(outlines.into_iter().map(|(id, rgb)| (id as u32, rgb)).collect());
+    if entities_on {
+        let outlines = with_client(&client, |runtime| runtime.esp_outlines(&entities));
+        crate::game::glowing::vape_esp_outline::set(outlines.into_iter().map(|(id, rgb)| (id as u32, rgb)).collect());
+    }
     let (y, p) = (f64::from(yaw).to_radians(), f64::from(pitch).to_radians());
     let camera = Camera {
         eye: at.to_array(),
@@ -219,7 +329,7 @@ pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> Contr
     let launch = held.and_then(|stack| {
         use crate::game::vape_rs::modules::render::trajectories::Loaded;
         let view = horizon_client::item_render::stack_view(stack);
-        let loaded = match view.patch.get("minecraft:charged_projectiles").and_then(|v| v.as_ref()?.as_array().cloned()) {
+        let loaded = match view.patch.get("minecraft:charged_projectiles").and_then(|v| v.as_ref()?.as_array()) {
             Some(p) if p.iter().any(|t| t.to_string().contains("firework_rocket")) => Loaded::Firework,
             Some(p) if !p.is_empty() => Loaded::Arrow,
             _ => Loaded::Empty,
@@ -229,21 +339,30 @@ pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> Contr
         with_client(&client, |runtime| runtime.trajectory_launch(&stack.item, use_ticks, loaded))
             .map(|l| l.with_shooter([movement.x, movement.y, movement.z], on_ground))
     });
-    let mut block = |a: [f64; 3], b: [f64; 3]| {
+    // The host's block clip for a segment: the hit point and face normal.
+    let clip = |a: [f64; 3], b: [f64; 3]| {
         let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         if length < 1e-9 {
             return None;
         }
-        game.clip_ray(a, d.map(|v| v / length), length).map(|hit| hit.point)
+        game.clip_ray(a, d.map(|v| v / length), length).map(|hit| (hit.point, hit.face))
     };
-    let trajectory = launch.map(|l| (l, &mut block as &mut dyn FnMut([f64; 3], [f64; 3]) -> Option<[f64; 3]>));
-    let extra = with_client(&client, |runtime| runtime.world_lines(&camera, &entities, &storage, trajectory));
-    let query = with_client(&client, |runtime| runtime.search_query());
-    let found = search_found(game, query);
-    let props = if with_client(&client, |runtime| runtime.props_wanted()) { falling_blocks(game, alpha) } else { Vec::new() };
-    let scene = with_client(&client, |runtime| runtime.scene_lines(&camera, &found, &props));
-    let extra: Vec<_> = extra.into_iter().chain(scene).collect();
+    let mut block = |a: [f64; 3], b: [f64; 3]| clip(a, b).map(|(point, _)| point);
+    let mut faced = clip;
+    let trajectory = launch.map(|l| (l, &mut faced as crate::game::vape_rs::modules::render::trajectories::BlockClip<'_>));
+    let (extra, query, props_wanted) = with_client(&client, |runtime| {
+        (runtime.world_lines(&camera, &entities, &storage, trajectory), runtime.search_query(), runtime.props_wanted())
+    });
+    let mut extra = extra;
+    if scene_on {
+        let found = search_found(game, query);
+        let props = if props_wanted { falling_blocks(game, alpha) } else { Vec::new() };
+        extra.extend(with_client(&client, |runtime| runtime.scene_lines(&found, &props)));
+        extra.extend(projectile_lines(game, &client, &mut block));
+    } else {
+        search_found(game, None);
+    }
     // A negative width marks a line for the always-on-top pass, so these
     // show through walls (see the `vape_on_top` gizmos module).
     lines.extend(extra.into_iter().map(|l| Line {
@@ -252,9 +371,13 @@ pub(crate) fn fishing_line(game: &Game<'_>, alpha: f64, size: [u32; 2]) -> Contr
         color: l.color,
         width: -l.width,
     }));
-    // Explosions' blast rings stay depth-tested (the reference keeps the
-    // depth test on).
-    let blast = with_client(&client, |runtime| runtime.explosion_lines(&tnts(game, alpha), alpha as f32));
-    lines.extend(blast.into_iter().map(|l| Line { start: l.start.0, end: l.end.0, color: l.color, width: l.width }));
+    // Explosions' blast rings and Block Overlay's outline stay depth-tested
+    // (the reference keeps the depth test on).
+    if explosions_on || overlay_on {
+        let tnt = if explosions_on { tnts(game, alpha) } else { Vec::new() };
+        let target = if overlay_on { overlay_target(game) } else { Vec::new() };
+        let depth = with_client(&client, |runtime| runtime.depth_lines(&tnt, alpha as f32, &target));
+        lines.extend(depth.into_iter().map(|l| Line { start: l.start.0, end: l.end.0, color: l.color, width: l.width }));
+    }
     ControlFlow::Break(lines)
 }
