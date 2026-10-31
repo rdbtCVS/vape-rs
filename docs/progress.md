@@ -1410,3 +1410,32 @@ Every other number and random range the audit can parse matches the reference.
 Current report: 26 missing settings on integrated rows, all routed (3 are SilentAura's excluded AI settings). Plus 2 missing on the blocked Reach row, 2 range differences (AutoArmor Delay, Text GUI Scale), 1 default difference (AutoArmor Delay) and 9 values hidden in the reference. The validated count is 57 and integrated is 39.
 
 Tests: `settings_dump` passes (1/1, 645 definitions).
+
+## 2026-10-31: client foundation (worker round 3)
+
+Worker client-foundation, branch t3/7064aa90. Rows: client.bindings, client.macros, client.profiles; client.friends next.
+
+Changes so far:
+- **Profiles** (`src/core/profile_runtime.rs`, new): the reference profile model (`ProfilesManager`, `Profile`, built-ins).
+  - A fresh install seeds "Modern PVP" and "Classic PVP" and selects Modern PVP. A pre-profile live state migrates into a "Default" profile, numbered if that name is taken.
+  - The selected profile follows the live state. Switching captures the profile left behind.
+  - `PublicProfileSettings` values stay global.
+  - Module states are applied only with "Auto-load module states". HUD modules are always restored at startup.
+  - A right click applies a profile's saved non-HUD states.
+  - New profiles and local imports go first (`addProfile(profile, true)`).
+  - The selected profile's trash button is inert ("You cannot delete your selected profile").
+  - Per-profile keybinds work in the GUI row menu and are gated by open screens.
+  - New client settings: "Auto-load module states" and "Frame positions per profile".
+- **Profiles storage** (`src/core/profiles.rs`): profile file names are percent-encoded, so any name stays inside `profiles/`. Non-canonical stems are not listed.
+- **Macros** (`src/core/macro_runtime.rs`, `src/input/macros.rs`): names may repeat, as in the reference's `LinkedHashSet`. An edit moves the macro last. GUI edits address macros by position.
+- **Bindings**: GUI rebinding scenario (`tools/bindings_scenario.py`) covering chord capture, Escape/left-click clear, the shift-click hold toggle, mouse-button binds and restart.
+- **Scenarios**:
+  - new: `tools/macro_scenario.py` and `tools/profile_switch_scenario.py`;
+  - updated for the new profile flow: `tools/gui_scenario.py` and `tools/text_editor_scenario.py`.
+
+Tests:
+- fmt clean; clippy `-D warnings` clean.
+- `cargo test --workspace`: 215 + 1 + 4 + 0 passed.
+- payload-test: 215 passed.
+
+Host build and native scenarios are pending a rebuild after merging main (608c800). This entry will record those results.

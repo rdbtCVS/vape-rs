@@ -40,11 +40,12 @@ impl Runtime {
         let title = format!("\u{a7}f{}", module.name());
         self.toast(module.id(), &title, message, 1500.0);
     }
-    pub(super) fn profile_alert(&mut self, name: &str) {
+    /// `ModManager.applyProfileModuleStates`: `count` is how many modules the
+    /// profile turned on.
+    pub(super) fn profile_alert(&mut self, name: &str, count: usize) {
         if !self.hud_flag("client.profile-alerts") {
             return;
         }
-        let count = ModuleId::ALL.iter().filter(|m| self.enabled(**m)).count();
         self.toast(
             "client.profile",
             &format!("Profile swap to \u{a7}6{name}"),
@@ -168,7 +169,7 @@ impl Runtime {
     pub fn scoreboard_numbers(&self) -> bool {
         self.hud_flag(super::super::ui::scoreboard::SHOW_NUMBERS)
     }
-    fn hud_flag(&self, id: &str) -> bool {
+    pub(super) fn hud_flag(&self, id: &str) -> bool {
         self.settings
             .effective(id)
             .and_then(|v| v.as_bool())

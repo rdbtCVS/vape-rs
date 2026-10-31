@@ -8,6 +8,7 @@ pub mod lifecycle;
 pub mod macro_runtime;
 pub mod movement_input;
 pub mod movement_runtime;
+mod profile_runtime;
 pub mod profiles;
 mod registry;
 pub mod render_runtime;
@@ -45,6 +46,9 @@ struct ModuleState {
     enabled: bool,
     binding: MultiBinding,
 }
+
+const GUI_BINDS: &str = "client.gui.binds";
+const DEFAULT_GUI_BINDS: [&str; 1] = ["ShiftRight"];
 
 #[derive(Debug)]
 pub struct Runtime {
@@ -129,6 +133,9 @@ pub struct Runtime {
     pub gui: Gui,
     suppress_game_input: bool,
     gui_bind: MultiBinding,
+    /// Physical keys held outside the GUI, for the reference's hidden
+    /// Ctrl/Right Shift + Home GUI hotkey.
+    held_keys: std::collections::BTreeSet<String>,
     pub ui_screen_owned: bool,
     profile_names: Vec<String>,
 }
@@ -420,13 +427,13 @@ impl Default for Runtime {
             .unwrap();
         settings
             .define(Definition::new(
-                "client.gui.binds",
+                GUI_BINDS,
                 "GUI binding",
                 Kind::StringList {
                     max_entries: 3,
                     max_chars: 64,
                 },
-                json!(["ShiftRight"]),
+                json!(DEFAULT_GUI_BINDS),
             ))
             .unwrap();
         settings
@@ -521,6 +528,7 @@ impl Default for Runtime {
             gui: Gui::default(),
             suppress_game_input: false,
             gui_bind: MultiBinding::default(),
+            held_keys: Default::default(),
             ui_screen_owned: false,
             profile_names: Vec::new(),
         }
@@ -628,7 +636,11 @@ impl Runtime {
         self.initialized
     }
     pub fn set_setting(&mut self, id: &str, value: Value) -> Result<(), String> {
-        let next = self.settings.validate_value(id, &value)?;
+        let mut next = self.settings.validate_value(id, &value)?;
+        // The reference resets an empty GUI binding to Right Shift.
+        if id == GUI_BINDS && next.as_array().is_some_and(Vec::is_empty) {
+            next = json!(DEFAULT_GUI_BINDS);
+        }
         if self.settings.get(id) == Some(&next) {
             return Ok(());
         }
@@ -729,31 +741,50 @@ impl Runtime {
             }
         }
         self.suppress_game_input = false;
+        match action {
+            KeyAction::Press | KeyAction::Repeat => {
+                self.held_keys.insert(key.into());
+            }
+            KeyAction::Release => {
+                self.held_keys.remove(key);
+            }
+            KeyAction::FocusLost => self.held_keys.clear(),
+        }
+        // Reference EventTickBase: Home with either Ctrl or Right Shift held
+        // opens the GUI when no screen is open, whatever its binding.
+        let hidden_hotkey = !was_open
+            && accepts_input
+            && action == KeyAction::Press
+            && self.held_keys.contains("Home")
+            && ["ControlLeft", "ControlRight", "ShiftRight"]
+                .iter()
+                .any(|k| self.held_keys.contains(*k));
         let gui_keys = self
             .settings
-            .get("client.gui.binds")
+            .get(GUI_BINDS)
             .and_then(Value::as_array)
             .unwrap();
-        let gui_toggle =
-            if !self.gui.capturing() && gui_keys.iter().any(|v| v.as_str() == Some(key)) {
-                self.gui_bind.apply(
-                    key,
-                    action,
-                    BindingMode::Toggle,
-                    was_open,
-                    accepts_input || was_open,
-                    gui_keys.len(),
-                )
-            } else {
-                None
-            };
+        let gui_toggle = if hidden_hotkey {
+            Some(true)
+        } else if !self.gui.capturing() && gui_keys.iter().any(|v| v.as_str() == Some(key)) {
+            self.gui_bind.apply(
+                key,
+                action,
+                BindingMode::Toggle,
+                was_open,
+                accepts_input || was_open,
+                gui_keys.len(),
+            )
+        } else {
+            None
+        };
         if gui_toggle.is_some() {
             if was_open {
                 self.gui.close();
             } else if accepts_input {
                 self.release_input();
                 self.gui.open = true;
-                self.profile_names = self.profiles().unwrap_or_default();
+                self.refresh_profiles();
             }
         } else if was_open
             && !self.gui.capturing()
@@ -781,15 +812,20 @@ impl Runtime {
                     self.suppress_game_input |= self.key_named(module, key, action, accepts_input);
                 }
             }
+            if action == KeyAction::Press
+                && accepts_input
+                && let Some(name) = self.profile_bind_pressed(key)
+                && let Err(error) = self.switch_profile(&name)
+            {
+                self.notify(error);
+            }
         }
         if action != KeyAction::Release && (was_open || self.gui.open) {
             self.suppress_game_input = true;
         }
-        self.macro_input(
-            key,
-            action,
-            accepts_input && !self.gui.open && !self.suppress_game_input,
-        );
+        // Macros see the press even when a module bind used it, as both
+        // reference listeners receive every key event.
+        self.macro_input(key, action, accepts_input && !was_open && !self.gui.open);
         // Releases must still reach the host's key mapping cleanup.
         if action == KeyAction::Release {
             self.suppress_game_input = false;
@@ -797,10 +833,6 @@ impl Runtime {
     }
     fn perform(&mut self, actions: Vec<Action>) {
         for action in actions {
-            let refresh_profiles = matches!(
-                &action,
-                Action::Rename(..) | Action::Delete(..) | Action::Import(..)
-            );
             let result: Result<(), String> = match action {
                 Action::Toggle(id) => {
                     if let Some(module) = ModuleId::ALL.into_iter().find(|m| m.id() == id) {
@@ -826,35 +858,15 @@ impl Runtime {
                     self.dirty = true;
                     Ok(())
                 }
-                Action::Save(name) => self.save_profile(&name),
-                Action::Load(name) => self.load_profile(&name),
-                Action::Rename(old, new) => {
-                    let result = self
-                        .storage
-                        .as_ref()
-                        .ok_or_else(|| "Local storage unavailable".to_string())
-                        .and_then(|s| s.rename(&old, &new));
-                    if result.is_ok() {
-                        self.gui.select_profile(&new);
-                        self.notify(format!("Renamed profile to {new}"));
-                    }
-                    result
-                }
-                Action::Delete(name) => self
-                    .storage
-                    .as_ref()
-                    .ok_or_else(|| "Local storage unavailable".to_string())
-                    .and_then(|s| s.delete(&name)),
-                Action::Import(name) => self
-                    .storage
-                    .as_ref()
-                    .ok_or_else(|| "Local storage unavailable".to_string())
-                    .and_then(|s| s.import_file(&name)),
-                Action::Export(name) => self
-                    .storage
-                    .as_ref()
-                    .ok_or_else(|| "Local storage unavailable".to_string())
-                    .and_then(|s| s.export_file(&name)),
+                Action::Create(name) => self.create_profile(&name),
+                Action::Save(name) => self.save_profile_as(&name),
+                Action::Load(name) => self.switch_profile(&name),
+                Action::ApplyProfileStates(name) => self.apply_profile_states(&name),
+                Action::BindProfile(name, keys) => self.bind_profile(&name, keys),
+                Action::Rename(old, new) => self.rename_profile(&old, &new),
+                Action::Delete(name) => self.delete_profile(&name),
+                Action::Import(name) => self.import_profile(&name),
+                Action::Export(name) => self.export_profile(&name),
                 Action::UpsertPerson(relation, name, alias) => {
                     self.upsert_person(&relation, &name, &alias)
                 }
@@ -870,16 +882,13 @@ impl Runtime {
                     self.flush()
                         .map(|()| self.notify("Configuration saved".to_string()))
                 }
-                Action::UpsertMacro(definition) => self.upsert_macro(definition),
-                Action::RemoveMacro(name) => self.remove_macro(&name),
+                Action::UpsertMacro(index, definition) => self.upsert_macro(index, definition),
+                Action::RemoveMacro(index) => self.remove_macro(index),
                 Action::Close => {
                     self.gui.close();
                     Ok(())
                 }
             };
-            if result.is_ok() && refresh_profiles {
-                self.profile_names = self.profiles().unwrap_or_default();
-            }
             if let Err(error) = result {
                 self.notify(error);
             }
@@ -997,6 +1006,8 @@ impl Runtime {
                 .collect(),
             values: self.settings.known_values(),
             profiles: self.profile_names.clone(),
+            active_profile: self.active_profile(),
+            profile_binds: self.profile_binds().into_iter().collect(),
             people: self.people(),
             macros: self.macros().to_vec(),
         }
@@ -1937,9 +1948,14 @@ impl Runtime {
         self.initialized = true;
         match Profiles::new(root) {
             Ok(storage) => {
-                match storage.current() {
-                    Ok(Some(document)) => self.apply_document(document),
-                    Ok(None) => self.dirty = true,
+                let current = storage.current();
+                self.storage = Some(storage);
+                match current {
+                    Ok(current) => {
+                        if let Err(error) = self.start_profiles(current) {
+                            self.notify(format!("Profiles were not loaded: {error}"));
+                        }
+                    }
                     Err(error) => {
                         self.persistence_blocked = true;
                         self.notify(format!(
@@ -1947,8 +1963,7 @@ impl Runtime {
                         ));
                     }
                 }
-                self.storage = Some(storage);
-                self.profile_names = self.profiles().unwrap_or_default();
+                self.refresh_profiles();
             }
             Err(error) => self.notify(format!("Local profile storage unavailable: {error}")),
         }
@@ -1959,18 +1974,31 @@ impl Runtime {
         self.suppress_toggle_alerts = suppress;
     }
     fn apply_document_inner(&mut self, document: Document) {
+        let states = document.0["modules"].clone();
+        self.apply_values(document);
+        for module in ModuleId::ALL {
+            let enabled = states[module.id()]["enabled"].as_bool().unwrap_or(false);
+            if module != ModuleId::Panic {
+                self.set_enabled(module, enabled && self.mode(module) != BindingMode::Hold);
+            }
+        }
+    }
+    /// Everything a document holds except module states.
+    fn apply_values(&mut self, document: Document) {
         self.panic_restore = None;
         self.session_change(CleanupReason::Profile);
         for warning in self.settings.load(&document.0["settings"]) {
             self.notify(warning);
         }
-        for module in ModuleId::ALL {
-            let enabled = document.0["modules"][module.id()]["enabled"]
-                .as_bool()
-                .unwrap_or(false);
-            if module != ModuleId::Panic {
-                self.set_enabled(module, enabled && self.mode(module) != BindingMode::Hold);
-            }
+        if self
+            .settings
+            .get(GUI_BINDS)
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty)
+        {
+            self.settings
+                .set(GUI_BINDS, json!(DEFAULT_GUI_BINDS))
+                .unwrap();
         }
         if let Err(error) = self
             .macro_engine
@@ -2002,30 +2030,9 @@ impl Runtime {
         }
         if let Some(storage) = &self.storage {
             storage.save_current(&self.snapshot())?;
+            self.capture_active()?;
             self.dirty = false;
         }
-        Ok(())
-    }
-    pub fn save_profile(&mut self, name: &str) -> Result<(), String> {
-        self.storage
-            .as_ref()
-            .ok_or("Local storage is unavailable")?
-            .save(name, &self.snapshot())?;
-        self.profile_names = self.profiles().unwrap_or_default();
-        self.gui.select_profile(name);
-        self.notify(format!("Saved profile {name}"));
-        Ok(())
-    }
-    pub fn load_profile(&mut self, name: &str) -> Result<(), String> {
-        let document = self
-            .storage
-            .as_ref()
-            .ok_or("Local storage is unavailable")?
-            .load(name)?;
-        self.apply_document(document);
-        self.gui.select_profile(name);
-        self.notify(format!("Loaded profile {name}"));
-        self.profile_alert(name);
         Ok(())
     }
     pub fn profiles(&self) -> Result<Vec<String>, String> {
@@ -2652,6 +2659,44 @@ mod tests {
         assert!(!runtime.gui.open);
         assert!(!runtime.enabled(ModuleId::Fps));
         assert!(runtime.suppress_game_input());
+    }
+    #[test]
+    fn empty_gui_bind_falls_back_and_ctrl_home_opens_the_gui() {
+        let mut runtime = Runtime::default();
+        runtime.set_setting("client.gui.binds", json!([])).unwrap();
+        assert_eq!(
+            runtime.settings.get("client.gui.binds"),
+            Some(&json!(["ShiftRight"]))
+        );
+        runtime
+            .set_setting("client.gui.binds", json!(["KeyU"]))
+            .unwrap();
+        runtime.apply_document(
+            Document::parse(br#"{"schema":1,"settings":{"client.gui.binds":[]}}"#, false).unwrap(),
+        );
+        assert_eq!(
+            runtime.settings.get("client.gui.binds"),
+            Some(&json!(["ShiftRight"]))
+        );
+        // Home alone, Left Shift + Home, or a hotkey behind a screen do nothing.
+        for (modifier, accepts) in [
+            (None, true),
+            (Some("ShiftLeft"), true),
+            (Some("ControlLeft"), false),
+        ] {
+            if let Some(modifier) = modifier {
+                runtime.input(modifier, KeyAction::Press, accepts);
+            }
+            runtime.input("Home", KeyAction::Press, accepts);
+            assert!(!runtime.gui.open);
+            runtime.input("Home", KeyAction::Release, accepts);
+            if let Some(modifier) = modifier {
+                runtime.input(modifier, KeyAction::Release, accepts);
+            }
+        }
+        runtime.input("Home", KeyAction::Press, true);
+        runtime.input("ControlRight", KeyAction::Press, true);
+        assert!(runtime.gui.open && runtime.suppress_game_input());
     }
     #[test]
     fn local_people_edits_deduplicate_by_name_and_preserve_extensions() {

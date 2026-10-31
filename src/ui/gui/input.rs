@@ -22,36 +22,64 @@ impl Gui {
             self.held.insert(key.into());
         }
         if let Some(capture) = &mut self.capture {
-            if action == KeyAction::Press {
-                if key == "MouseLeft" {
-                    let id = capture.id.clone();
-                    self.capture = None;
-                    if id == "macro.binds" {
-                        self.macro_binds.clear();
-                        self.status = "Macro binding cleared".into();
-                        return Vec::new();
+            // Reference BindCaptureThread: one input (three with
+            // Multi-Keybinding) or releasing the first key or first mouse
+            // button ends the capture. Left click ends it with what was
+            // captured, so it alone clears the bind; mouse buttons are
+            // ignored while Left Shift is held. Escape is never stored.
+            let mouse = key.starts_with("Mouse");
+            let complete = match action {
+                KeyAction::Press if mouse && self.held.contains("ShiftLeft") => false,
+                KeyAction::Press if key == "MouseLeft" => true,
+                KeyAction::Press => {
+                    if mouse && capture.first_mouse.is_none() {
+                        capture.first_mouse = Some(key.into());
                     }
-                    return vec![Action::Set(id, json!([]))];
-                }
-                if !capture.keys.iter().any(|k| k == key) {
-                    capture.keys.push(key.into());
-                    if capture.first.is_none() {
-                        capture.first = Some(key.into());
+                    if capture.keys.iter().any(|k| k == key) {
+                        false
+                    } else {
+                        capture.keys.push(key.into());
+                        if !mouse && capture.first_key.is_none() {
+                            capture.first_key = Some(key.into());
+                        }
+                        !self.multi_bind || capture.keys.len() >= 3
                     }
                 }
-            }
-            let complete = (!self.multi_bind && !capture.keys.is_empty())
-                || capture.keys.len() >= 3
-                || (action == KeyAction::Release && capture.first.as_deref() == Some(key));
+                KeyAction::Release => {
+                    capture.first_key.as_deref() == Some(key)
+                        || capture.first_mouse.as_deref() == Some(key)
+                }
+                _ => false,
+            };
             if complete {
                 let c = self.capture.take().unwrap();
+                let keys: Vec<String> = c.keys.into_iter().filter(|k| k != "Escape").collect();
+                if let Some(profile) = c.id.strip_prefix(PROFILE_BIND) {
+                    self.status = if keys.is_empty() {
+                        "Profile bind removed"
+                    } else {
+                        "Profile bind updated"
+                    }
+                    .into();
+                    return vec![Action::BindProfile(profile.into(), keys)];
+                }
                 if c.id == "macro.binds" {
-                    self.macro_binds = c.keys;
-                    self.status = "Macro binding updated".into();
+                    self.status = if keys.is_empty() {
+                        "Macro binding cleared"
+                    } else {
+                        "Macro binding updated"
+                    }
+                    .into();
+                    self.macro_binds = keys;
                     return Vec::new();
                 }
-                self.status = "Binding updated".into();
-                return vec![Action::Set(c.id, json!(c.keys))];
+                self.status = if keys.is_empty() {
+                    "Bind removed"
+                } else {
+                    "Binding updated"
+                }
+                .into();
+                return vec![Action::Set(c.id, json!(keys))];
             }
             return Vec::new();
         }
@@ -360,11 +388,7 @@ impl Gui {
                 if button == "MouseRight" {
                     self.expand(id);
                 } else if self.held.contains("ShiftLeft") || self.held.contains("ShiftRight") {
-                    self.capture = Some(Capture {
-                        id: format!("{id}.binds"),
-                        keys: Vec::new(),
-                        first: None,
-                    });
+                    self.capture = Some(Capture::new(format!("{id}.binds")));
                 } else {
                     return vec![Action::Toggle(id)];
                 }
@@ -490,16 +514,43 @@ impl Gui {
                 return vec![Action::Set(id, values[next].clone())];
             }
             Hit::Capture(id) => {
-                self.capture = Some(Capture {
-                    id,
-                    keys: Vec::new(),
-                    first: None,
-                });
+                // Reference bind widget: Shift+click switches a module
+                // between toggle and hold; right click does nothing.
+                let activation = id
+                    .strip_suffix(".binds")
+                    .map(|module| format!("{module}.activation"))
+                    .filter(|a| view.definitions.iter().any(|d| &d.id == a));
+                if button == "MouseRight" {
+                } else if self.held.contains("ShiftLeft") || self.held.contains("ShiftRight") {
+                    if let Some(activation) = activation {
+                        let hold = view.values[&activation] == "hold";
+                        self.status = if hold {
+                            "Bind functionality = Toggle"
+                        } else {
+                            "Bind functionality = Enable while held"
+                        }
+                        .into();
+                        return vec![Action::Set(
+                            activation,
+                            json!(if hold { "toggle" } else { "hold" }),
+                        )];
+                    }
+                } else {
+                    self.capture = Some(Capture::new(id));
+                }
             }
+            // `ClickGuiProfileCard`: left click switches, right click
+            // re-applies the profile's saved module states.
             Hit::Profile(name) => {
-                self.selected_profile = Some(name.clone());
                 self.profile_menu = None;
-                return vec![Action::Load(name)];
+                return vec![if button == "MouseRight" {
+                    Action::ApplyProfileStates(name)
+                } else {
+                    Action::Load(name)
+                }];
+            }
+            Hit::BindProfile(name) => {
+                self.capture = Some(Capture::new(format!("{PROFILE_BIND}{name}")));
             }
             Hit::ProfileMenu(name) => {
                 self.profile_menu = if self.profile_menu.as_ref() == Some(&name) {
@@ -517,12 +568,14 @@ impl Gui {
             Hit::SubmitProfile => return self.submit_profile(),
             Hit::SaveProfile(name) => return vec![Action::Save(name)],
             Hit::ExportProfile(name) => return vec![Action::Export(name)],
+            // `ProfileListEntryOpenButtonComponent`: the selected profile's
+            // trash button does nothing.
+            Hit::DeleteProfile(name) if view.active_profile.as_ref() == Some(&name) => {
+                self.status = "You cannot delete your selected profile".into();
+            }
             Hit::DeleteProfile(name) => self.confirm_delete = Some(name),
             Hit::ConfirmDelete => {
                 if let Some(name) = self.confirm_delete.take() {
-                    if self.selected_profile.as_ref() == Some(&name) {
-                        self.selected_profile = None;
-                    }
                     self.profile_menu = None;
                     return vec![Action::Delete(name)];
                 }
@@ -538,13 +591,13 @@ impl Gui {
             Hit::RemovePerson(relation, name) => return vec![Action::RemovePerson(relation, name)],
             Hit::Target(relation, name) => return vec![Action::ToggleTarget(relation, name)],
             Hit::NewMacro => self.new_macro(),
-            Hit::SelectMacro(name) => {
-                if self.macro_open && self.selected_macro.as_ref() == Some(&name) {
+            Hit::SelectMacro(index) => {
+                if self.macro_open && self.selected_macro == Some(index) {
                     self.macro_open = false;
                     self.selected_macro = None;
-                } else if let Some(macro_) = view.macros.iter().find(|m| m.name == name) {
+                } else if let Some(macro_) = view.macros.get(index) {
                     self.macro_open = true;
-                    self.selected_macro = Some(macro_.name.clone());
+                    self.selected_macro = Some(index);
                     self.macro_name = macro_.name.clone();
                     self.macro_binds = macro_.binds.clone();
                     self.macro_delay = format!("{},{}", macro_.delay.min_ms, macro_.delay.max_ms);
@@ -557,23 +610,23 @@ impl Gui {
             }
             Hit::SaveMacro => match self.macro_action() {
                 Ok(action) => {
-                    self.selected_macro = Some(self.macro_name.clone());
+                    // An edit or a new macro lands last, where it stays
+                    // selected.
+                    if let Action::UpsertMacro(_, macro_) = &action {
+                        self.macro_name = macro_.name.clone();
+                    }
+                    self.selected_macro =
+                        Some(view.macros.len() - usize::from(self.selected_macro.is_some()));
                     return vec![action];
                 }
                 Err(error) => self.status = error,
             },
-            Hit::RemoveMacro(name) => {
+            Hit::RemoveMacro(index) => {
                 self.macro_open = false;
                 self.selected_macro = None;
-                return vec![Action::RemoveMacro(name)];
+                return vec![Action::RemoveMacro(index)];
             }
-            Hit::CaptureMacro => {
-                self.capture = Some(Capture {
-                    id: "macro.binds".into(),
-                    keys: Vec::new(),
-                    first: None,
-                })
-            }
+            Hit::CaptureMacro => self.capture = Some(Capture::new("macro.binds".into())),
             Hit::ToggleMacroDouble => self.macro_double_click = !self.macro_double_click,
             Hit::Panel | Hit::Popup | Hit::Drag(_) => {}
         }
@@ -627,7 +680,7 @@ impl Gui {
         let name = self.profile_name.clone();
         self.focus = None;
         match self.profile_input.take() {
-            Some(ProfileInput::Create) => vec![Action::Save(name)],
+            Some(ProfileInput::Create) => vec![Action::Create(name)],
             Some(ProfileInput::Import) => vec![Action::Import(name)],
             Some(ProfileInput::Rename(old)) => {
                 self.profile_menu = None;

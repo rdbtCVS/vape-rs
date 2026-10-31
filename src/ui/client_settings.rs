@@ -60,6 +60,18 @@ pub fn definitions() -> Vec<Definition> {
             "Notifies you when you switch profiles",
         )
         .when("client.notifications", serde_json::json!(true)),
+        describe(
+            Definition::boolean("client.profile-auto-load", "Auto-load module states", true),
+            "Automatically enable saved module states upon loading, and when selecting profiles",
+        ),
+        describe(
+            Definition::boolean(
+                "client.profile-frames",
+                "Frame positions per profile",
+                false,
+            ),
+            "Saves the positions of your GUI frames per profile",
+        ),
     ]
 }
 

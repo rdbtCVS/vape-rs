@@ -3,22 +3,43 @@ use super::super::{Game, Screen};
 use crate::game::vape_rs::{core::with_client, input::macros::{MacroContext, MacroEffect}};
 
 pub fn context(game: &Game<'_>) -> MacroContext {
+    let hotbar = game.inventory.iter().take(9);
     MacroContext {
-        hotbar: game.inventory.iter().take(9).map(|stack| stack.as_ref().map(|s| {
-            s.item.rsplit(':').next().unwrap_or(&s.item).replace('_', " ")
+        hotbar: hotbar.clone().map(|stack| stack.as_ref().map(|s| s.item.to_string())).collect(),
+        // `findHotbarSlot`'s display names: the hover name (`getHoverName`) and
+        // the item's own name, formatting codes removed.
+        hotbar_names: hotbar.map(|stack| stack.as_ref().map_or_else(Vec::new, |s| {
+            let item = game.pack.names.display_item(&s.item);
+            let hover = s.custom_name().or_else(|| s.item_name()).unwrap_or_else(|| item.clone());
+            vec![plain(&hover), plain(&item)]
         })).collect(),
         selected_slot: u8::try_from(game.selected).ok().filter(|s| *s < 9),
         fishing_rod_ready: crate::game::fishing::vape_auto_fish::macro_rod_ready(game),
+        use_held: game.focused && game.toggles.is_down(3),
         accepts_input: game.focused && game.player.as_ref().is_some_and(|p| p.health.health() > 0.0)
             && game.screen == Screen::Playing && game.title.is_none()
             && game.sleeping.is_none() && !game.dialog_open() && game.server_packs.prompt.is_none(),
     }
 }
-pub fn frame(game: &mut Game<'_>) {
+// `StringUtils.l`: drop `§x` formatting pairs.
+fn plain(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{a7}' {
+            chars.next();
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+// `advance` is the client tick (the reference's pre-tick); frames only clean up.
+pub fn frame(game: &mut Game<'_>, advance: bool) {
     let client = game.__horizon_mixins_vape_rs_client().clone();
     let context = context(game);
     let allowed = context.accepts_input;
-    let effects = with_client(&client, |r| r.macro_frame(context));
+    let effects = with_client(&client, |r| r.macro_frame(context, advance));
     for effect in effects {
         match effect {
             MacroEffect::Chat { text } if allowed => game.handle_chat_input(&text),

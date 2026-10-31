@@ -33,25 +33,26 @@ impl Runtime {
         self.dirty = true;
         Ok(())
     }
-    pub fn upsert_macro(&mut self, definition: Macro) -> Result<(), String> {
+    /// `MacroManager` keeps macros in insertion order and by identity, so
+    /// names may repeat; an edit removes the old macro and adds the new one
+    /// last.
+    pub fn upsert_macro(&mut self, index: Option<usize>, definition: Macro) -> Result<(), String> {
         let mut macros = self.macros().to_vec();
-        if let Some(existing) = macros
-            .iter_mut()
-            .find(|m| m.name.eq_ignore_ascii_case(&definition.name))
-        {
-            *existing = definition;
-        } else {
-            macros.push(definition);
+        if let Some(index) = index {
+            if index >= macros.len() {
+                return Err("Unknown macro".into());
+            }
+            macros.remove(index);
         }
+        macros.push(definition);
         self.replace_macros(macros)
     }
-    pub fn remove_macro(&mut self, name: &str) -> Result<(), String> {
-        let macros = self
-            .macros()
-            .iter()
-            .filter(|m| m.name != name)
-            .cloned()
-            .collect();
+    pub fn remove_macro(&mut self, index: usize) -> Result<(), String> {
+        let mut macros = self.macros().to_vec();
+        if index >= macros.len() {
+            return Err("Unknown macro".into());
+        }
+        macros.remove(index);
         self.replace_macros(macros)
     }
     pub fn macro_context(&mut self, context: MacroContext) {
@@ -127,7 +128,9 @@ impl Runtime {
         }
         self.macro_selected = None;
     }
-    pub fn macro_frame(&mut self, mut context: MacroContext) -> Vec<MacroEffect> {
+    /// Cleanup and queued effects run every frame; `advance` (the client tick,
+    /// the reference's `EventPreTick`) also moves the active macro one phase.
+    pub fn macro_frame(&mut self, mut context: MacroContext, advance: bool) -> Vec<MacroEffect> {
         self.macro_context(context.clone());
         context.accepts_input &= !self.gui.open && self.session.interactive();
         let lost_lease = self
@@ -142,7 +145,7 @@ impl Runtime {
         if !context.accepts_input || lost_lease || manual_slot {
             self.macro_context = context.clone();
             self.cancel_macros(!lost_lease && !manual_slot);
-        } else {
+        } else if advance {
             let effects = self.macro_engine.tick(self.macro_now(), &context);
             self.macro_pending.extend(effects);
         }
@@ -193,13 +196,15 @@ mod tests {
             .unwrap();
         let mut context = MacroContext {
             hotbar: vec![None, None, Some("minecraft:snowball".into())],
+            hotbar_names: vec![vec![], vec![], vec!["Snowball".into()]],
             selected_slot: Some(0),
             accepts_input: true,
             ..MacroContext::default()
         };
         runtime.macro_context(context.clone());
         runtime.input("KeyM", KeyAction::Press, true);
-        let effects = runtime.macro_frame(context.clone());
+        assert!(runtime.macro_frame(context.clone(), false).is_empty());
+        let effects = runtime.macro_frame(context.clone(), true);
         assert!(effects.contains(&MacroEffect::SelectHotbar { slot: 2 }));
         assert!(effects.contains(&MacroEffect::UseItem { down: true }));
         context.selected_slot = Some(2);
@@ -211,7 +216,7 @@ mod tests {
         let (mut runtime, mut context) = active_item();
         runtime.release_input();
         context.accepts_input = false;
-        let effects = runtime.macro_frame(context);
+        let effects = runtime.macro_frame(context, false);
         assert!(effects.contains(&MacroEffect::RestoreHotbar { slot: 0 }));
         assert!(effects.contains(&MacroEffect::UseItem { down: false }));
         assert!(!runtime.use_claimed());
@@ -225,7 +230,7 @@ mod tests {
                 runtime.release_input();
             }
             context.selected_slot = Some(1);
-            let effects = runtime.macro_frame(context);
+            let effects = runtime.macro_frame(context, false);
             assert!(
                 !effects
                     .iter()
@@ -244,12 +249,49 @@ mod tests {
         ] {
             let (mut runtime, context) = active_item();
             runtime.session_change(reason);
-            let effects = runtime.macro_frame(context);
+            let effects = runtime.macro_frame(context, false);
             assert_eq!(
                 effects.contains(&MacroEffect::RestoreHotbar { slot: 0 }),
                 restore
             );
             assert!(!runtime.use_claimed());
         }
+    }
+
+    #[test]
+    fn names_may_repeat_and_edits_move_the_macro_last() {
+        let named = |name: &str, key: &str| Macro {
+            name: name.into(),
+            binds: vec![key.into()],
+            delay: Delay::bounded(100, 100),
+            double_click: false,
+            double_click_delay: Delay::bounded(100, 100),
+        };
+        let mut runtime = Runtime::default();
+        runtime
+            .upsert_macro(None, named("Snowball", "KeyR"))
+            .unwrap();
+        runtime
+            .upsert_macro(None, named("snowball", "KeyU"))
+            .unwrap();
+        runtime.upsert_macro(None, named("egg", "KeyV")).unwrap();
+        // Editing the first one (removeMacro then addMacro) puts it last.
+        runtime
+            .upsert_macro(Some(0), named("Snowball", "KeyY"))
+            .unwrap();
+        let order: Vec<_> = runtime
+            .macros()
+            .iter()
+            .map(|m| (m.name.as_str(), m.binds[0].as_str()))
+            .collect();
+        assert_eq!(
+            order,
+            [("snowball", "KeyU"), ("egg", "KeyV"), ("Snowball", "KeyY")]
+        );
+        runtime.remove_macro(0).unwrap();
+        assert_eq!(runtime.macros().len(), 2);
+        assert!(runtime.remove_macro(2).is_err());
+        assert!(runtime.upsert_macro(Some(5), named("x", "KeyX")).is_err());
+        assert_eq!(runtime.macros().len(), 2);
     }
 }

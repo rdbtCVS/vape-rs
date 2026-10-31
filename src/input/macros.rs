@@ -1,12 +1,13 @@
 // Local, bounded macro scheduling.  This deliberately emits game effects
 // instead of performing OS automation, packet IO, or synthetic input.
 use serde_json::{Value, json};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 
 const MAX_MACROS: usize = 256;
 const MAX_NAME_CHARS: usize = 128;
 const MAX_BIND_KEYS: usize = 3;
 const MAX_KEY_CHARS: usize = 64;
+const FISHING_ROD: &str = "fishing rod";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MacroKind {
@@ -38,16 +39,32 @@ pub struct Macro {
     pub double_click_delay: Delay,
 }
 impl Macro {
+    /// Reference `Macro.create`: a case-sensitive "fishing rod" prefix first,
+    /// then a leading slash, otherwise an item name.
     pub fn kind(&self) -> MacroKind {
-        if self.name.starts_with('/') {
+        if self.name.starts_with(FISHING_ROD) {
+            MacroKind::Item {
+                fishing_rod: true,
+                name: self.name.clone(),
+            }
+        } else if self.name.starts_with('/') {
             MacroKind::Command {
                 text: self.name.clone(),
             }
         } else {
             MacroKind::Item {
-                fishing_rod: self.name.to_ascii_lowercase().starts_with("fishing rod"),
+                fishing_rod: false,
                 name: self.name.clone(),
             }
+        }
+    }
+    /// The name a newly created macro keeps: `FishingRodMacro` always names
+    /// itself "fishing rod", whatever followed the prefix.
+    pub fn created_name(name: &str) -> String {
+        if name.starts_with(FISHING_ROD) {
+            FISHING_ROD.into()
+        } else {
+            name.into()
         }
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -162,33 +179,50 @@ pub enum InputOrigin {
 
 #[derive(Clone, Debug, Default)]
 pub struct MacroContext {
-    /// Host-normalized registry/display names for slots 0–8; empty slots use None.
+    /// Registry ids (`minecraft:snowball`) for slots 0–8; empty slots use None.
     pub hotbar: Vec<Option<String>>,
+    /// Each slot's display names: the hover name (custom name, else the
+    /// item-name component, else the localized item name) and the localized
+    /// item name, formatting codes removed.
+    pub hotbar_names: Vec<Vec<String>>,
     pub selected_slot: Option<u8>,
     /// Fishing-rod double-clicks may finish their wait early when the host
     /// observes a hook/entity state equivalent to the reference bridge.
     pub fishing_rod_ready: bool,
+    /// The physical use button is held (`ClientSettings.isUseItemButtonDown`).
+    pub use_held: bool,
     pub accepts_input: bool,
 }
 impl MacroContext {
+    /// Reference `ItemMacro.findHotbarSlot`: the first slot whose registry id,
+    /// id without namespace or display name equals the macro name ignoring
+    /// case. (The reference's numeric item id has no 26.x equivalent.)
     fn slot_for(&self, name: &str) -> Option<u8> {
         self.hotbar
             .iter()
             .take(9)
-            .position(|item| {
-                item.as_ref().is_some_and(|item| {
-                    let normalized = |text: &str| {
-                        text.rsplit(':')
-                            .next()
-                            .unwrap_or(text)
-                            .replace('_', " ")
-                            .to_lowercase()
-                    };
-                    normalized(item) == normalized(name)
+            .enumerate()
+            .position(|(slot, item)| {
+                item.as_ref().is_some_and(|id| {
+                    let short = id.split_once(':').map_or(id.as_str(), |(_, path)| path);
+                    equals_ignore_case(id, name)
+                        || equals_ignore_case(short, name)
+                        || self
+                            .hotbar_names
+                            .get(slot)
+                            .is_some_and(|names| names.iter().any(|n| equals_ignore_case(n, name)))
                 })
             })
             .map(|slot| slot as u8)
     }
+}
+
+/// Java `String.equalsIgnoreCase`: per-character upper- then lower-case match.
+fn equals_ignore_case(a: &str, b: &str) -> bool {
+    a.chars().count() == b.chars().count()
+        && a.chars().zip(b.chars()).all(|(x, y)| {
+            x == y || x.to_uppercase().eq(y.to_uppercase()) || x.to_lowercase().eq(y.to_lowercase())
+        })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -211,6 +245,8 @@ enum Active {
     Command {
         text: String,
     },
+    /// Reference `ItemMacroAction`: phases 0 use down, 1 use up, 2 double
+    /// click, 3 delay, 4 restore.
     Item {
         name: String,
         fishing_rod: bool,
@@ -218,9 +254,10 @@ enum Active {
         double_click: bool,
         double_click_delay: Delay,
         phase: u8,
+        /// The selection to restore, inherited from a replaced item macro.
         original_slot: Option<u8>,
-        target_slot: u8,
-        due_ms: u64,
+        selected: bool,
+        timer_ms: u64,
         use_down: bool,
         second_started: bool,
     },
@@ -257,12 +294,8 @@ impl MacroEngine {
         if macros.len() > MAX_MACROS {
             return Err(format!("at most {MAX_MACROS} local macros"));
         }
-        let mut names = HashSet::new();
         for macro_ in &macros {
             macro_.validate()?;
-            if !names.insert(macro_.name.to_ascii_lowercase()) {
-                return Err("macro names must be unique ignoring case".into());
-            }
         }
         let effects = self.cancel();
         self.macros = macros;
@@ -282,6 +315,8 @@ impl MacroEngine {
     }
     /// Only physical press edges can start a macro. Synthetic use/select
     /// effects are intentionally ignored to prevent recursive triggering.
+    /// Like `MacroEventListener`, every macro bound to the input is tried in
+    /// order until one can start (an item macro needs its item in the hotbar).
     pub fn input(
         &mut self,
         key: &str,
@@ -291,6 +326,7 @@ impl MacroEngine {
         context: &MacroContext,
     ) -> Vec<MacroEffect> {
         if action == InputAction::FocusLost {
+            self.pressed.clear();
             return self.cancel();
         }
         if origin != InputOrigin::Physical {
@@ -303,62 +339,76 @@ impl MacroEngine {
             }
             InputAction::Repeat => Vec::new(),
             InputAction::Press => {
-                if !context.accepts_input || !self.pressed.insert(key.into()) {
+                if !self.pressed.insert(key.into()) || !context.accepts_input {
                     return Vec::new();
                 }
                 let pressed = &self.pressed;
-                let candidate = self
+                let candidates: Vec<Macro> = self
                     .macros
                     .iter()
-                    .find(|macro_| {
+                    .filter(|macro_| {
                         macro_.binds.iter().any(|bound| bound == key)
                             && macro_.binds.iter().all(|k| pressed.contains(k))
                     })
-                    .cloned();
-                candidate.map_or_else(Vec::new, |macro_| self.start(macro_, now_ms, context))
+                    .cloned()
+                    .collect();
+                for macro_ in candidates {
+                    if let Some(effects) = self.start(macro_, now_ms, context) {
+                        return effects;
+                    }
+                }
+                Vec::new()
             }
             InputAction::FocusLost => unreachable!(),
         }
     }
-    fn start(&mut self, macro_: Macro, now_ms: u64, context: &MacroContext) -> Vec<MacroEffect> {
+    /// `startMacro`: None when the macro cannot start, so the next one is
+    /// tried. A replaced item macro passes on the selection to restore.
+    fn start(
+        &mut self,
+        macro_: Macro,
+        now_ms: u64,
+        context: &MacroContext,
+    ) -> Option<Vec<MacroEffect>> {
+        let kind = macro_.kind();
+        if let MacroKind::Item { name, .. } = &kind
+            && context.slot_for(name).is_none()
+        {
+            return None;
+        }
+        let mut effects = Vec::new();
         let inherited = match self.active.take() {
             Some(Active::Item {
                 original_slot,
                 use_down,
                 ..
             }) => {
-                let mut effects = Vec::new();
                 if use_down {
                     effects.push(MacroEffect::UseItem { down: false });
                 }
-                (original_slot, effects)
+                original_slot
             }
-            Some(_) | None => (None, Vec::new()),
+            Some(Active::Command { .. }) | None => None,
         };
-        let (original_slot, effects) = inherited;
-        match macro_.kind() {
-            MacroKind::Command { text } => self.active = Some(Active::Command { text }),
-            MacroKind::Item { name, fishing_rod } => {
-                let Some(target_slot) = context.slot_for(&name) else {
-                    return effects;
-                };
-                self.active = Some(Active::Item {
-                    name,
-                    fishing_rod,
-                    delay: macro_.delay,
-                    double_click: macro_.double_click,
-                    double_click_delay: macro_.double_click_delay,
-                    phase: 0,
-                    original_slot: original_slot.or(context.selected_slot),
-                    target_slot,
-                    due_ms: now_ms,
-                    use_down: false,
-                    second_started: false,
-                });
-            }
-        }
-        effects
+        self.active = Some(match kind {
+            MacroKind::Command { text } => Active::Command { text },
+            MacroKind::Item { name, fishing_rod } => Active::Item {
+                name,
+                fishing_rod,
+                delay: macro_.delay,
+                double_click: macro_.double_click,
+                double_click_delay: macro_.double_click_delay,
+                phase: 0,
+                original_slot: inherited,
+                selected: false,
+                timer_ms: now_ms,
+                use_down: false,
+                second_started: false,
+            },
+        });
+        Some(effects)
     }
+    /// One client tick (the reference's `EventPreTick`): at most one phase.
     pub fn tick(&mut self, now_ms: u64, context: &MacroContext) -> Vec<MacroEffect> {
         let Some(active) = self.active.take() else {
             return Vec::new();
@@ -366,7 +416,7 @@ impl MacroEngine {
         let mut effects = Vec::new();
         match active {
             Active::Command { text } => effects.push(MacroEffect::Command {
-                command: text.trim_start_matches('/').into(),
+                command: text.strip_prefix('/').unwrap_or(&text).into(),
             }),
             mut item @ Active::Item { .. } => {
                 let Active::Item {
@@ -376,21 +426,36 @@ impl MacroEngine {
                     double_click,
                     ref double_click_delay,
                     ref mut phase,
-                    original_slot,
-                    target_slot,
-                    ref mut due_ms,
+                    ref mut original_slot,
+                    ref mut selected,
+                    ref mut timer_ms,
                     ref mut use_down,
                     ref mut second_started,
                 } = item
                 else {
                     unreachable!()
                 };
-                if context.slot_for(name) != Some(target_slot) {
-                    return self.finish_item(original_slot, *use_down, effects);
+                if !*selected {
+                    // The reference skips this for an inherited selection and
+                    // so would use the replaced macro's item; the target is
+                    // selected either way here.
+                    let Some(target) = context.slot_for(name) else {
+                        return self.finish_item(*original_slot, *use_down, effects);
+                    };
+                    if original_slot.is_none() {
+                        *original_slot = context.selected_slot;
+                    }
+                    *selected = true;
+                    effects.push(MacroEffect::SelectHotbar { slot: target });
+                    *timer_ms = now_ms;
+                    // Already using: the held button does the first use.
+                    if context.use_held {
+                        *phase = 2;
+                    }
                 }
+                let elapsed = now_ms.saturating_sub(*timer_ms);
                 match *phase {
                     0 => {
-                        effects.push(MacroEffect::SelectHotbar { slot: target_slot });
                         effects.push(MacroEffect::UseItem { down: true });
                         *use_down = true;
                         *phase = 1;
@@ -398,25 +463,27 @@ impl MacroEngine {
                     1 => {
                         effects.push(MacroEffect::UseItem { down: false });
                         *use_down = false;
-                        *due_ms = now_ms + u64::from(self.random_delay(double_click_delay.clone()));
+                        *timer_ms = now_ms;
                         *phase = 2;
                     }
-                    2 => {
-                        if !*second_started
-                            && double_click
-                            && (now_ms >= *due_ms || (fishing_rod && context.fishing_rod_ready))
-                        {
+                    2 if double_click && !*second_started => {
+                        let wait = self.random_delay(double_click_delay);
+                        if elapsed >= wait || (fishing_rod && context.fishing_rod_ready) {
                             *second_started = true;
                             *phase = 0;
-                        } else if *second_started || !double_click {
-                            *due_ms = now_ms + u64::from(self.random_delay(delay.clone()));
-                            *phase = 3;
                         }
                     }
-                    3 if now_ms >= *due_ms => {
-                        return self.finish_item(original_slot, *use_down, effects);
+                    2 => *phase = 3,
+                    3 => {
+                        let wait = self.random_delay(delay);
+                        if elapsed as i64 >= wait as i64 - 2 {
+                            *phase = 4;
+                        }
                     }
-                    _ => {}
+                    _ => {
+                        let original = *original_slot;
+                        return self.finish_item(original, *use_down, effects);
+                    }
                 }
                 self.active = Some(item);
             }
@@ -437,17 +504,22 @@ impl MacroEngine {
         }
         effects
     }
-    fn random_delay(&mut self, delay: Delay) -> u16 {
+    /// `RandomUtil.Y(min, max)`: min when the range is empty, otherwise
+    /// uniform in min+1..=max.
+    fn random_delay(&mut self, delay: &Delay) -> u64 {
+        let span = u64::from(delay.max_ms.saturating_sub(delay.min_ms));
+        if span == 0 {
+            return delay.min_ms.into();
+        }
         self.random ^= self.random << 13;
         self.random ^= self.random >> 7;
         self.random ^= self.random << 17;
-        delay.min_ms + (self.random as u16 % (delay.max_ms - delay.min_ms + 1))
+        u64::from(delay.min_ms) + 1 + self.random % span
     }
     /// Call on disable, GUI/context loss, profile replacement, world/session
-    /// transition and panic. It clears held keys and releases/restores any
-    /// engine-owned action.
+    /// transition and panic. It releases/restores any engine-owned action;
+    /// the physical key state is kept until releases or focus loss.
     pub fn cancel(&mut self) -> Vec<MacroEffect> {
-        self.pressed.clear();
         match self.active.take() {
             Some(Active::Item {
                 original_slot,
@@ -456,5 +528,266 @@ impl MacroEngine {
             }) => self.finish_item(original_slot, use_down, Vec::new()),
             Some(Active::Command { .. }) | None => Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(name: &str, key: &str, delay: (u16, u16)) -> Macro {
+        Macro {
+            name: name.into(),
+            binds: vec![key.into()],
+            delay: Delay::bounded(delay.0, delay.1),
+            double_click: false,
+            double_click_delay: Delay::bounded(100, 100),
+        }
+    }
+    fn context() -> MacroContext {
+        MacroContext {
+            hotbar: vec![
+                Some("minecraft:diamond_sword".into()),
+                Some("minecraft:ender_pearl".into()),
+                Some("minecraft:snowball".into()),
+                Some("minecraft:fishing_rod".into()),
+            ],
+            hotbar_names: vec![
+                vec!["Diamond Sword".into(), "Diamond Sword".into()],
+                vec!["Ender Pearl".into(), "Ender Pearl".into()],
+                vec!["Bridge Egg".into(), "Snowball".into()],
+                vec!["Fishing Rod".into(), "Fishing Rod".into()],
+            ],
+            selected_slot: Some(0),
+            accepts_input: true,
+            ..MacroContext::default()
+        }
+    }
+    fn press(engine: &mut MacroEngine, key: &str, now: u64, context: &MacroContext) {
+        let effects = engine.input(key, InputAction::Press, InputOrigin::Physical, now, context);
+        assert!(effects.is_empty(), "{effects:?}");
+        engine.input(
+            key,
+            InputAction::Release,
+            InputOrigin::Physical,
+            now,
+            context,
+        );
+    }
+
+    #[test]
+    fn hotbar_lookup_follows_find_hotbar_slot() {
+        let context = context();
+        for (name, slot) in [
+            ("minecraft:snowball", Some(2)),
+            ("SNOWBALL", Some(2)),
+            ("bridge egg", Some(2)),
+            ("ender pearl", Some(1)),
+            ("ender_pearl", Some(1)),
+            ("Fishing Rod", Some(3)),
+            ("snow ball", None),
+            ("stone", None),
+        ] {
+            assert_eq!(context.slot_for(name), slot, "{name}");
+        }
+        assert!(equals_ignore_case("ÉCLAIR", "éclair"));
+    }
+
+    #[test]
+    fn kind_and_created_name_follow_macro_create() {
+        let named = |name: &str| item(name, "KeyG", (100, 100)).kind();
+        assert!(matches!(
+            named("fishing rod 2"),
+            MacroKind::Item {
+                fishing_rod: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            named("Fishing rod"),
+            MacroKind::Item {
+                fishing_rod: false,
+                ..
+            }
+        ));
+        assert!(matches!(named("/spawn"), MacroKind::Command { .. }));
+        assert_eq!(Macro::created_name("fishing rod quick"), "fishing rod");
+        assert_eq!(Macro::created_name("/home"), "/home");
+    }
+
+    #[test]
+    fn item_macro_runs_the_reference_phases() {
+        let mut engine = MacroEngine::default();
+        engine
+            .replace(vec![item("snowball", "KeyG", (100, 100))])
+            .unwrap();
+        let mut context = context();
+        press(&mut engine, "KeyG", 0, &context);
+        assert_eq!(
+            engine.tick(50, &context),
+            [
+                MacroEffect::SelectHotbar { slot: 2 },
+                MacroEffect::UseItem { down: true }
+            ]
+        );
+        context.selected_slot = Some(2);
+        assert_eq!(
+            engine.tick(100, &context),
+            [MacroEffect::UseItem { down: false }]
+        );
+        // Phase 2 without a double click moves on; phase 3 waits Y(delay) - 2.
+        assert!(engine.tick(150, &context).is_empty());
+        assert!(engine.tick(197, &context).is_empty());
+        assert!(engine.tick(198, &context).is_empty());
+        assert_eq!(
+            engine.tick(250, &context),
+            [MacroEffect::RestoreHotbar { slot: 0 }]
+        );
+        assert!(!engine.active());
+    }
+
+    #[test]
+    fn held_use_button_skips_the_click() {
+        let mut engine = MacroEngine::default();
+        engine
+            .replace(vec![item("snowball", "KeyG", (1, 1))])
+            .unwrap();
+        let mut context = context();
+        context.use_held = true;
+        press(&mut engine, "KeyG", 0, &context);
+        assert_eq!(
+            engine.tick(50, &context),
+            [MacroEffect::SelectHotbar { slot: 2 }]
+        );
+        assert!(engine.tick(100, &context).is_empty());
+        assert_eq!(
+            engine.tick(150, &context),
+            [MacroEffect::RestoreHotbar { slot: 0 }]
+        );
+    }
+
+    #[test]
+    fn double_click_waits_its_delay_or_a_ready_rod() {
+        for (name, ready, second_at) in [("snowball", false, 200), ("fishing rod", true, 150)] {
+            let mut engine = MacroEngine::default();
+            let mut macro_ = item(name, "KeyG", (1, 1));
+            macro_.double_click = true;
+            engine.replace(vec![macro_]).unwrap();
+            let mut context = context();
+            press(&mut engine, "KeyG", 0, &context);
+            assert!(
+                engine
+                    .tick(50, &context)
+                    .contains(&MacroEffect::UseItem { down: true })
+            );
+            assert_eq!(
+                engine.tick(100, &context),
+                [MacroEffect::UseItem { down: false }]
+            );
+            context.fishing_rod_ready = ready;
+            let mut now = 150;
+            while now < second_at {
+                assert!(engine.tick(now, &context).is_empty(), "{name} {now}");
+                now += 50;
+            }
+            assert!(engine.tick(now, &context).is_empty());
+            assert_eq!(
+                engine.tick(now + 50, &context),
+                [MacroEffect::UseItem { down: true }]
+            );
+        }
+    }
+
+    #[test]
+    fn bound_macros_are_tried_in_order() {
+        let mut engine = MacroEngine::default();
+        engine
+            .replace(vec![
+                item("golden apple", "KeyG", (100, 100)),
+                item("ender pearl", "KeyG", (100, 100)),
+                item("snowball", "KeyG", (100, 100)),
+            ])
+            .unwrap();
+        let context = context();
+        press(&mut engine, "KeyG", 0, &context);
+        assert_eq!(
+            engine.tick(50, &context)[0],
+            MacroEffect::SelectHotbar { slot: 1 }
+        );
+    }
+
+    #[test]
+    fn a_replacing_macro_keeps_the_first_original_slot() {
+        let mut engine = MacroEngine::default();
+        engine
+            .replace(vec![
+                item("snowball", "KeyG", (500, 500)),
+                item("ender pearl", "KeyH", (1, 1)),
+            ])
+            .unwrap();
+        let mut context = context();
+        press(&mut engine, "KeyG", 0, &context);
+        engine.tick(50, &context);
+        context.selected_slot = Some(2);
+        let effects = engine.input(
+            "KeyH",
+            InputAction::Press,
+            InputOrigin::Physical,
+            60,
+            &context,
+        );
+        assert_eq!(effects, [MacroEffect::UseItem { down: false }]);
+        assert_eq!(
+            engine.tick(100, &context),
+            [
+                MacroEffect::SelectHotbar { slot: 1 },
+                MacroEffect::UseItem { down: true }
+            ]
+        );
+        context.selected_slot = Some(1);
+        for now in [150, 200, 250] {
+            engine.tick(now, &context);
+        }
+        assert_eq!(
+            engine.tick(300, &context),
+            [MacroEffect::RestoreHotbar { slot: 0 }]
+        );
+    }
+
+    #[test]
+    fn commands_send_once_without_one_slash() {
+        let mut engine = MacroEngine::default();
+        engine
+            .replace(vec![item("//wand", "KeyG", (1, 1))])
+            .unwrap();
+        let context = context();
+        press(&mut engine, "KeyG", 0, &context);
+        assert_eq!(
+            engine.tick(50, &context),
+            [MacroEffect::Command {
+                command: "/wand".into()
+            }]
+        );
+        assert!(!engine.active());
+    }
+
+    #[test]
+    fn chords_need_every_key_and_screens_block_new_presses() {
+        let mut engine = MacroEngine::default();
+        let mut macro_ = item("snowball", "ControlLeft", (1, 1));
+        macro_.binds.push("KeyG".into());
+        engine.replace(vec![macro_]).unwrap();
+        let mut context = context();
+        let physical = InputOrigin::Physical;
+        context.accepts_input = false;
+        engine.input("ControlLeft", InputAction::Press, physical, 0, &context);
+        context.accepts_input = true;
+        engine.input("KeyG", InputAction::Press, physical, 0, &context);
+        assert!(engine.active());
+        engine.cancel();
+        engine.input("KeyG", InputAction::Release, physical, 0, &context);
+        engine.input("ControlLeft", InputAction::Release, physical, 0, &context);
+        engine.input("KeyG", InputAction::Press, physical, 0, &context);
+        assert!(!engine.active());
     }
 }

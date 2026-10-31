@@ -19,6 +19,8 @@ const FG: u32 = 0xffd1d1d1;
 const TEXT: u32 = 0xffa3a3a3;
 const MUTED: u32 = 0xff7a7a7a;
 const FAINT: u32 = 0xff595859;
+/// Capture id prefix for a profile's keybind.
+const PROFILE_BIND: &str = "profile:";
 const ACCENT: u32 = 0xff06a17e;
 const FAVORITE: u32 = 0xffec812c;
 const DANGER: u32 = 0xfffa3238;
@@ -135,6 +137,8 @@ pub struct View {
     pub definitions: Vec<Definition>,
     pub values: Value,
     pub profiles: Vec<String>,
+    pub active_profile: Option<String>,
+    pub profile_binds: BTreeMap<String, Vec<String>>,
     pub people: Vec<PersonView>,
     pub macros: Vec<Macro>,
 }
@@ -143,17 +147,23 @@ pub enum Action {
     Toggle(String),
     Set(String, Value),
     Favorite(String),
+    Create(String),
     Save(String),
     Load(String),
     Rename(String, String),
     Delete(String),
     Import(String),
     Export(String),
+    /// A profile entry's right click: apply its saved module states.
+    ApplyProfileStates(String),
+    BindProfile(String, Vec<String>),
     UpsertPerson(String, String, String),
     RemovePerson(String, String),
     ToggleTarget(String, String),
-    UpsertMacro(Macro),
-    RemoveMacro(String),
+    /// The macro at that position is replaced (`removeMacro` then
+    /// `addMacro`, so it moves last); `None` adds one.
+    UpsertMacro(Option<usize>, Macro),
+    RemoveMacro(usize),
     /// Persist frame positions, visibility and collapse state (`ui.frames`).
     Layout(Value),
     /// Save the current configuration now (the header's sync button).
@@ -204,15 +214,16 @@ enum Hit {
     RenameProfile(String),
     ExportProfile(String),
     DeleteProfile(String),
+    BindProfile(String),
     ConfirmDelete,
     Cancel,
     AddPerson(String),
     RemovePerson(String, String),
     Target(String, String),
     NewMacro,
-    SelectMacro(String),
+    SelectMacro(usize),
     SaveMacro,
-    RemoveMacro(String),
+    RemoveMacro(usize),
     CaptureMacro,
     ToggleMacroDouble,
 }
@@ -250,7 +261,18 @@ struct TextDrag {
 struct Capture {
     id: String,
     keys: Vec<String>,
-    first: Option<String>,
+    first_key: Option<String>,
+    first_mouse: Option<String>,
+}
+impl Capture {
+    fn new(id: String) -> Self {
+        Self {
+            id,
+            keys: Vec::new(),
+            first_key: None,
+            first_mouse: None,
+        }
+    }
 }
 #[derive(Clone, Debug)]
 struct Editor {
@@ -385,7 +407,7 @@ pub struct Gui {
     pub macro_double_click: bool,
     pub macro_binds: Vec<String>,
     selected_profile: Option<String>,
-    selected_macro: Option<String>,
+    selected_macro: Option<usize>,
     macro_open: bool,
     profile_input: Option<ProfileInput>,
     profile_menu: Option<String>,
@@ -718,15 +740,17 @@ impl Gui {
             }
             Ok(delay)
         };
+        // `saveChanges`: both a new and an edited macro go through
+        // `Macro.create`, so "fishing rod ..." keeps only its prefix.
         let macro_ = Macro {
-            name: self.macro_name.clone(),
+            name: Macro::created_name(self.macro_name.trim()),
             binds: self.macro_binds.clone(),
             delay: delay(&self.macro_delay)?,
             double_click: self.macro_double_click,
             double_click_delay: delay(&self.macro_double_delay)?,
         };
         macro_.validate()?;
-        Ok(Action::UpsertMacro(macro_))
+        Ok(Action::UpsertMacro(self.selected_macro, macro_))
     }
 }
 fn intersect(a: Rect, b: Rect) -> Rect {
@@ -960,6 +984,123 @@ mod tests {
         assert!(gui.focus.is_none() && !gui.searching);
     }
     #[test]
+    fn capture_follows_the_reference_capture_thread() {
+        let mut gui = Gui {
+            open: true,
+            ..Gui::default()
+        };
+        let set = |keys: Value| vec![Action::Set("x.binds".into(), keys)];
+        // Escape is never stored, so Escape alone unbinds.
+        gui.capture = Some(Capture::new("x.binds".into()));
+        assert_eq!(gui.key("Escape", KeyAction::Press), set(json!([])));
+        assert_eq!(gui.status, "Bind removed");
+        // Left click alone clears; after keys it ends with them. Mouse
+        // buttons are ignored while Left Shift is held.
+        gui.capture = Some(Capture::new("x.binds".into()));
+        assert_eq!(gui.key("MouseLeft", KeyAction::Press), set(json!([])));
+        gui.key("MouseLeft", KeyAction::Release);
+        gui.multi_bind = true;
+        gui.capture = Some(Capture::new("x.binds".into()));
+        assert!(gui.key("KeyK", KeyAction::Press).is_empty());
+        assert!(gui.key("ShiftLeft", KeyAction::Press).is_empty());
+        assert!(gui.key("MouseMiddle", KeyAction::Press).is_empty());
+        assert!(gui.key("ShiftLeft", KeyAction::Release).is_empty());
+        assert_eq!(
+            gui.key("MouseLeft", KeyAction::Press),
+            set(json!(["KeyK", "ShiftLeft"]))
+        );
+        gui.key("MouseLeft", KeyAction::Release);
+        gui.key("KeyK", KeyAction::Release);
+        // Releasing the first mouse button ends it, and Escape is dropped.
+        gui.capture = Some(Capture::new("x.binds".into()));
+        gui.key("MouseMiddle", KeyAction::Press);
+        gui.key("Escape", KeyAction::Press);
+        assert_eq!(
+            gui.key("MouseMiddle", KeyAction::Release),
+            set(json!(["MouseMiddle"]))
+        );
+        // Three inputs end it.
+        gui.capture = Some(Capture::new("x.binds".into()));
+        gui.key("KeyA", KeyAction::Press);
+        gui.key("KeyB", KeyAction::Press);
+        assert_eq!(
+            gui.key("MouseRight", KeyAction::Press),
+            set(json!(["KeyA", "KeyB", "MouseRight"]))
+        );
+    }
+    #[test]
+    fn shift_click_on_a_module_bind_switches_toggle_and_hold() {
+        let mut gui = Gui {
+            open: true,
+            selected: Some("combat.sprint".into()),
+            ..Gui::default()
+        };
+        gui.restore_layout(&json!({"frames": {"Combat": {"open": true}}}));
+        let mut view = view();
+        view.definitions = vec![
+            Definition::new(
+                "combat.sprint.binds",
+                "Bindings",
+                Kind::StringList {
+                    max_entries: 8,
+                    max_chars: 64,
+                },
+                json!([]),
+            ),
+            Definition::choice(
+                "combat.sprint.activation",
+                "Activation",
+                &["toggle", "hold"],
+                "toggle",
+            ),
+        ];
+        view.values = json!({
+            "client.search-bar": "Integrated",
+            "combat.sprint.binds": ["MouseMiddle"],
+            "combat.sprint.activation": "toggle",
+        });
+        gui.frame(&view, (400.0, 300.0));
+        let Some((rect, _)) = gui
+            .hits
+            .iter()
+            .find(|(_, hit)| matches!(hit, Hit::Capture(id) if id == "combat.sprint.binds"))
+            .cloned()
+        else {
+            panic!("no bind row");
+        };
+        let point = (rect.0 + rect.2 / 2.0, rect.1 + rect.3 / 2.0);
+        gui.key("ShiftRight", KeyAction::Press);
+        assert_eq!(
+            click(&mut gui, &view, point),
+            vec![Action::Set(
+                "combat.sprint.activation".into(),
+                json!("hold")
+            )]
+        );
+        assert!(gui.capture.is_none());
+        view.values["combat.sprint.activation"] = json!("hold");
+        assert_eq!(
+            click(&mut gui, &view, point),
+            vec![Action::Set(
+                "combat.sprint.activation".into(),
+                json!("toggle")
+            )]
+        );
+        gui.key("ShiftRight", KeyAction::Release);
+        // Right click does nothing; a plain click starts capture.
+        gui.frame(&view, (400.0, 300.0));
+        assert!(gui.mouse("MouseRight", true, point, &view).is_empty());
+        assert!(gui.capture.is_none());
+        gui.mouse("MouseRight", false, point, &view);
+        assert!(click(&mut gui, &view, point).is_empty());
+        assert!(
+            gui.capture
+                .as_ref()
+                .is_some_and(|c| c.id == "combat.sprint.binds")
+        );
+        assert_eq!(render::short_key("MouseMiddle"), "M3");
+    }
+    #[test]
     fn dragged_frames_persist_and_restore_their_layout() {
         let mut gui = Gui {
             open: true,
@@ -1106,11 +1247,7 @@ mod tests {
         gui.commit_text("好", true);
         gui.key("KeyH", KeyAction::Press);
         assert_eq!(gui.person_name, "好");
-        gui.capture = Some(Capture {
-            id: "x.binds".into(),
-            keys: Vec::new(),
-            first: None,
-        });
+        gui.capture = Some(Capture::new("x.binds".into()));
         gui.multi_bind = true;
         assert!(gui.key("ShiftLeft", KeyAction::Press).is_empty());
         assert!(gui.key("KeyK", KeyAction::Press).is_empty());

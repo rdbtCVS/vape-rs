@@ -52,8 +52,11 @@ def run(resources):
         session.capture('saved')
         folder = session.current.parent / 'profiles'
         assert (folder / 'abx.json').is_file()
-        click(221, 55)  # the abx row's menu
-        click(170, 109)  # Delete
+        # The new profile is selected and first; delete the built-in below it.
+        modern = folder / 'Modern%20PVP.json'
+        assert modern.is_file()
+        click(221, 73)  # the Modern PVP row's menu
+        click(170, 140)  # Delete, after Bind, Save, Rename and Export
         session.capture('confirmation')
         # Every background control and field is inert while modal is shown.
         click(150, 36)
@@ -66,6 +69,7 @@ def run(resources):
         assert not (folder / 'bad.json').exists()
         click(233, 161)  # CANCEL
         session.capture('cancelled')
+        assert modern.is_file()
         click(30, 192)  # close Profiles so Friends takes the first column
         click(30, 172)
         session.capture('friends')

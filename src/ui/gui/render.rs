@@ -132,10 +132,19 @@ fn fit(text: &str, width: f32, scale: f32) -> String {
     }
     out + ".."
 }
-fn short_key(key: &str) -> &str {
-    key.strip_prefix("Key")
-        .or_else(|| key.strip_prefix("Digit"))
-        .unwrap_or(key)
+pub(super) fn short_key(key: &str) -> &str {
+    // The reference labels mouse buttons M1 (left) to M5 (forward).
+    match key {
+        "MouseLeft" => "M1",
+        "MouseRight" => "M2",
+        "MouseMiddle" => "M3",
+        "MouseBack" => "M4",
+        "MouseForward" => "M5",
+        _ => key
+            .strip_prefix("Key")
+            .or_else(|| key.strip_prefix("Digit"))
+            .unwrap_or(key),
+    }
 }
 fn decimals(step: f64) -> usize {
     if step >= 1.0 {
@@ -998,6 +1007,22 @@ impl Gui {
                         FIELD_SCALE,
                         Align::Right,
                     );
+                    // The reference underlines a bind that enables while held.
+                    let held = d.id.strip_suffix(".binds").is_some_and(|module| {
+                        view.values[&format!("{module}.activation")] == "hold"
+                    });
+                    if held && !capturing && !keys.is_empty() {
+                        let width = text_width(&text);
+                        l.fill(
+                            Rect(
+                                x + w - 8.0 - width,
+                                y + (h + 7.0 * FIELD_SCALE) / 2.0 + 1.0,
+                                width,
+                                1.0,
+                            ),
+                            FG,
+                        );
+                    }
                     l.hit(row, Hit::Capture(d.id.clone()));
                     text_width(&text) + 4.0
                 }
@@ -1271,7 +1296,23 @@ impl Gui {
             );
             y += 18.0;
             if self.profile_menu.as_ref() == Some(name) {
+                let capturing = self
+                    .capture
+                    .as_ref()
+                    .is_some_and(|c| c.id.strip_prefix(PROFILE_BIND) == Some(name));
+                let bind = match view.profile_binds.get(name) {
+                    _ if capturing => "Bind: ...".to_string(),
+                    Some(keys) if !keys.is_empty() => format!(
+                        "Bind: {}",
+                        keys.iter()
+                            .map(|k| short_key(k))
+                            .collect::<Vec<_>>()
+                            .join(" + ")
+                    ),
+                    _ => "Bind".to_string(),
+                };
                 for (label, hit) in [
+                    (bind.as_str(), Hit::BindProfile(name.clone())),
                     ("Save current settings", Hit::SaveProfile(name.clone())),
                     ("Rename", Hit::RenameProfile(name.clone())),
                     ("Export to exports/", Hit::ExportProfile(name.clone())),
@@ -1280,12 +1321,17 @@ impl Gui {
                     let item = Rect(x + 5.0, y - 1.0, FRAME_WIDTH - 10.0, 13.0);
                     l.fill(item, INSET);
                     let danger = matches!(hit, Hit::DeleteProfile(_));
+                    let selected = view.active_profile.as_ref() == Some(name);
                     l.row_label(
                         item.0 + 8.0,
                         item.1,
                         item.3,
                         label,
-                        if danger { DANGER } else { TEXT },
+                        match (danger, selected) {
+                            (true, true) => FAINT,
+                            (true, false) => DANGER,
+                            _ => TEXT,
+                        },
                         FIELD_SCALE,
                         Align::Left,
                     );
@@ -1413,18 +1459,18 @@ impl Gui {
             }
             let half = (FRAME_WIDTH - 15.0) / 2.0;
             l.button(Rect(x + 5.0, y, half, 14.0), "SAVE", Hit::SaveMacro);
-            if let Some(name) = &self.selected_macro {
+            if let Some(index) = self.selected_macro {
                 l.button(
                     Rect(x + 10.0 + half, y, half, 14.0),
                     "REMOVE",
-                    Hit::RemoveMacro(name.clone()),
+                    Hit::RemoveMacro(index),
                 );
             }
             y += 19.0;
         }
-        for macro_ in &view.macros {
+        for (index, macro_) in view.macros.iter().enumerate() {
             let row = Rect(x + 5.0, y, FRAME_WIDTH - 10.0, 16.0);
-            let selected = self.macro_open && self.selected_macro.as_deref() == Some(&macro_.name);
+            let selected = self.macro_open && self.selected_macro == Some(index);
             l.rounded(
                 row,
                 if selected || row.contains(self.hover) {
@@ -1456,7 +1502,7 @@ impl Gui {
                 SMALL_SCALE,
                 Align::Right,
             );
-            l.hit(row, Hit::SelectMacro(macro_.name.clone()));
+            l.hit(row, Hit::SelectMacro(index));
             y += 18.0;
         }
         y + 2.0 - top
