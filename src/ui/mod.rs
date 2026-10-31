@@ -1,4 +1,3 @@
-pub mod center_stack;
 pub mod client_settings;
 pub mod clock;
 pub mod gui;
@@ -25,8 +24,6 @@ pub struct Snapshot {
     pub show_hud: bool,
     /// Target Info: what the host saw this frame.
     pub target: target_info::Feed,
-    /// Health: the player's health and absorption.
-    pub health: Option<(f32, f32)>,
     /// Scoreboard: the size of the sidebar the host would draw, if any.
     pub scoreboard: Option<(f32, f32)>,
 }

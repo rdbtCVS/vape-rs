@@ -55,7 +55,6 @@ registry! {
     TextGui => "hud.text-gui", "Text GUI", "HUD", Some((4000.0, 2.0)), [];
     TargetInfo => "hud.target-info", "Target Info", "HUD", Some((200.0, 240.0)), [];
     ReachDisplay => "hud.reach-display", "Reach Display", "HUD", Some((8.0, 64.0)), [];
-    Health => "render.health", "Health", "Render", None, [];
     InventoryBlur => "render.inventory-blur", "Inventory Blur", "Render", None, [];
     Scoreboard => "hud.scoreboard", "Scoreboard", "HUD", Some((560.0, 160.0)), [];
     AutoArmor => "inventory.auto-armor", "AutoArmor", "Inventory", None, [];
@@ -106,6 +105,27 @@ registry! {
     KnockbackDelay => "combat.knockback-delay", "KnockbackDelay", "Utility", None, [];
     Backtrack => "blatant.backtrack", "BackTrack", "Utility", None, [];
     AntiDebuff => "render.anti-debuff", "AntiDebuff", "Render", None, [];
+    KillAura => "combat.kill-aura", "KillAura", "Other", None, [];
+    SilentAura => "combat.silent-aura", "SilentAura", "Combat", None, [];
+    KeepSprint => "combat.keep-sprint", "KeepSprint", "Other", None, [];
+    Scaffold => "blatant.scaffold", "Scaffold", "Utility", None, [];
+    InvWalk => "blatant.inv-walk", "InvWalk", "Other", None, [];
+    WindCharge => "utility.wind-charge", "WindCharge", "Utility", None, [];
+    Health => "render.health", "Health", "Render", None, [];
+    Arrows => "render.arrows", "Arrows", "Render", None, [];
+    Explosions => "render.explosions", "Explosions", "Render", None, [];
+    Search => "render.search", "Search", "Render", None, [];
+    SpawnerFinder => "render.spawner-finder", "SpawnerFinder", "Render", None, [];
+    MurderFinder => "render.murder-finder", "MurdererFinder", "World", None, [];
+    PropHunt => "render.prop-hunt", "PropHunt", "World", None, [];
+    InventoryManager => "inventory.inventory-manager", "InventoryManager", "Inventory", None, [];
+    InvCleaner => "inventory.inv-cleaner", "InvCleaner", "Inventory", None, [];
+    AutoHotbar => "inventory.auto-hotbar", "AutoHotbar", "Inventory", None, [];
+    ArmorSwitch => "inventory.armor-switch", "ArmorSwitch", "Inventory", None, [];
+    ThrowPot => "inventory.throw-pot", "Throwpot", "Inventory", None, [];
+    ThrowDebuff => "inventory.throw-debuff", "ThrowDebuff", "Inventory", None, [];
+    AutoHeal => "inventory.auto-heal", "AutoHeal", "Hidden", None, [];
+    InventoryFill => "inventory.inventory-fill", "InventoryFill", "Inventory", None, [];
 }
 
 impl ModuleId {

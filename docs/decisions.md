@@ -79,6 +79,48 @@
 - **Drift:** `game/mod_input.rs` was deleted with the Wasm code mods (hashed, never hooked; hash dropped). `name_tag_quads` gained a `unit` argument, which the NameTags copy now passes. All 36 hook targets resolved unchanged.
 - **KeepSprint is unblocked:** Horizon #3251 applies the attacker's 0.6 speed cut and sprint stop on the remote attack path (`attack_strength::ATTACKER_SLOWDOWN`), which the module can now change.
 
+## 2026-10-31: movement/world worker (Scaffold Legit, InvWalk, WindCharge)
+
+- **Isolated rotation controller.** `modules/movement/rotation.rs` ports the reference's FixedRotationController (target, speed, tolerance, linear acceleration, mouse-scaled steps) for WindCharge only. It does not claim the view or packets. The combat worker's shared rotation owner (`modules/combat/rotation.rs`, with Scaffold/WindCharge/AutoPearl/PearlCatch claimants) will replace the local use once it lands on main.
+- **WindCharge silent aim without a position hook.** The UseItem packet carries yaw and pitch, so the silent throw swaps `game.yaw/pitch` to the managed rotation around one direct `remote_use()` and restores the camera. No outbound position rewrite, so nothing conflicts with the combat worker's rotation packets. Limitation: the movement packets of the aim ticks still carry the camera rotation.
+- **Scaffold GodBridge and TellyBridge are not ported.** Both need the shared rotation owner (silent rotation packets) and per-tick block placement. Selecting either shows a notification and Scaffold does nothing. Legit (edge sneak) is ported.
+- **InvWalk merges keys at the controlled tick.** The remote tick releases every key behind a screen before simulation. A cancellable HEAD on `controlled_simulation_tick_with_sprint_window` ORs the keys physically held (through the key mapping) into that tick. The server-bound input packet byte is computed earlier, so it still reports released keys (documented limitation). There is no public text-field focus API, so the click GUI's capture stands in for the reference's text-field check.
+- **NoSlowdown hook retargeted.** `no-slowdown` sat on `controlled_simulation_tick`, a wrapper only host tests call, so it never ran in a real game. It now targets the sprint-window form the remote tick calls. It also clears `item_use_slows_sprint` with Sprint on (the reference's sprint re-enable).
+- **Audit peels stacked HEAD hooks.** Two HEAD hooks on one function stack in priority order, not manifest order. xtask's audit now removes any expected HEAD statement from the top until none match.
+
+## 2026-10-31: render worker
+
+- **Trajectories follow vanilla where the reference differs.** Shooter motion is added as in `shootFromRotation` (the reference omits it). A crossbow arrow flies at 3.15 (the reference uses about 3.0). Multishot side arrows are not drawn.
+- **Search** keeps the reference's block list and colours but not its per-block tracer toggle; one tracers setting covers all entries.
+- **MurdererFinder and PropHunt are in World**, because the GUI has no Minigames frame. The MurdererFinder callout is blocked: there is no chat-send path. PropHunt drops the reference's 0..256 y bound (worlds go from -64 to 320).
+- **SpawnerFinder's label** sits at y-0.25 inside the block, as in the reference.
+- **Limits recorded as open:** skeleton ESP needs bone poses that the host does not expose. Equipment items draw without enchantment glint. Arrows draws a filled triangle. The Explosions fill draws through walls. XRay and Chams are blocked: they need chunk-mesher and entity-render hooks that the pinned host does not offer, so they are not worked around.
+## 2026-10-31: inventory worker, use sequences, InventoryFill, Refill and AutoTotem extras
+
+- **Use sequences are one executor.** Throwpot, ThrowDebuff and AutoHeal Legit share `src/core/throw_runtime.rs`, which holds the hotbar, use and container claims at priority 150. That is above the inventory planners and AutoFish (100) and below macros (200). Effects go through the host's ordinary paths: the selected slot, one use press (`vape_macros::use_once`) and the held-item drop.
+  - A manual slot change, an opened screen, a lost claim or disabling the module abandons the sequence without restoring the slot.
+  - None of the three rotates, so they do not need the shared rotation owner. The player aims, as with the reference's non-rotating modes.
+- **Soup and "Throw bowls".** The reference presses use once. A server with instant soup turns the stew into a bowl, and the bowl is then dropped. On vanilla, stew must be held to eat, so one press does not eat it. The drop runs only when the held item really is a bowl, which means vanilla keeps the stew rather than throwing food away.
+- **ThrowDebuff matching.** Potions match by decoded effect id (instant_damage, weakness, poison, slowness) or by a custom name that contains the debuff's name. The reference matches by display name. Matching on effect ids is the same intent in a locale-independent form.
+- **AutoHeal is in the "Hidden" category,** as in the reference (`Category.HIDDEN`). It is reachable by bind and config, and the GUI search does not list it.
+  - Its Silent mode and Potions option need silent held-item and rotation packets. Horizon has no such API, so Silent notifies once and does nothing. This is blocked, not emulated.
+  - Bowl Mode and Replace use the shared click session, which clicks only inside the player inventory screen. Bowl handling therefore runs only while the inventory is open; Replace opens the inventory itself, as the reference does.
+- **InventoryFill** runs in the existing `client-frame` dispatch. While Shift and the left button are physically held over a container screen, it shift-clicks the hovered slot (`Game::slot_at`) at the CPS rate, with the reference's 80 % "remember the slot" roll. It takes the container claim at priority 90 only for the duration of each click.
+- **Refill double-click.** The reference sometimes sends a second shift-click on the same slot. We queue it with a 20 % chance and send it only when the source slot still holds a healing item and the hotbar still has an empty slot. A no-op click would be rejected by the gate's revision check anyway, so this sends only clicks that change something.
+- **AutoTotem extras.**
+  - "Random slot" picks uniformly among the totem slots.
+  - "Extra randomization" is the reference's `computeDelay`: a normal centred on the range with sd range/4, clamped to the range, plus an 18 % chance of a long pause of max(120, 1.25·range) to max(350, 3.25·range) ms.
+  - "Show totem count" computes the reference's count and colour (`Runtime::totem_count_display`). Nothing draws it yet, because the reference shows it in the active-module stack frame and that frame has no port here.
+  - "Silent open" and "Silent move delay" are not registered. `menu_ops` sends server clicks only while `Screen::Inventory` is shown, so clicking the player inventory with no screen open needs a Horizon API. This is blocked; there is no workaround.
+
+## 2026-10-31: combat rotation and auras
+
+- **One rotation owner.** `rotation::Claim` follows the reference's SharedModuleControlClaims: higher priority preempts, and a waiting owner takes over on release. SilentAura's managed rotation is sent only through the motion packet's rotation argument (`send-state-rotation`). The camera and `game.yaw/pitch` are never changed, so the view stays where the player looks.
+- **SilentAuraClicker merged into SilentAura.** The clicker needs the managed rotation and the aura's target every tick, so it runs in the same runtime tick. It is not a separate module. Its settings stay under SilentAura as in the reference GUI.
+- **Attacks by id replicate the host order.** On a server: `Attack`, then `remote_player_attack`, the strength reset, the swing and `Punch`. Locally: `attack_mob` plus the swing. WTap's attack bookkeeping runs on both paths.
+- **KeepSprint wraps the host body.** The HEAD hook calls `remote_player_attack` once under a re-entry guard. It acts only when the result shows exactly the vanilla 0.6 cut, so a host change to the cut makes it inert instead of wrong.
+- **Not routed:** the mouse-over/block raytrace, the riding rotation packet and the third-person rotation render (open items, no workaround). Aura shield/cooldown bypass from ShieldBreaker/HitSwap/AutoMace arrives with those modules.
+
 ## 2026-10-31: ClientSettings scope (HUD worker)
 
 - The TAB bind view ("Hold TAB to view modules binds") is superseded rather than ported. The v4 module cards (`ClickGuiModuleCardComponent.getBindLabel`) and our module rows always show the bind, so there is nothing for TAB to reveal.

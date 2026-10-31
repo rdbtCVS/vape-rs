@@ -315,6 +315,7 @@ id = "on-top"
 file = "crates/horizon-client/src/gizmos.rs"
 name = "vape_on_top"
 source = "on_top.rs"
+visibility = "pub"
 
 [[injection]]
 id = "on-top-hook"
@@ -445,7 +446,7 @@ source = "motion_flags.rs"
 
 [[injection]]
 id = "no-slowdown"
-target = "horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick"
+target = "horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick_with_sprint_window"
 kind = "HEAD"
 helper = "adapters/no_slowdown.rs"
 bindings = [{ name = "world", ty = "&mut crate::motion::MotionWorld<'_, '_, '_>", value = "&mut *self" }]
@@ -530,4 +531,109 @@ helper = "adapters/outbound_packet.rs"
 bindings = [
  { name = "game", ty = "&crate::game::Game<'_>", value = "self" },
  { name = "packet", ty = "&horizon_protocol::packets::play::Serverbound", value = "&packet" },
+]
+
+# Combat worker: KillAura/SilentAura tick, attacks by id, the managed
+# rotation in the motion packet, and KeepSprint at the attacker's cut.
+[[module]]
+id = "aura"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_aura"
+source = "aura.rs"
+
+[[module]]
+id = "combat-remote"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_combat_remote"
+source = "combat_remote.rs"
+
+[[injection]]
+id = "send-state-rotation"
+target = "horizon_client::game::remote::Game<'_>::remote_send_state"
+kind = "MODIFY_ARG"
+selector = "r.position_sender.update"
+require = 1
+ordinal = 0
+argument = 1
+helper = "adapters/send_state_rotation.rs"
+bindings = [{ name = "value", ty = "(f32, f32)", value = "$value" }]
+
+[[injection]]
+id = "keep-sprint"
+target = "horizon_client::game::remote::Game<'_>::remote_player_attack"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/keep_sprint.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "mob", ty = "usize", value = "mob" },
+]
+
+# Movement/world marks (InvWalk keys, NoSlowdown sprint) and LongJump's
+# vine/ice surface query, beside MotionWorld's private block lookups.
+[[module]]
+id = "world-motion"
+file = "crates/horizon-client/src/motion.rs"
+name = "vape_world_motion"
+source = "world_motion.rs"
+
+# Scaffold Legit, InvWalk, WindCharge and NoFall's jump release; under
+# game/remote.rs for the remote use path and the open menu id.
+[[module]]
+id = "world-actions"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_world_actions"
+source = "world_actions.rs"
+
+# InvWalk: the keys physically held behind a screen join the controlled
+# tick's (screen-released) keys; the helper re-dispatches once.
+[[injection]]
+id = "inv-walk-keys"
+target = "horizon_client::motion::MotionWorld<'_,'_,'_>::controlled_simulation_tick_with_sprint_window"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/inv_walk_keys.rs"
+bindings = [
+ { name = "world", ty = "&mut crate::motion::MotionWorld<'_, '_, '_>", value = "&mut *self" },
+ { name = "keys", ty = "crate::sprint::Keys", value = "keys" },
+ { name = "sprint_window", ty = "i32", value = "sprint_window" },
+]
+
+[[module]]
+id = "overlay"
+file = "crates/horizon-client/src/game/fov.rs"
+name = "vape_overlay"
+source = "overlay.rs"
+
+[[injection]]
+id = "overlay-hook"
+target = "horizon_client::game::fov::Game<'_>::draw_spyglass"
+kind = "HEAD"
+helper = "adapters/overlay.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+]
+
+[[module]]
+id = "remote-tab"
+file = "crates/horizon-client/src/game/remote.rs"
+name = "vape_remote_tab"
+source = "remote_tab.rs"
+
+[[module]]
+id = "esp-outline"
+file = "crates/horizon-client/src/game/glowing.rs"
+name = "vape_esp_outline"
+source = "esp_outline.rs"
+
+[[injection]]
+id = "esp-outline-hook"
+target = "horizon_client::game::glowing::Game<'_>::mob_outline"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/esp_outline.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "m", ty = "&horizon_client::mobs::Mob", value = "m" },
 ]

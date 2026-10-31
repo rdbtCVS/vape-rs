@@ -3,7 +3,6 @@
 // `getDetailedSuffix`) and its show/hide animation.
 
 use super::super::ui::Snapshot;
-use super::super::ui::center_stack;
 use super::super::ui::client_settings::bind_text;
 use super::super::ui::hud::Content;
 use super::super::ui::notifications::{self, Kind};
@@ -151,24 +150,6 @@ impl Runtime {
             _ => 0.0,
         };
         format!("{reach:.2} blocks")
-    }
-    /// The centre-screen readouts (`ActiveModuleStackFrame`) for one frame.
-    pub fn center_stack_frame(
-        &self,
-        snapshot: &Snapshot,
-        screen: (f32, f32),
-        measure: impl Fn(&str, f32) -> f32,
-    ) -> Vec<text_gui::Draw> {
-        if !snapshot.in_world || !snapshot.show_hud {
-            return Vec::new();
-        }
-        let mut entries = Vec::new();
-        if self.enabled(ModuleId::Health)
-            && let Some((health, absorption)) = snapshot.health
-        {
-            entries.push(center_stack::health(health, absorption));
-        }
-        center_stack::layout(&entries, screen, measure)
     }
     fn hud_number(&self, id: &str) -> f64 {
         self.settings
@@ -510,21 +491,5 @@ mod tests {
             std::time::Instant::now() - std::time::Duration::from_secs(6),
         ));
         assert_eq!(r.reach_display_text(), "0.00 blocks");
-        let snapshot = Snapshot {
-            in_world: true,
-            show_hud: true,
-            health: Some((20.0, 0.0)),
-            ..Snapshot::default()
-        };
-        let measure = |s: &str, _: f32| s.len() as f32;
-        assert!(
-            r.center_stack_frame(&snapshot, (400.0, 300.0), measure)
-                .is_empty()
-        );
-        r.set_enabled(ModuleId::Health, true);
-        assert!(
-            !r.center_stack_frame(&snapshot, (400.0, 300.0), measure)
-                .is_empty()
-        );
     }
 }

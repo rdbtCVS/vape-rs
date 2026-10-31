@@ -112,9 +112,13 @@ impl State {
             self.move_speed = walk;
             return Move::default();
         }
-        // The vine and ice surface factors are not ported.
-        let factor = if t.sneaking {
+        // `getBaseMoveSpeed`'s surface factors, in the reference's order.
+        let factor = if t.on_vine {
+            0.5
+        } else if t.sneaking {
             0.8
+        } else if t.on_ice {
+            2.4
         } else if t.food >= 6 {
             1.0
         } else {
@@ -142,5 +146,44 @@ impl State {
             horizontal: Some([-yaw.sin() * self.move_speed, yaw.cos() * self.move_speed]),
             y,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn first_move(t: Tick) -> f64 {
+        let o = Options {
+            boost: 4.1,
+            toggle: false,
+        };
+        let mut state = State::default();
+        let [x, z] = state.tick(&o, &t).0.horizontal.unwrap();
+        x.hypot(z)
+    }
+
+    #[test]
+    fn vine_and_ice_scale_the_base_speed() {
+        let t = Tick {
+            forward: 1.0,
+            food: 20,
+            ..Default::default()
+        };
+        let normal = first_move(t);
+        let vine = first_move(Tick {
+            on_vine: true,
+            sneaking: true,
+            ..t
+        });
+        let ice = first_move(Tick { on_ice: true, ..t });
+        let sneak_ice = first_move(Tick {
+            on_ice: true,
+            sneaking: true,
+            ..t
+        });
+        assert!((vine / normal - 0.5).abs() < 1e-9);
+        assert!((ice / normal - 2.4).abs() < 1e-9);
+        assert!((sneak_ice / normal - 0.8).abs() < 1e-9);
     }
 }

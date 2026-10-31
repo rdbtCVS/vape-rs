@@ -238,7 +238,6 @@ pub(super) fn snapshot(
         in_world: game.title.is_none(),
         show_hud,
         target: target_feed(game),
-        health: game.player.as_ref().map(|p| (p.health.health(), p.health.absorption())),
         scoreboard: None,
     })
 }
@@ -563,37 +562,6 @@ fn target_info(
     ui.finish();
     batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
     Rect(x, y, w, h)
-}
-/// Health and other centre-screen readouts (`ActiveModuleStackFrame`).
-pub(super) fn center_stack(
-    game: &crate::game::Game<'_>,
-    batch: &mut HudBatch,
-    snapshot: &crate::game::vape_rs::ui::Snapshot,
-) {
-    use crate::game::vape_rs::ui::text_gui::Draw;
-    const TEXT_EM: f32 = 9.0;
-    let client = game.__horizon_mixins_vape_rs_client().clone();
-    let atlas = &game.gui.atlas;
-    let start = batch.vertices.len();
-    let screen = (batch.width, batch.height);
-    let mut ui = horizon_client::ui_theme::Ui::new(atlas, batch, (0.0, 0.0));
-    let draws = crate::game::vape_rs::core::with_client(&client, |runtime| {
-        runtime.center_stack_frame(snapshot, screen, |text, size| ui.vape_rs_measure(text, TEXT_EM * size))
-    });
-    for draw in draws {
-        if let Draw::Text { x, y, size, text, color: argb, .. } = draw {
-            if text.contains('\u{2764}') {
-                // The smooth font has no heart; the vanilla font does.
-                let first = ui.batch.vertices.len();
-                ui.batch.text(atlas, &text, x, y, color(argb, true), false);
-                ui.batch.scale_since(first, x, y, size, size);
-            } else {
-                ui.vape_rs_text(&text, x, y, TEXT_EM * size, 8.0 * size, color(argb, true));
-            }
-        }
-    }
-    ui.finish();
-    batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
 }
 /// The bottom-right notification stack (`NotificationManager.renderNotifications`).
 pub(super) fn notifications(game: &crate::game::Game<'_>, batch: &mut HudBatch) {

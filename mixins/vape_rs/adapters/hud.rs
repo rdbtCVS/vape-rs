@@ -21,6 +21,5 @@ fn hud(game: &mut crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBat
     for panel in panels {
         crate::game::vape_hud::panel(game, batch, &panel);
     }
-    crate::game::vape_hud::center_stack(game, batch, &snapshot);
     crate::game::vape_hud::notifications(game, batch);
 }

@@ -12,6 +12,31 @@ pub struct Line {
     pub width: f32,
 }
 
+/// A filled world quad (camera-independent corners, ARGB), drawn through
+/// walls and from both sides.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Quad {
+    pub corners: [Point; 4],
+    pub color: u32,
+}
+
+/// Append the six faces of a box.
+pub fn fill_box(quads: &mut Vec<Quad>, min: Point, max: Point, color: u32) {
+    let ([x0, y0, z0], [x1, y1, z1]) = (min.0, max.0);
+    let faces = [
+        [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
+        [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]],
+        [[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]],
+        [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+        [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
+        [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]],
+    ];
+    quads.extend(faces.map(|f| Quad {
+        corners: f.map(Point),
+        color,
+    }));
+}
+
 /// Append the twelve edges of a box. The host owns depth testing and clipping.
 pub fn outline_box(lines: &mut Vec<Line>, min: Point, max: Point, color: u32, width: f32) {
     let [x0, y0, z0] = min.0;
@@ -75,6 +100,26 @@ pub fn predict(
     velocity: [f64; 3],
     gravity: f64,
     max_steps: usize,
+    collision: impl FnMut(Point, Point) -> Option<Impact>,
+) -> Prediction {
+    predict_with_drag(
+        start,
+        velocity,
+        gravity,
+        f64::from(0.99_f32),
+        max_steps,
+        collision,
+    )
+}
+
+/// [`predict`] with the per-tick velocity factor given: 1.0 for a
+/// crossbow's firework, which flies straight without drag.
+pub fn predict_with_drag(
+    start: Point,
+    velocity: [f64; 3],
+    gravity: f64,
+    drag: f64,
+    max_steps: usize,
     mut collision: impl FnMut(Point, Point) -> Option<Impact>,
 ) -> Prediction {
     let mut result = Prediction {
@@ -83,7 +128,10 @@ pub fn predict(
     };
     let mut position = start;
     let mut velocity = velocity;
-    if !start.0.iter().chain(velocity.iter()).all(|v| v.is_finite()) || !gravity.is_finite() {
+    if !start.0.iter().chain(velocity.iter()).all(|v| v.is_finite())
+        || !gravity.is_finite()
+        || !drag.is_finite()
+    {
         return result;
     }
     for _ in 0..max_steps.min(4096) {
@@ -99,7 +147,7 @@ pub fn predict(
         result.points.push(next);
         position = next;
         for value in &mut velocity {
-            *value *= f64::from(0.99_f32);
+            *value *= drag;
         }
         velocity[1] -= gravity;
         if position.0[1] < -128.0 {

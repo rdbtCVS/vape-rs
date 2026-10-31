@@ -50,6 +50,10 @@ pub struct Tick {
     pub jump_amplifier: Option<i32>,
     /// Horizontal position at this tick's start.
     pub position: [f64; 2],
+    /// LongJump's surface factors: in a vine (`isOnLadder` on a vine block)
+    /// and on a slippery (0.98, ice-like) block 0.1 below the feet.
+    pub on_vine: bool,
+    pub on_ice: bool,
 }
 
 impl Tick {
@@ -112,6 +116,10 @@ pub struct State {
 impl State {
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+    /// `setStage` (Step sets -4 after a step).
+    pub fn set_stage(&mut self, stage: i32) {
+        self.stage = stage;
     }
 
     /// `onMotionUpdate` of the previous tick: the distance its move covered.

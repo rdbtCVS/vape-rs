@@ -4,7 +4,8 @@
 // players, the health in half-hearts coloured by its fraction, absorption
 // ("Effects") in gold and the strength indicator. The host draws each tag as
 // a host name tag (font, background) through walls at the returned scale and
-// opacity. Not ported yet: the equipment row and enchantment overlays.
+// opacity. The equipment row is drawn on the HUD at the tag's projected size
+// (`equipment_row`); enchantment glint and durability overlays are not.
 use super::super::super::core::settings::{Definition, Settings};
 use super::super::super::targeting::entities::EntityClass;
 use serde_json::{Value, json};
@@ -206,4 +207,78 @@ pub fn tag(
         scale: size / 0.025,
         alpha,
     })
+}
+
+/// World units per tag pixel (`0.0333 * Scale`, or with Auto Scale
+/// `0.0167 * max(2, distance / 5) * Scale`).
+fn pixel(settings: &Settings, distance: f64) -> f64 {
+    let scale = number(settings, "scale", 1.0);
+    if boolean(settings, "auto-scale") {
+        0.016_666_667 * (distance / 5.0).max(2.0) * scale
+    } else {
+        0.033_333_35 * scale
+    }
+}
+
+/// The players' equipment row (`NameTags.renderEquipment`): main hand,
+/// helmet to boots, then off hand, 16 tag pixels each at 1.1x, centred 26
+/// pixels above the tag, drawn on the HUD at the tag's projected size.
+pub fn equipment_row(
+    settings: &Settings,
+    frame: &super::overlay::Frame,
+    people: &impl super::super::super::targeting::filter::People,
+) -> Vec<super::overlay::Draw> {
+    let mut out = Vec::new();
+    if !boolean(settings, "players") || !boolean(settings, "equipment") {
+        return out;
+    }
+    let max = number(settings, "players-max-distance", 0.0);
+    let p = &frame.projection;
+    for living in &frame.entities {
+        let e = &living.view;
+        if e.class != EntityClass::Player || e.health <= 0.0 {
+            continue;
+        }
+        if (boolean(settings, "hide-bots") && people.bot(e))
+            || (boolean(settings, "ignore-invisibles") && e.invisible)
+        {
+            continue;
+        }
+        let distance = (0..3)
+            .map(|i| (e.position[i] - frame.own.position[i]).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        if max != 0.0 && distance > max {
+            continue;
+        }
+        let q = &living.equipment;
+        let items: Vec<_> = [&q[0], &q[2], &q[3], &q[4], &q[5], &q[1]]
+            .into_iter()
+            .flatten()
+            .collect();
+        if items.is_empty() {
+            continue;
+        }
+        let height = e.bounds.max[1] - e.bounds.min[1];
+        let anchor = [e.position[0], e.position[1] + height + 0.4, e.position[2]];
+        let unit = pixel(settings, distance) * 1.1;
+        let (Some(a), Some(b)) = (
+            p.project(anchor),
+            p.project([anchor[0], anchor[1] + unit, anchor[2]]),
+        ) else {
+            continue;
+        };
+        let s = (a[1] - b[1]).hypot(a[0] - b[0]);
+        let width = items.len() as f32 * 16.0 * s;
+        let y = a[1] - 26.0 * s;
+        for (i, item) in items.into_iter().enumerate() {
+            out.push(super::overlay::Draw::Item {
+                x: a[0] - width / 2.0 + i as f32 * 16.0 * s,
+                y,
+                scale: s,
+                item: item.clone(),
+            });
+        }
+    }
+    out
 }

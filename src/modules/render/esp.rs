@@ -1,10 +1,12 @@
-// ESP (3D mode) and Tracers: world-space lines over the frame's live entity
-// snapshot, drawn through walls. ESP's 2D, Skeleton and Outline modes, its
-// health bar and names need screen projection and world text, which are not
-// connected yet.
+// ESP and Tracers. ESP's 3D mode is world-space box lines through walls;
+// 2D projects each player's box onto the HUD (bounding box, health bar,
+// name); Outline lends the host's glowing outline pass the ESP colour.
+// Skeleton is not offered: the reference hides it on 1.17+ and the host has
+// no per-bone pose access.
 use super::super::super::core::settings::{Definition, Kind, Settings};
 use super::super::super::targeting::entities::{EntityClass, EntityView, distance};
 use super::super::super::targeting::filter::People;
+use super::overlay::{Align, Backdrop, Draw, Frame};
 use super::world::{Line, Point, outline_box};
 use serde_json::{Value, json};
 
@@ -85,12 +87,31 @@ pub fn definitions() -> Vec<Definition> {
             Kind::Color,
             json!(0xff24_c164_u32),
         ),
-        Definition::choice(&esp("mode"), "Mode", &["3D"], "3D"),
-        Definition::boolean(&esp("hitbox"), "Hitbox", false),
+        Definition::choice(&esp("mode"), "Mode", &["3D", "2D", "Outline"], "3D"),
+        Definition::boolean(&esp("hitbox"), "Hitbox", false).when(&esp("mode"), json!("3D")),
         Definition::boolean(&esp("show-normal"), "Show Normal", false)
-            .when(&esp("hitbox"), json!(true)),
+            .when(&esp("hitbox"), json!(true))
+            .when(&esp("mode"), json!("3D")),
+        Definition::boolean(&esp("bounding-box"), "Bounding Box", true)
+            .when(&esp("mode"), json!("2D")),
+        Definition::boolean(&esp("priority-only"), "Priority Only", false)
+            .when(&esp("bounding-box"), json!(true))
+            .when(&esp("mode"), json!("2D")),
+        Definition::boolean(&esp("health-bar"), "Health Bar", false)
+            .when(&esp("mode"), json!("2D")),
+        Definition::boolean(&esp("name"), "Name", false).when(&esp("mode"), json!("2D")),
+        Definition::boolean(&esp("use-displayname"), "Use Displayname", false)
+            .when(&esp("name"), json!(true))
+            .when(&esp("mode"), json!("2D")),
+        Definition::boolean(&esp("show-background"), "Show Background", false)
+            .when(&esp("name"), json!(true))
+            .when(&esp("mode"), json!("2D")),
         Definition::boolean(&esp("invisibles"), "Invisibles", false),
         Definition::boolean(&esp("hide-bots"), "Hide Bots", false),
+        Definition::boolean(&tracer("enemy-only"), "Enemy Only", false)
+            .when(&tracer("players"), json!(true)),
+        Definition::boolean(&tracer("enemies-list-only"), "Enemies List Only", false)
+            .when(&tracer("enemy-only"), json!(true)),
         Definition::boolean(&tracer("invisibles"), "Invisibles", false),
         Definition::boolean(&tracer("color-by-distance"), "Color by distance", false),
         Definition::boolean(
@@ -99,8 +120,6 @@ pub fn definitions() -> Vec<Definition> {
             false,
         ),
         Definition::boolean(&tracer("players"), "Render Players", true),
-        Definition::boolean(&tracer("enemy-only"), "Enemy Only", false)
-            .when(&tracer("players"), json!(true)),
         Definition::boolean(&tracer("player-distance-check"), "Distance Check", false)
             .when(&tracer("players"), json!(true)),
         distance(
@@ -144,6 +163,175 @@ pub fn definitions() -> Vec<Definition> {
     ]
 }
 
+/// A line start meaning "one block in front of the frame's camera", which
+/// the host resolves with the real (possibly third-person) camera.
+pub const VIEW_CENTRE: Point = Point([f64::NAN; 3]);
+
+fn mode(settings: &Settings) -> &str {
+    settings
+        .get(&format!("{ESP}.mode"))
+        .and_then(Value::as_str)
+        .unwrap_or("3D")
+}
+
+/// The ESP colour for a player: friend/enemy recolouring, else the setting.
+fn player_color(settings: &Settings, entity: &EntityView, people: &impl People) -> u32 {
+    person_color(settings, entity, people)
+        .unwrap_or_else(|| color(settings, &format!("{ESP}.player-color"), 0xff24_c164))
+}
+
+/// Whether ESP draws this player at all (`ESP.isValidEntity`).
+fn esp_shows(settings: &Settings, e: &EntityView, people: &impl People) -> bool {
+    let key = |k: &str| format!("{ESP}.{k}");
+    e.class == EntityClass::Player
+        && e.alive()
+        && (boolean(settings, &key("invisibles"), false) || !e.fully_invisible())
+        && !(boolean(settings, &key("hide-bots"), false) && people.bot(e))
+}
+
+/// `ESPOutline`: the glowing-outline colour for an entity in Outline mode.
+pub fn outline_color(settings: &Settings, e: &EntityView, people: &impl People) -> Option<u32> {
+    (mode(settings) == "Outline" && esp_shows(settings, e, people))
+        .then(|| player_color(settings, e, people) & 0x00ff_ffff)
+}
+
+/// The reference health-bar colour steps.
+pub fn health_color(fraction: f32) -> u32 {
+    let (r, g) = if fraction >= 0.9 {
+        (0.0, 1.0)
+    } else if fraction >= 0.75 {
+        (0.9, 1.0)
+    } else if fraction >= 0.5 {
+        (1.0, 1.0)
+    } else if fraction >= 0.25 {
+        (1.0, 0.5)
+    } else {
+        (1.0, 0.0)
+    };
+    0xff00_0000 | (((r * 255.0) as u32) << 16) | (((g * 255.0) as u32) << 8)
+}
+
+fn with_alpha(color: u32, alpha: f32) -> u32 {
+    ((alpha.clamp(0.0, 1.0) * 255.0) as u32) << 24 | (color & 0x00ff_ffff)
+}
+
+/// `ESP2D.drawPendingBounds`: per player, its projected box (two dark
+/// frames around a coloured one), a health bar left of it and its name
+/// above, all in HUD units under the game HUD.
+pub fn esp_2d(
+    settings: &Settings,
+    frame: &Frame,
+    people: &impl People,
+    aliases: &[(String, String)],
+) -> Vec<Draw> {
+    let key = |k: &str| format!("{ESP}.{k}");
+    let mut out = Vec::new();
+    if mode(settings) != "2D" {
+        return out;
+    }
+    let bounding = boolean(settings, &key("bounding-box"), true);
+    let priority_only = boolean(settings, &key("priority-only"), false);
+    let health_bar = boolean(settings, &key("health-bar"), false);
+    let name = boolean(settings, &key("name"), false);
+    let display = boolean(settings, &key("use-displayname"), false);
+    let background = boolean(settings, &key("show-background"), false);
+    for living in &frame.entities {
+        let e = &living.view;
+        if !esp_shows(settings, e, people) {
+            continue;
+        }
+        let offset = [0, 1, 2].map(|i| e.position[i] - e.tick_position[i]);
+        let at = |p: [f64; 3]| [0, 1, 2].map(|i| p[i] + offset[i]);
+        let Some(r) = frame
+            .projection
+            .project_box(at(e.bounds.min), at(e.bounds.max))
+        else {
+            continue;
+        };
+        let color = player_color(settings, e, people);
+        let friend = people.friend(&e.name);
+        let priority = friend || people.enemy(&e.name);
+        let [left, top, right, bottom] = r;
+        if bounding && (!priority_only || priority) {
+            let dark = with_alpha(0, 0.4 * (color >> 24) as f32 / 255.0);
+            Draw::frame(&mut out, r, 1.0, dark);
+            Draw::frame(
+                &mut out,
+                [left + 1.0, top + 1.0, right - 1.0, bottom - 1.0],
+                1.0,
+                dark,
+            );
+            Draw::frame(
+                &mut out,
+                [left + 0.5, top + 0.5, right - 0.5, bottom - 0.5],
+                1.0,
+                color,
+            );
+        }
+        let health = e.health + living.absorption;
+        if health_bar && health >= 0.0 && living.max_health > 0.0 {
+            let fraction = (health / living.max_health).min(1.0);
+            out.push(Draw::Quad {
+                corners: [
+                    [left - 2.0, bottom - 0.5],
+                    [left - 2.0, top + 0.5],
+                    [left - 4.0, top + 0.5],
+                    [left - 4.0, bottom - 0.5],
+                ],
+                color: 0x6600_0000,
+            });
+            let bar_top = top + (bottom - top - 1.0) * fraction;
+            out.push(Draw::Quad {
+                corners: [
+                    [left - 2.5, bar_top],
+                    [left - 2.5, top + 1.0],
+                    [left - 3.5, top + 1.0],
+                    [left - 3.5, bar_top],
+                ],
+                color: health_color(fraction),
+            });
+        }
+        if name {
+            let mut label = match (&living.display_name, display && !priority) {
+                (Some(d), true) => d.clone(),
+                _ => e.name.clone(),
+            };
+            if display {
+                label.retain(|c| c == '\u{a7}' || c == '^' || c.is_ascii());
+            }
+            if friend
+                && let Some((_, alias)) = aliases
+                    .iter()
+                    .find(|(n, _)| n.eq_ignore_ascii_case(&e.name))
+            {
+                label.clone_from(alias);
+            }
+            let centre = left + (right - left) / 2.0;
+            let backdrop = background.then_some(Backdrop {
+                fill: if priority { color } else { 0x5f00_0000 },
+                pad: 1.5,
+                edge: if living.hurt { 1.5 } else { 0.5 },
+                edge_color: if living.hurt {
+                    0xc8ff_0000
+                } else {
+                    0x6600_0000
+                },
+            });
+            out.push(Draw::Text {
+                x: centre,
+                y: top - 8.0,
+                scale: 0.9,
+                text: label,
+                color: if priority { 0xffff_ffff } else { color },
+                shadow: true,
+                align: Align::Center,
+                backdrop,
+            });
+        }
+    }
+    out
+}
+
 /// The camera for one frame: the interpolated eye and the unit view vector.
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
@@ -164,12 +352,20 @@ pub fn esp(
     out: &mut Vec<Line>,
 ) {
     let key = |k: &str| format!("{ESP}.{k}");
+    if mode(settings) != "3D" {
+        return;
+    }
+    let hide_bots = boolean(settings, &key("hide-bots"), false);
     let hitbox = boolean(settings, &key("hitbox"), false);
     let show_normal = boolean(settings, &key("show-normal"), false);
     let invisibles = boolean(settings, &key("invisibles"), false);
     let base = color(settings, &key("player-color"), 0xff24_c164);
     for e in entities {
-        if e.class != EntityClass::Player || !e.alive() || (!invisibles && e.fully_invisible()) {
+        if e.class != EntityClass::Player
+            || !e.alive()
+            || (!invisibles && e.fully_invisible())
+            || (hide_bots && people.bot(e))
+        {
             continue;
         }
         let color = person_color(settings, e, people).unwrap_or(base);
@@ -212,6 +408,7 @@ pub fn tracers(
     let key = |k: &str| format!("{TRACERS}.{k}");
     let invisibles = boolean(settings, &key("invisibles"), false);
     let enemy_only = boolean(settings, &key("enemy-only"), false);
+    let enemies_list_only = boolean(settings, &key("enemies-list-only"), false);
     let mut selected: Vec<(&EntityView, u32, f64)> = Vec::new();
     for e in entities {
         if !e.alive() || (!invisibles && e.fully_invisible()) {
@@ -231,8 +428,20 @@ pub fn tracers(
         if !boolean(settings, &key(plural), group == "player") {
             continue;
         }
-        if e.class == EntityClass::Player && enemy_only && !people.enemy(&e.name) {
-            continue;
+        if e.class == EntityClass::Player {
+            // Bots never get a tracer; "Enemy Only" keeps valid targets, or
+            // only enemies-list players with "Enemies List Only".
+            if people.bot(e) {
+                continue;
+            }
+            let wanted = if enemies_list_only {
+                people.enemy(&e.name)
+            } else {
+                !people.friend(&e.name) && !people.teammate(e)
+            };
+            if enemy_only && !wanted {
+                continue;
+            }
         }
         if boolean(settings, &key(&format!("{group}-distance-check")), false) {
             let [lo, hi] = range(settings, &key(&format!("{group}-distance")), [0.0, 32.0]);
@@ -264,7 +473,11 @@ pub fn tracers(
         |e: &EntityView| e.class == EntityClass::Player && looking_at(e, camera.eye) < 5.0;
     let highlight = boolean(settings, &key("highlight-focusing"), false)
         && selected.iter().any(|s| focusing(s.0));
-    let start = Point([0, 1, 2].map(|i| camera.eye[i] + camera.look[i]));
+    // The reference starts at the camera plus its look vector, so tracers
+    // converge on the screen centre in every perspective. `VIEW_CENTRE` asks
+    // the on-top pass, which has the frame's real camera, to fill that in.
+    let _ = camera;
+    let start = VIEW_CENTRE;
     // Farthest first, so nearer tracers draw on top.
     selected.sort_by(|a, b| b.2.total_cmp(&a.2));
     for (e, color, _) in selected {

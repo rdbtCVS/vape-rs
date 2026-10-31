@@ -1,12 +1,18 @@
 pub mod automation;
+pub mod combat_runtime;
 mod hud_extras;
+pub mod inventory_extra;
+pub mod inventory_fill;
 pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
 pub mod movement_input;
+pub mod movement_runtime;
 pub mod profiles;
 mod registry;
+pub mod render_runtime;
 pub mod settings;
+pub mod throw_runtime;
 
 pub use registry::ModuleId;
 
@@ -68,6 +74,9 @@ pub struct Runtime {
     macro_lease: Option<Lease>,
     macro_selected: Option<u8>,
     inventory_schedule: inventory_runtime::Scheduler,
+    inventory_extra: inventory_extra::Planners,
+    throws: throw_runtime::Throws,
+    inventory_fill: inventory_fill::Fill,
     settings: Settings,
     document: Document,
     storage: Option<Profiles>,
@@ -83,9 +92,12 @@ pub struct Runtime {
     aim_assist: super::modules::combat::aim_assist::AimAssist,
     aim_clock: Option<std::time::Instant>,
     trigger_bot: super::modules::combat::trigger_bot::TriggerBot,
+    combat: combat_runtime::Combat,
     velocity: super::modules::combat::velocity::Velocity,
     knockback: super::modules::combat::knockback::Knockback,
     backtrack: super::modules::blatant::backtrack::Backtrack,
+    murder_finder: super::modules::render::murder_finder::MurderFinder,
+    prop_hunt: super::modules::render::prop_hunt::PropHunt,
     inbound_flush: bool,
     left_clicker: super::modules::combat::clicker::Engine,
     right_clicker: super::modules::combat::clicker::Engine,
@@ -98,6 +110,7 @@ pub struct Runtime {
     speed: super::modules::blatant::speed::State,
     long_jump: super::modules::blatant::long_jump::State,
     anti_fall: super::modules::blatant::anti_fall::State,
+    world_movement: movement_runtime::State,
     /// A clicker was reset while holding its mapping down: [attack, use].
     clicker_release: [bool; 2],
     motion_override: Option<([f64; 3], [f64; 3])>,
@@ -328,6 +341,7 @@ impl Default for Runtime {
             .chain(super::modules::legit::definitions())
             .chain(super::modules::combat::wtap::definitions())
             .chain(super::modules::world::anti_afk::definitions())
+            .chain(super::modules::movement::definitions())
         {
             settings.define(definition).unwrap();
         }
@@ -346,6 +360,9 @@ impl Default for Runtime {
         for definition in super::modules::combat::trigger_bot::definitions() {
             settings.define(definition).unwrap();
         }
+        for definition in combat_runtime::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::combat::aim_assist::definitions() {
             settings.define(definition).unwrap();
         }
@@ -359,10 +376,20 @@ impl Default for Runtime {
             .chain(super::modules::blatant::outbound::definitions())
             .chain(super::modules::blatant::backtrack::definitions())
             .chain(super::modules::render::anti_debuff::definitions())
+            .chain(super::modules::render::arrows::definitions())
+            .chain(super::modules::render::explosions::definitions())
+            .chain(super::modules::render::search::definitions())
+            .chain(super::modules::render::spawner_finder::definitions())
+            .chain(super::modules::render::murder_finder::definitions())
         {
             settings.define(definition).unwrap();
         }
-        for definition in inventory_runtime::definitions() {
+        for definition in inventory_runtime::definitions()
+            .into_iter()
+            .chain(inventory_extra::definitions())
+            .chain(throw_runtime::definitions())
+            .chain(inventory_fill::definitions())
+        {
             settings
                 .define(definition)
                 .expect("static inventory definition");
@@ -442,6 +469,9 @@ impl Default for Runtime {
             macro_lease: None,
             macro_selected: None,
             inventory_schedule: Default::default(),
+            inventory_extra: Default::default(),
+            throws: Default::default(),
+            inventory_fill: Default::default(),
             settings,
             document: Document::default(),
             storage: None,
@@ -456,9 +486,12 @@ impl Default for Runtime {
             aim_assist: Default::default(),
             aim_clock: None,
             trigger_bot: Default::default(),
+            combat: Default::default(),
             velocity: Default::default(),
             knockback: Default::default(),
             backtrack: Default::default(),
+            murder_finder: Default::default(),
+            prop_hunt: Default::default(),
             inbound_flush: false,
             left_clicker: super::modules::combat::clicker::Engine::new(0x5851_f42d_4c95_7f2d),
             right_clicker: super::modules::combat::clicker::Engine::new(0x2c1b_3c6d_4a1f_9e37),
@@ -471,6 +504,7 @@ impl Default for Runtime {
             speed: Default::default(),
             long_jump: Default::default(),
             anti_fall: Default::default(),
+            world_movement: Default::default(),
             clicker_release: [false; 2],
             motion_override: None,
             explosion_reentry: false,
@@ -520,18 +554,31 @@ impl Runtime {
             .get_mut(&module)
             .expect("registered module")
             .enabled = enabled;
-        if matches!(
+        if (matches!(
             module,
             ModuleId::AutoArmor | ModuleId::AutoTotem | ModuleId::Refill | ModuleId::ChestSteal
-        ) && !enabled
+        ) || inventory_extra::MODULES.contains(&module))
+            && !enabled
         {
             self.cancel_inventory();
+        }
+        if matches!(
+            module,
+            ModuleId::ThrowPot | ModuleId::ThrowDebuff | ModuleId::AutoHeal
+        ) && !enabled
+            && self.throws_module() == Some(module)
+        {
+            self.cancel_throws();
         }
         if module == ModuleId::AutoTool && !enabled {
             self.reset_auto_tool();
         }
         if module == ModuleId::AutoFish && !enabled {
             self.cancel_auto_fish();
+        }
+        self.movement_toggled(module, enabled);
+        if !enabled {
+            self.combat_disabled(module);
         }
         if !enabled {
             match module {
@@ -604,6 +651,7 @@ impl Runtime {
         if id.starts_with("combat.trigger-bot.") {
             self.trigger_bot.reset();
         }
+        self.combat_setting_changed(id);
         if id.starts_with("combat.velocity.") {
             self.reset_velocity();
         }
@@ -1034,6 +1082,7 @@ impl Runtime {
     /// TriggerBot's synthetic press is a click, so releasing it needs no
     /// host action.
     fn reset_combat(&mut self) {
+        self.combat_session_reset();
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();
@@ -1262,7 +1311,9 @@ impl Runtime {
     }
     /// Timer's speed for the game clock (1.0 when off or out of a world).
     pub fn timer_speed(&self) -> f32 {
-        if self.enabled(ModuleId::Timer) && self.session.in_world() {
+        if let Some(speed) = self.step_timer() {
+            speed
+        } else if self.enabled(ModuleId::Timer) && self.session.in_world() {
             super::modules::blatant::timer_speed(&self.settings)
         } else {
             1.0
@@ -1435,7 +1486,8 @@ impl Runtime {
             self.enabled(ModuleId::StorageEsp),
             self.enabled(ModuleId::Esp)
                 || self.enabled(ModuleId::Tracers)
-                || self.enabled(ModuleId::Trajectories),
+                || self.enabled(ModuleId::Trajectories)
+                || self.enabled(ModuleId::Explosions),
         )
     }
     /// Trajectories' launch for the held item, when the module is on.
@@ -1443,6 +1495,7 @@ impl Runtime {
         &self,
         item: &str,
         use_ticks: Option<u32>,
+        loaded: super::modules::render::trajectories::Loaded,
     ) -> Option<super::modules::render::trajectories::Launch> {
         use super::modules::render::trajectories;
         if !self.enabled(ModuleId::Trajectories) {
@@ -1453,14 +1506,14 @@ impl Runtime {
             .get(&format!("{}.ghost-bow-charge", trajectories::ID))
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        trajectories::launch(item, use_ticks, ghost)
+        trajectories::launch(item, use_ticks, ghost, loaded)
     }
     /// The through-wall lines of StorageESP, ESP and Tracers for one frame.
     pub fn world_lines(
         &self,
         camera: &super::modules::render::esp::Camera,
         entities: &[super::targeting::entities::EntityView],
-        storage: &[(super::modules::render::storage_esp::Storage, [i32; 3])],
+        storage: &[super::modules::render::storage_esp::Block],
         trajectory: Option<(
             super::modules::render::trajectories::Launch,
             super::modules::render::trajectories::BlockClip<'_>,
@@ -1993,6 +2046,9 @@ impl Runtime {
     pub fn tick(&mut self) -> bool {
         let first = self.ticks == 0;
         self.ticks = self.ticks.saturating_add(1);
+        if self.enabled(ModuleId::PropHunt) {
+            self.prop_hunt.tick();
+        }
         self.frame();
         first
     }
@@ -2199,6 +2255,14 @@ impl Runtime {
                 | ModuleId::AutoTotem
                 | ModuleId::Refill
                 | ModuleId::ChestSteal
+                | ModuleId::InventoryManager
+                | ModuleId::InvCleaner
+                | ModuleId::AutoHotbar
+                | ModuleId::ArmorSwitch
+                | ModuleId::ThrowPot
+                | ModuleId::ThrowDebuff
+                | ModuleId::AutoHeal
+                | ModuleId::InventoryFill
                 | ModuleId::FastPlace
                 | ModuleId::Fullbright
                 | ModuleId::ClearWater
@@ -2243,7 +2307,19 @@ impl Runtime {
                 | ModuleId::KnockbackDelay
                 | ModuleId::Backtrack
                 | ModuleId::AntiDebuff
+                | ModuleId::KillAura
+                | ModuleId::SilentAura
+                | ModuleId::KeepSprint
+                | ModuleId::Scaffold
+                | ModuleId::InvWalk
+                | ModuleId::WindCharge
                 | ModuleId::Health
+                | ModuleId::Arrows
+                | ModuleId::Explosions
+                | ModuleId::Search
+                | ModuleId::SpawnerFinder
+                | ModuleId::MurderFinder
+                | ModuleId::PropHunt
                 | ModuleId::InventoryBlur => continue,
             };
             use super::ui::hud::Content;

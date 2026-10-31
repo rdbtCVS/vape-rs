@@ -187,6 +187,10 @@ fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: boo
         let on = with_client(&client, |runtime| runtime.step_active(sneaking, player.ground.on_ground));
         let _ = player.set_modifier("minecraft:step_height", "vape_rs:step", 0.4, "add_value", on);
     }
+    // Scaffold Legit's edge sneak, WindCharge's jump, NoFall's jump release.
+    for request in crate::game::remote::vape_world_actions::requests(game, active, again, &view) {
+        overrides.request(request);
+    }
     let writes = with_client(&client, |runtime| {
         runtime.replace_parkour_tap(tap);
         runtime.movement().resolve(&overrides, &view)

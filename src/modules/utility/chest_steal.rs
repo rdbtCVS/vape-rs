@@ -167,6 +167,7 @@ mod tests {
             is_player_inventory: false,
             is_chest: true,
             chest_title_standard: true,
+            vitals: Default::default(),
             observed: std::time::Instant::now(),
         }
     }

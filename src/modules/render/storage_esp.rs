@@ -1,8 +1,10 @@
-// StorageESP (`StorageESP`): outlines of the enabled container types, drawn
-// through walls. The reference's fill and "Outline open" lid contrast are
-// pending host support for filled world quads and lid state.
+// StorageESP (`StorageESP`, `RenderUtil.L`/`q`): a filled box in each
+// enabled container type's colour, drawn through walls, and with "Outline
+// open" a 3 px outline in the inverse colour while a chest's lid is more
+// than 0.1 open. Containers come from the host's rendered block entities, so
+// ender chests and shulker boxes are included.
 use super::super::super::core::settings::{Definition, Kind, Settings};
-use super::world::{Line, Point, outline_box};
+use super::world::{Line, Point, Quad, fill_box, outline_box};
 use serde_json::{Value, json};
 
 const ID: &str = "render.storage-esp";
@@ -128,14 +130,20 @@ impl Storage {
     }
 }
 
+/// One container this frame: its kind, block and lid openness (0 shut).
+pub type Block = (Storage, [i32; 3], f32);
+
 pub fn definitions() -> Vec<Definition> {
-    let mut out: Vec<Definition> = Storage::ALL
-        .iter()
-        .map(|s| {
-            let (key, label, _, _, on, _) = s.spec();
-            Definition::boolean(&format!("{ID}.{key}"), label, on)
-        })
-        .collect();
+    let mut out: Vec<Definition> = std::iter::once(Definition::boolean(
+        &format!("{ID}.outline-open"),
+        "Outline open",
+        true,
+    ))
+    .chain(Storage::ALL.iter().map(|s| {
+        let (key, label, _, _, on, _) = s.spec();
+        Definition::boolean(&format!("{ID}.{key}"), label, on)
+    }))
+    .collect();
     for s in Storage::ALL {
         let (key, _, color_key, color_label, _, color) = s.spec();
         out.push(
@@ -166,19 +174,38 @@ pub fn color(settings: &Settings, storage: Storage) -> Option<u32> {
         })
 }
 
-/// Box outlines (1.5 px, as the reference's line width) for the enabled
-/// storage blocks.
-pub fn lines(settings: &Settings, blocks: &[(Storage, [i32; 3])], out: &mut Vec<Line>) {
-    for &(storage, [x, y, z]) in blocks {
+fn unit(x: i32, y: i32, z: i32) -> (Point, Point) {
+    let min = [f64::from(x), f64::from(y), f64::from(z)];
+    (Point(min), Point(min.map(|v| v + 1.0)))
+}
+
+/// The fills of the enabled storage blocks.
+pub fn quads(settings: &Settings, blocks: &[Block], out: &mut Vec<Quad>) {
+    for &(storage, [x, y, z], _) in blocks {
         if let Some(color) = color(settings, storage) {
-            let min = [f64::from(x), f64::from(y), f64::from(z)];
-            outline_box(
-                out,
-                Point(min),
-                Point([min[0] + 1.0, min[1] + 1.0, min[2] + 1.0]),
-                color,
-                1.5,
-            );
+            let (min, max) = unit(x, y, z);
+            fill_box(out, min, max, color);
+        }
+    }
+}
+
+/// "Outline open": the inverse-colour outline of open chests.
+pub fn lines(settings: &Settings, blocks: &[Block], out: &mut Vec<Line>) {
+    let outline_open = settings
+        .get(&format!("{ID}.outline-open"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    if !outline_open {
+        return;
+    }
+    for &(storage, [x, y, z], open) in blocks {
+        if open <= 0.1 {
+            continue;
+        }
+        if let Some(color) = color(settings, storage) {
+            let inverse = (color & 0xff00_0000) | (!color & 0x00ff_ffff);
+            let (min, max) = unit(x, y, z);
+            outline_box(out, min, max, inverse, 3.0);
         }
     }
 }
