@@ -126,6 +126,8 @@ registry! {
     ThrowDebuff => "inventory.throw-debuff", "ThrowDebuff", "Inventory", None, [];
     AutoHeal => "inventory.auto-heal", "AutoHeal", "Hidden", None, [];
     InventoryFill => "inventory.inventory-fill", "InventoryFill", "Inventory", None, [];
+    AutoPearl => "utility.auto-pearl", "AutoPearl", "Utility", None, [];
+    PearlCatch => "utility.pearl-catch", "PearlCatch", "Utility", None, [];
 }
 
 impl ModuleId {

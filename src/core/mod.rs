@@ -8,6 +8,7 @@ pub mod lifecycle;
 pub mod macro_runtime;
 pub mod movement_input;
 pub mod movement_runtime;
+pub mod pearl_runtime;
 pub mod profiles;
 mod registry;
 pub mod render_runtime;
@@ -76,6 +77,7 @@ pub struct Runtime {
     inventory_schedule: inventory_runtime::Scheduler,
     inventory_extra: inventory_extra::Planners,
     throws: throw_runtime::Throws,
+    pearls: pearl_runtime::Pearls,
     inventory_fill: inventory_fill::Fill,
     settings: Settings,
     document: Document,
@@ -389,6 +391,7 @@ impl Default for Runtime {
             .chain(inventory_extra::definitions())
             .chain(throw_runtime::definitions())
             .chain(inventory_fill::definitions())
+            .chain(pearl_runtime::definitions())
         {
             settings
                 .define(definition)
@@ -471,6 +474,7 @@ impl Default for Runtime {
             inventory_schedule: Default::default(),
             inventory_extra: Default::default(),
             throws: Default::default(),
+            pearls: Default::default(),
             inventory_fill: Default::default(),
             settings,
             document: Document::default(),
@@ -577,6 +581,7 @@ impl Runtime {
             self.cancel_auto_fish();
         }
         self.movement_toggled(module, enabled);
+        self.pearls_toggled(module, enabled);
         if !enabled {
             self.combat_disabled(module);
         }
@@ -1867,6 +1872,7 @@ impl Runtime {
         }
         self.reset_auto_tool();
         self.reset_combat();
+        self.pearls_session_reset();
         self.cancel_inventory();
         self.cancel_auto_fish();
         self.combat_guard.reset();
@@ -2263,6 +2269,8 @@ impl Runtime {
                 | ModuleId::ThrowDebuff
                 | ModuleId::AutoHeal
                 | ModuleId::InventoryFill
+                | ModuleId::AutoPearl
+                | ModuleId::PearlCatch
                 | ModuleId::FastPlace
                 | ModuleId::Fullbright
                 | ModuleId::ClearWater
