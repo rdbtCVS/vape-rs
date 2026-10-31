@@ -127,10 +127,13 @@ def defaults(resources, allow_stale):
         session.call('wait', '3')
         session.capture('on')
         # The reference's fake stands where the player stands and the camera
-        # starts at its eye: the first frame is inside the fake's head.
+        # starts at its eye: the first frame is inside the fake's head, whose
+        # skin covers the view (its darker shades read as red to colours()).
         checks.check('Spawn Fake: the camera starts at the eye of the body left behind',
-                     body(root / 'before.png', MIDDLE) < 2000 and body(root / 'on.png', MIDDLE) > 20000,
-                     {'before': body(root / 'before.png', MIDDLE), 'on': body(root / 'on.png', MIDDLE)})
+                     body(root / 'before.png', MIDDLE) < 2000 and body(root / 'on.png', MIDDLE) > 5000
+                     and changed(root / 'before.png', root / 'on.png', VIEW) > 150000,
+                     {'before': body(root / 'before.png', MIDDLE), 'on': body(root / 'on.png', MIDDLE),
+                      'changed': changed(root / 'before.png', root / 'on.png', VIEW)})
         # S backs the camera off north (0.6 blocks a tick at Speed 3).
         hold(session, 's', 8)
         p = player(session)
