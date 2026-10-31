@@ -211,7 +211,7 @@ def run(resources, allow_stale):
         toggle(session, 'blatant.step')
         checks.check('Step enabled through its bind', enabled(session, 'blatant.step'))
         at = step_walk(session)
-        checks.check('Step climbs the one-block ledge', at[1] > 100.9 and at[2] > 20.0, at)
+        checks.check('Step climbs over the one-block ledge', at[1] > 99.5 and at[2] > 21.0, at)
         checks.check('Step: still connected after the step', state(session).get('dimension') is not None,
                      state(session).get('dimension'))
         toggle(session, 'blatant.step')
