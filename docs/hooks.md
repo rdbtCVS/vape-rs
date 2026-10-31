@@ -53,6 +53,10 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `fly-move` | `horizon_client::motion::MotionWorld<'_,'_,'_>::move_self` | Cancellable HEAD (library crate). Substitutes Fly's per-tick movement vector. |
 | `send-state` | `horizon_client::game::remote::Game<'_>::remote_send_state` | NoFall/Fly pre-motion: AntiCheat's MovePlayerStatus true/false pair and the ground value for this send; Step's recognised step (Speed stage, 0.45 timer; the reference's two extra positions are not sent: 26.3 kicks a second position in one client tick). |
 | `send-state-ground` | `remote_send_state`, argument 2 of `r.position_sender.update` | MODIFY_ARG (`require = 1`, `ordinal = 0`). Replaces the sent `on_ground` with the pre-motion value when set. |
+| `target-info-pot-use` | `horizon_client::game::potions::Game<'_>::use_potion_item` | HEAD (`adapters/target_info_pot_use.rs`). Target Info's pots strip: a heal potion the local player drinks counts against it (`vape_hud::target_heal_used`). |
+| `target-info-pot-remote-use` | `horizon_client::game::remote::Game<'_>::remote_use_item` | HEAD (`adapters/target_info_pot_remote_use.rs`). The same on a server, from the held stack of the used hand. |
+| `target-info-pot-launch` | `horizon_client::game::potions::Game<'_>::launch_thrown` | HEAD (`adapters/target_info_pot_launch.rs`). A heal splash potion the local player throws counts against it (`vape_hud::target_heal_joined`). |
+| `target-info-pot-remote-data` | `horizon_client::game::remote_projectiles::Game<'_>::remote_projectile_data` | HEAD (`adapters/target_info_pot_remote_data.rs`). A remote thrown potion's item (entity data index 8) counts for the target when it is a heal pot (`vape_hud::target_remote_potion`). |
 
 ## Support modules
 
