@@ -2,7 +2,10 @@
 // file: the Text GUI's view, per-module suffixes (`getSimpleSuffix` /
 // `getDetailedSuffix`) and its show/hide animation.
 
+use super::super::ui::Snapshot;
+use super::super::ui::client_settings::bind_text;
 use super::super::ui::hud::Content;
+use super::super::ui::notifications::{self, Kind};
 use super::super::ui::text_gui::{self, Row, View, decimal};
 use super::{ModuleId, Runtime};
 use serde_json::{Value, json};
@@ -16,6 +19,80 @@ pub enum SuffixMode {
 }
 
 impl Runtime {
+    fn toast(&mut self, key: &str, title: &str, message: &str, duration_ms: f32) {
+        if self.hud_flag("client.notifications") {
+            self.toasts
+                .push(key, title, message, Kind::Info, duration_ms);
+        }
+    }
+    /// `Mod.showToggleNotification` when "Toggle alert" is on; profile
+    /// loads suppress it like `ModManager.suppressStateNotifications`.
+    pub(super) fn toggle_alert(&mut self, module: ModuleId, enabled: bool) {
+        if self.suppress_toggle_alerts || !self.hud_flag("client.toggle-alerts") {
+            return;
+        }
+        let message = if enabled {
+            "\u{a7}2Enabled"
+        } else {
+            "\u{a7}cDisabled"
+        };
+        let title = format!("\u{a7}f{}", module.name());
+        self.toast(module.id(), &title, message, 1500.0);
+    }
+    pub(super) fn profile_alert(&mut self, name: &str) {
+        if !self.hud_flag("client.profile-alerts") {
+            return;
+        }
+        let count = ModuleId::ALL.iter().filter(|m| self.enabled(**m)).count();
+        self.toast(
+            "client.profile",
+            &format!("Profile swap to \u{a7}6{name}"),
+            &format!("{count} modules enabled"),
+            1500.0,
+        );
+    }
+    /// `Vape` inject message, shown once on first entering a world.
+    pub(super) fn bind_indicator(&mut self, snapshot: &Snapshot) {
+        if self.bind_indicator_shown || !snapshot.in_world {
+            return;
+        }
+        self.bind_indicator_shown = true;
+        if !self.hud_flag("client.gui-bind-indicator") {
+            return;
+        }
+        let keys: Vec<String> = self
+            .settings
+            .get("client.gui.binds")
+            .and_then(Value::as_array)
+            .map(|v| {
+                v.iter()
+                    .filter_map(Value::as_str)
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+        let message = format!("Press {} to open the GUI", bind_text(&keys));
+        self.toast("", "Loaded", &message, 5000.0);
+    }
+    /// Advance and lay out the notification stack for one HUD frame.
+    pub fn notification_frame(
+        &mut self,
+        screen: (f32, f32),
+        measure: impl Fn(&str, f32) -> f32,
+    ) -> Vec<text_gui::Draw> {
+        let now = std::time::Instant::now();
+        let elapsed = self
+            .toast_clock
+            .replace(now)
+            .map_or(0.0, |then| now.duration_since(then).as_secs_f32() * 1000.0)
+            .min(1000.0);
+        if !self.hud_flag("client.notifications") {
+            self.toasts.clear();
+        }
+        self.toasts.update(elapsed);
+        notifications::layout(&self.toasts, screen, measure)
+    }
     fn hud_number(&self, id: &str) -> f64 {
         self.settings
             .get(id)
@@ -227,6 +304,35 @@ mod tests {
             Some(Content::TextGui(view)) => view,
             _ => View::default(),
         }
+    }
+
+    #[test]
+    fn toggle_profile_and_bind_alerts_respect_their_settings() {
+        let mut r = Runtime::default();
+        r.set_enabled(ModuleId::Fly, true);
+        assert_eq!(r.toasts.iter().count(), 0); // Toggle alert defaults off
+        r.settings.set("client.toggle-alerts", json!(true)).unwrap();
+        r.set_enabled(ModuleId::Fly, false);
+        r.set_enabled(ModuleId::Fly, true);
+        let all: Vec<_> = r.toasts.iter().collect();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].message, "\u{a7}2Enabled");
+        let snapshot = Snapshot {
+            in_world: true,
+            ..Snapshot::default()
+        };
+        r.bind_indicator(&snapshot);
+        r.bind_indicator(&snapshot);
+        let messages: Vec<_> = r.toasts.iter().map(|t| t.message.clone()).collect();
+        assert_eq!(messages[1], "Press RSHIFT to open the GUI");
+        assert_eq!(messages.len(), 2);
+        r.settings
+            .set("client.notifications", json!(false))
+            .unwrap();
+        r.set_enabled(ModuleId::Fly, false);
+        assert_eq!(r.toasts.iter().count(), 2);
+        // Disabling notifications clears the stack on the next frame.
+        assert!(r.notification_frame((400.0, 300.0), |_, _| 0.0).is_empty());
     }
 
     #[test]

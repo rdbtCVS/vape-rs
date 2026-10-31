@@ -1,7 +1,9 @@
+pub mod client_settings;
 pub mod clock;
 pub mod gui;
 pub mod hud;
 pub mod hud_state;
+pub mod notifications;
 pub mod resource_names;
 pub mod text_gui;
 

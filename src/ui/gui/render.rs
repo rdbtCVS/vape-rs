@@ -325,6 +325,7 @@ impl Gui {
         let (width, height) = self.logical();
         let mut l = Layout::new(Rect(0.0, 0.0, width, height));
         self.panel_rects.clear();
+        self.search_style = SearchStyle::parse(view.values["client.search-bar"].as_str());
         if self.hud_editor {
             l.label(
                 6.0,
@@ -358,6 +359,9 @@ impl Gui {
             // The dragged frame follows the pointer above the grid.
             if let Some(name) = dragged.filter(|n| self.is_open(n)) {
                 self.panel(view, &mut l, &name, None);
+            }
+            if self.search_style == SearchStyle::Floating {
+                self.floating_search(view, &mut l, width);
             }
         }
         self.popups(view, &mut l);
@@ -562,6 +566,9 @@ impl Gui {
             ),
             (12.0, &SYNC, Hit::Sync, false),
         ] {
+            if matches!(hit, Hit::Search) && self.search_style != SearchStyle::Integrated {
+                continue;
+            }
             l.icon(
                 x + FRAME_WIDTH - dx,
                 y + 7.5,
@@ -603,18 +610,9 @@ impl Gui {
         })
     }
     fn nav_body(&self, view: &View, l: &mut Layout, x: f32, top: f32) -> f32 {
-        if self.searching && !self.search.is_empty() {
-            let query = self.search.to_lowercase();
-            // The reference lists Category.OTHER (blatant) modules only on an
-            // exact name match; Category.HIDDEN modules never.
-            return self.module_list(view, l, x, top, |m| {
-                let name = m.name.to_lowercase();
-                match m.category.as_str() {
-                    "Other" => name == query,
-                    "Hidden" => false,
-                    _ => name.contains(&query),
-                }
-            });
+        if self.search_style == SearchStyle::Integrated && self.searching && !self.search.is_empty()
+        {
+            return self.search_results(view, l, x, top);
         }
         let mut y = top;
         for name in CATEGORIES {
@@ -640,6 +638,67 @@ impl Gui {
             l.hit(Rect(x + FRAME_WIDTH - dx - 3.0, y, 13.0, ROW_HEIGHT), hit);
         }
         y + ROW_HEIGHT - top
+    }
+    /// Modules matching the search. The reference lists Category.OTHER
+    /// (blatant) modules only on an exact name match; Category.HIDDEN never.
+    fn search_results(&self, view: &View, l: &mut Layout, x: f32, top: f32) -> f32 {
+        let query = self.search.to_lowercase();
+        self.module_list(view, l, x, top, |m| {
+            let name = m.name.to_lowercase();
+            match m.category.as_str() {
+                "Other" => name == query,
+                "Hidden" => false,
+                _ => name.contains(&query),
+            }
+        })
+    }
+    /// `ModuleSearchFrame`: a 110-wide search bar at the top centre whose
+    /// results list below it; the right icon clears a non-empty query.
+    fn floating_search(&self, view: &View, l: &mut Layout, width: f32) {
+        let (_, height) = self.logical();
+        let (x, y) = ((width - FRAME_WIDTH) / 2.0, 7.0);
+        let header = 20.0;
+        let room = (height - y - header - 4.0).max(ROW_HEIGHT);
+        let mut body = Layout::new(intersect(l.clip, Rect(x, y + header, FRAME_WIDTH, room)));
+        let content = if self.search.is_empty() {
+            0.0
+        } else {
+            self.search_results(view, &mut body, x, y + header)
+        };
+        let shown = content.min(room);
+        let rect = Rect(
+            x,
+            y,
+            FRAME_WIDTH,
+            header + shown + if shown > 0.0 { 2.0 } else { 0.0 },
+        );
+        l.rounded(
+            Rect(rect.0 - 0.5, rect.1 - 0.5, rect.2 + 1.0, rect.3 + 1.0),
+            OUTLINE,
+        );
+        l.rounded(rect, BG);
+        l.hit(rect, Hit::Popup);
+        self.field(
+            l,
+            Rect(x + 4.0, y + 3.0, FRAME_WIDTH - 21.0, header - 6.0),
+            "search",
+            "Search modules",
+            &self.search,
+        );
+        let (icon, hit) = if self.search.is_empty() {
+            (&SEARCH[..], Hit::Search)
+        } else {
+            (&CROSS[..], Hit::ClearSearch)
+        };
+        let color = if self.focus.as_deref() == Some("search") {
+            FG
+        } else {
+            MUTED
+        };
+        l.icon(x + FRAME_WIDTH - 13.0, y + 6.5, 1.0, icon, color);
+        l.hit(Rect(x + FRAME_WIDTH - 16.0, y + 2.0, 14.0, 16.0), hit);
+        l.draw.extend(body.draw);
+        l.hits.extend(body.hits);
     }
     fn nav_row(&self, l: &mut Layout, x: f32, y: f32, name: &str, icon: bool, badge: Option<&str>) {
         let row = Rect(x, y, FRAME_WIDTH, ROW_HEIGHT);

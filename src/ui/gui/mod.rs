@@ -1,6 +1,7 @@
 use super::super::core::settings::{Definition, Kind};
 use super::super::input::KeyAction;
 use super::super::input::macros::{Delay, Macro};
+use super::client_settings::SearchStyle;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -174,6 +175,8 @@ enum Hit {
     Collapse(String),
     OpenPanel(String),
     Search,
+    /// The floating search frame's close icon.
+    ClearSearch,
     Sync,
     Hud,
     HudBack,
@@ -387,6 +390,8 @@ pub struct Gui {
     profile_input: Option<ProfileInput>,
     profile_menu: Option<String>,
     searching: bool,
+    /// `ClientSettings` "Search bar style", read from the view each frame.
+    search_style: super::client_settings::SearchStyle,
     focus: Option<String>,
     cursor: TextCursor,
     editor: Option<Editor>,
@@ -436,6 +441,7 @@ impl Default for Gui {
             profile_input: None,
             profile_menu: None,
             searching: false,
+            search_style: Default::default(),
             focus: None,
             cursor: TextCursor::default(),
             editor: None,
@@ -878,7 +884,9 @@ mod tests {
             open: true,
             ..Gui::default()
         };
-        let view = view();
+        let mut view = view();
+        // Keep the top-centre floating search bar off the Render column.
+        view.values = json!({"client.search-bar": "Integrated"});
         // The second navigation row opens Render in the first default column.
         let opened = click(&mut gui, &view, (30.0, 6.0 + NAV_HEADER_HEIGHT + 30.0));
         assert!(
@@ -904,7 +912,8 @@ mod tests {
             open: true,
             ..Gui::default()
         };
-        let view = view();
+        let mut view = view();
+        view.values = json!({"client.search-bar": "Integrated"});
         click(&mut gui, &view, (6.0 + FRAME_WIDTH - 34.0, 16.0));
         assert_eq!(gui.focus.as_deref(), Some("search"));
         gui.commit_text("spr", false);
@@ -912,6 +921,43 @@ mod tests {
             click(&mut gui, &view, (30.0, 6.0 + NAV_HEADER_HEIGHT + 10.0)),
             vec![Action::Toggle("combat.sprint".into())]
         );
+    }
+    #[test]
+    fn floating_search_frame_lists_results_and_ctrl_f_follows_the_style() {
+        let mut gui = Gui {
+            open: true,
+            ..Gui::default()
+        };
+        let mut view = view();
+        // Floating (default): a top-centre bar; the header has no magnifier.
+        let bar = ((400.0 - FRAME_WIDTH) / 2.0 + 20.0, 15.0);
+        click(&mut gui, &view, bar);
+        assert_eq!(gui.focus.as_deref(), Some("search"));
+        gui.commit_text("ful", false);
+        assert_eq!(
+            click(&mut gui, &view, (bar.0, 7.0 + 20.0 + 10.0)),
+            vec![Action::Toggle("render.fullbright".into())]
+        );
+        // Ctrl+F with a query clears it and keeps the bar focused.
+        gui.key("ControlLeft", KeyAction::Press);
+        gui.key("KeyF", KeyAction::Press);
+        assert!(gui.search.is_empty());
+        assert_eq!(gui.focus.as_deref(), Some("search"));
+        gui.focus = None;
+        gui.key("KeyF", KeyAction::Press);
+        assert_eq!(gui.focus.as_deref(), Some("search"));
+        // Integrated opens the header field; None ignores the shortcut.
+        view.values = json!({"client.search-bar": "Integrated"});
+        gui.focus = None;
+        gui.frame(&view, (400.0, 300.0));
+        gui.key("KeyF", KeyAction::Press);
+        assert!(gui.searching && gui.focus.as_deref() == Some("search"));
+        gui.searching = false;
+        gui.focus = None;
+        view.values = json!({"client.search-bar": "None"});
+        gui.frame(&view, (400.0, 300.0));
+        gui.key("KeyF", KeyAction::Press);
+        assert!(gui.focus.is_none() && !gui.searching);
     }
     #[test]
     fn dragged_frames_persist_and_restore_their_layout() {

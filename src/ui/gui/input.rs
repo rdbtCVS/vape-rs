@@ -116,6 +116,10 @@ impl Gui {
         if self.confirm_delete.is_some() {
             return Vec::new();
         }
+        if control && key == "KeyF" {
+            self.search_shortcut();
+            return Vec::new();
+        }
         if matches!(
             key,
             "Backspace" | "Delete" | "ArrowLeft" | "ArrowRight" | "Home" | "End"
@@ -326,6 +330,7 @@ impl Gui {
                 }
                 return vec![Action::Layout(self.layout_value())];
             }
+            Hit::Search if self.search_style == SearchStyle::Floating => self.focus_search(),
             Hit::Search => {
                 self.searching = !self.searching;
                 self.search.clear();
@@ -333,6 +338,10 @@ impl Gui {
                     self.focus = Some("search".into());
                     self.cursor = TextCursor::default();
                 }
+            }
+            Hit::ClearSearch => {
+                self.search.clear();
+                self.focus_search();
             }
             Hit::Sync => return vec![Action::Sync],
             Hit::Hud => {
@@ -649,6 +658,28 @@ impl Gui {
         {
             let scroll = self.scrolls.entry(name.clone()).or_default();
             *scroll = (*scroll - delta * 24.0).max(0.0);
+        }
+    }
+    fn focus_search(&mut self) {
+        self.focus = Some("search".into());
+        self.editor = None;
+        self.cursor = TextCursor::default();
+    }
+    /// `ClientSettings.handleSearchShortcut` (Ctrl+F): an active query is
+    /// cleared; otherwise the style's search bar takes focus.
+    fn search_shortcut(&mut self) {
+        if !self.search.is_empty() {
+            self.search.clear();
+            self.focus_search();
+            return;
+        }
+        match self.search_style {
+            SearchStyle::Floating => self.focus_search(),
+            SearchStyle::Integrated => {
+                self.searching = true;
+                self.focus_search();
+            }
+            SearchStyle::None => {}
         }
     }
     pub fn viewport(&self) -> (f32, f32) {

@@ -78,3 +78,9 @@
 - **Pinned to Horizon main `8f91f896a`** (2,292 commits after `cc7bcbf`; Minecraft 26.3 / protocol 777 unchanged) and **published horizon-mixins main `0e9229d`** (0.6.0: named hooks, bundle crates/data, post-build steps; unpatched), at the user's request. Still an untagged main commit; choose a tagged release before a public build.
 - **Drift:** `game/mod_input.rs` was deleted with the Wasm code mods (hashed, never hooked; hash dropped). `name_tag_quads` gained a `unit` argument, which the NameTags copy now passes. All 36 hook targets resolved unchanged.
 - **KeepSprint is unblocked:** Horizon #3251 applies the attacker's 0.6 speed cut and sprint stop on the remote attack path (`attack_strength::ATTACKER_SLOWDOWN`), which the module can now change.
+
+## 2026-10-31: ClientSettings scope (HUD worker)
+
+- The TAB bind view ("Hold TAB to view modules binds") is superseded rather than ported. The v4 module cards (`ClickGuiModuleCardComponent.getBindLabel`) and our module rows always show the bind, so there is nothing for TAB to reveal.
+- The blur background toggle is not ported. The host applies its menu blur whenever a mod screen asks for `menu_blur()`, and turning it off per setting needs a Horizon change. Recorded as a limitation, with no workaround.
+- Notifications are drawn by the core layout in the HUD pass. While the click GUI is open the GUI pass replaces the batch, so toasts resume when it closes.

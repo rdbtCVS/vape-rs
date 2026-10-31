@@ -379,3 +379,26 @@ fn text_gui(
     batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
     Rect(x, y, out.width, out.height)
 }
+/// The bottom-right notification stack (`NotificationManager.renderNotifications`).
+pub(super) fn notifications(game: &crate::game::Game<'_>, batch: &mut HudBatch) {
+    use crate::game::vape_rs::ui::text_gui::Draw;
+    const TEXT_EM: f32 = 9.0;
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let atlas = &game.gui.atlas;
+    let start = batch.vertices.len();
+    let screen = (batch.width, batch.height);
+    let mut ui = horizon_client::ui_theme::Ui::new(atlas, batch, (0.0, 0.0));
+    let draws = crate::game::vape_rs::core::with_client(&client, |runtime| {
+        runtime.notification_frame(screen, |text, size| ui.vape_rs_measure(text, TEXT_EM * size))
+    });
+    for draw in draws {
+        match draw {
+            Draw::Fill { x, y, w, h, color: argb } => ui.batch.fill(atlas, x, y, w, h, color(argb, true)),
+            Draw::Text { x, y, size, text, color: argb, .. } => {
+                ui.vape_rs_text(&text, x, y, TEXT_EM * size, 8.0 * size, color(argb, true));
+            }
+        }
+    }
+    ui.finish();
+    batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
+}

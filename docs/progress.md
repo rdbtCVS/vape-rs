@@ -869,3 +869,47 @@ Validation ([repin-main-2026-10-31.json](evidence/repin-main-2026-10-31.json)): 
 - Not ported: click-to-disable on rows, rounded row corners, the logo-image watermark (text `vape v4` instead), rainbow colours (no GUI colour/rainbow setting exists), the KnockbackDelay "Holding", FakeLag queued-red and AutoArmor "In Combat" states, and a list placed mid-right keeping its right edge when it shrinks.
 
 Validation: fmt, Clippy -D warnings, 126 lib tests (3 new hud_extras, 5 text_gui), payload test, stage/audit (36 hooks, 22 support modules), host check and fast build pass. `tools/text_gui_scenario.py` (fresh homes, 7 restarts, 11 screenshots) passes; evidence in docs/evidence/hud-text-gui/. It covers: Basic/Extended suffixes, both sorts, three colour modes, plain font without background, left anchoring with watermark and custom text, hidden list, a bind removing a row, and the Text GUI's own bind.
+
+## 2026-10-31: ClientSettings and notification toasts (HUD worker)
+
+- `src/ui/client_settings.rs` defines the remaining ClientSettings and PublicProfileSettings values:
+  - GUI bind indicator, Show tooltips and Search bar style (Floating/Integrated/None).
+  - Notifications, with Toggle alert and Profile switch shown only while Notifications is on.
+  - LWJGL-style bind text (`RSHIFT`, `LCONTROL + G`).
+- `src/ui/notifications.rs` ports `NotificationManager`:
+  - A bottom-right stack of at most 20 toasts. Each slides in from the right edge with the reference `interpolateToward` step.
+  - The countdown starts when the toast is first drawn and shows as a progress bar. The toast slides out when it ends.
+  - Boxes have the reference size and colours, plus an authored "i" badge.
+  - Toggle alerts reuse one toast per module. Profile loads suppress them.
+- `hud_painter::notifications` paints the stack after the HUD panels; it is a new call in the HUD adapter.
+- Notifications raised:
+  - Toggle alert (1.5 s): `Name` / `Enabled` or `Disabled`.
+  - Profile swap (1.5 s): `Profile swap to name` / `N modules enabled`.
+  - On first entering a world (5 s): `Loaded` / `Press <bind> to open the GUI`.
+- Search bar styles:
+  - Floating: a 110-wide frame at the top centre. Its magnifier focuses the field and turns into a clear button once there is a query; results are listed below it.
+  - Integrated: the existing navigation-header search.
+  - None: no search UI.
+- Ctrl+F clears an active query or focuses the style's search field.
+- Not ported or limited:
+  - Show tooltips is stored but has no effect yet (there is no hover tooltip).
+  - The GUI blur toggle is not ported: the host always blurs behind the menu.
+  - Rainbow speed is not ported because there are no rainbow colours.
+  - The legit-mode switch button, friend notifications and the online-account toasts are not ported.
+  - Toasts are hidden while the click GUI is open, because the GUI pass replaces the HUD batch.
+  - Toast messages are single-line; they cannot be clicked to dismiss.
+  - The TAB bind view is superseded: every module row always shows its bind, as the v4 module cards do.
+
+Validation:
+- fmt, Clippy -D warnings, 132 lib tests (4 new), payload test, stage/audit (36 hooks, 22 support modules), host check (33 warnings, 0 errors) and fast build pass.
+- `tools/client_settings_scenario.py` passes: fresh homes, 4 restarts, 12 screenshots. Evidence is in docs/evidence/hud-client-settings/. It covers:
+  - the bind indicator;
+  - the toggle alert on a real bind press, updated in place on the second press;
+  - expiry;
+  - the floating frame idle, with results for "sp", and cleared by Ctrl+F;
+  - the integrated header search via Ctrl+F;
+  - the None style ignoring Ctrl+F;
+  - the bind indicator disabled;
+  - the Notifications master switch suppressing toasts;
+  - persistence across restarts.
+- The profile-swap toast is unit-tested only.

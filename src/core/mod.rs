@@ -105,6 +105,10 @@ pub struct Runtime {
     hud_state: super::ui::hud_state::HudState,
     text_gui_rows: super::ui::text_gui::Animator,
     text_gui_clock: Option<std::time::Instant>,
+    toasts: super::ui::notifications::Toasts,
+    toast_clock: Option<std::time::Instant>,
+    bind_indicator_shown: bool,
+    suppress_toggle_alerts: bool,
     pub gui: Gui,
     suppress_game_input: bool,
     gui_bind: MultiBinding,
@@ -326,6 +330,9 @@ impl Default for Runtime {
         for definition in super::ui::text_gui::definitions() {
             settings.define(definition).unwrap();
         }
+        for definition in super::ui::client_settings::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::combat::trigger_bot::definitions() {
             settings.define(definition).unwrap();
         }
@@ -460,6 +467,10 @@ impl Default for Runtime {
             hud_state: super::ui::hud_state::HudState::default(),
             text_gui_rows: Default::default(),
             text_gui_clock: None,
+            toasts: Default::default(),
+            toast_clock: None,
+            bind_indicator_shown: false,
+            suppress_toggle_alerts: false,
             gui: Gui::default(),
             suppress_game_input: false,
             gui_bind: MultiBinding::default(),
@@ -548,6 +559,7 @@ impl Runtime {
             module.name(),
             if enabled { "enabled" } else { "disabled" }
         ));
+        self.toggle_alert(module, enabled);
     }
     pub fn settings(&self) -> &Settings {
         &self.settings
@@ -1876,6 +1888,11 @@ impl Runtime {
         }
     }
     pub fn apply_document(&mut self, document: Document) {
+        let suppress = std::mem::replace(&mut self.suppress_toggle_alerts, true);
+        self.apply_document_inner(document);
+        self.suppress_toggle_alerts = suppress;
+    }
+    fn apply_document_inner(&mut self, document: Document) {
         self.panic_restore = None;
         self.session_change(CleanupReason::Profile);
         for warning in self.settings.load(&document.0["settings"]) {
@@ -1942,6 +1959,7 @@ impl Runtime {
         self.apply_document(document);
         self.gui.select_profile(name);
         self.notify(format!("Loaded profile {name}"));
+        self.profile_alert(name);
         Ok(())
     }
     pub fn profiles(&self) -> Result<Vec<String>, String> {
@@ -1996,6 +2014,7 @@ impl Runtime {
     pub fn update_hud(&mut self, snapshot: &Snapshot) {
         self.hud_state.update(snapshot);
         self.tick_text_gui();
+        self.bind_indicator(snapshot);
     }
     pub fn register_synthetic_click(&mut self, button: usize) {
         self.hud_state.click(button);
