@@ -93,11 +93,6 @@ impl Scheduler {
 pub(super) fn definitions() -> Vec<Definition> {
     vec![
         Definition::boolean(
-            "inventory.auto-totem.inventory-only",
-            "Inventory only",
-            false,
-        ),
-        Definition::boolean(
             "inventory.auto-totem.open-inventory",
             "Open inventory",
             true,
@@ -106,7 +101,14 @@ pub(super) fn definitions() -> Vec<Definition> {
             "inventory.auto-totem.close-inventory",
             "Close inventory",
             true,
+        )
+        .when("inventory.auto-totem.open-inventory", json!(true)),
+        Definition::boolean(
+            "inventory.auto-totem.inventory-only",
+            "Inventory only",
+            false,
         ),
+        Definition::boolean("inventory.auto-totem.random-slot", "Random slot", true),
         Definition::new(
             "inventory.auto-totem.delay",
             "Delay",
@@ -116,6 +118,16 @@ pub(super) fn definitions() -> Vec<Definition> {
                 step: 1.0,
             },
             json!([100.0, 120.0]),
+        ),
+        Definition::boolean(
+            "inventory.auto-totem.extra-randomization",
+            "Extra randomization",
+            true,
+        ),
+        Definition::boolean(
+            "inventory.auto-totem.show-totem-count",
+            "Show totem count",
+            false,
         ),
         Definition::boolean(
             "inventory.auto-armor.inventory-only",
@@ -290,6 +302,8 @@ impl Runtime {
                     self.inventory_bool("inventory.auto-totem.inventory-only", false);
                 let open = self.inventory_bool("inventory.auto-totem.open-inventory", true);
                 let close = self.inventory_bool("inventory.auto-totem.close-inventory", true);
+                self.auto_totem.random_slot =
+                    self.inventory_bool("inventory.auto-totem.random-slot", true);
                 let effect = self
                     .auto_totem
                     .step(snapshot, inventory_only, open, close)
@@ -298,11 +312,10 @@ impl Runtime {
                         auto_totem::Effect::OpenInventory => InventoryEffect::OpenInventory,
                         auto_totem::Effect::CloseInventory => InventoryEffect::CloseInventory,
                     });
-                (
-                    effect,
-                    self.inventory_delay("inventory.auto-totem.delay", (100, 120)),
-                    self.auto_totem.active(),
-                )
+                let range = self.inventory_delay("inventory.auto-totem.delay", (100, 120));
+                let extra = self.inventory_bool("inventory.auto-totem.extra-randomization", true);
+                let ms = self.auto_totem.delay(range, extra);
+                (effect, (ms, ms), self.auto_totem.active())
             }
             ModuleId::Refill => {
                 let mut effect = None;
@@ -344,6 +357,17 @@ impl Runtime {
             self.inventory_schedule.release();
         }
         Vec::new()
+    }
+    /// AutoTotem's "Show totem count" label and colour. Nothing draws it
+    /// yet: the reference shows it in the active-module stack frame, which
+    /// has no port (documented in docs/decisions.md).
+    pub fn totem_count_display(&self, snapshot: &Snapshot) -> Option<(String, [u8; 3])> {
+        (self.enabled(ModuleId::AutoTotem)
+            && self.inventory_bool("inventory.auto-totem.show-totem-count", false))
+        .then(|| {
+            let count = auto_totem::totem_count(snapshot);
+            (count.to_string(), auto_totem::count_color(count))
+        })
     }
     pub fn cancel_inventory(&mut self) {
         self.actions

@@ -1,6 +1,7 @@
 pub mod armor_switch;
 pub mod auto_armor;
 pub mod auto_fish;
+pub mod auto_heal;
 pub mod auto_hotbar;
 pub mod auto_tool;
 pub mod auto_totem;
@@ -9,3 +10,4 @@ pub mod inv_cleaner;
 pub mod inventory_guard;
 pub mod inventory_manager;
 pub mod refill;
+pub mod throw_items;

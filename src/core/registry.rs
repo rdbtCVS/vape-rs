@@ -104,6 +104,10 @@ registry! {
     InvCleaner => "inventory.inv-cleaner", "InvCleaner", "Inventory", None, [];
     AutoHotbar => "inventory.auto-hotbar", "AutoHotbar", "Inventory", None, [];
     ArmorSwitch => "inventory.armor-switch", "ArmorSwitch", "Inventory", None, [];
+    ThrowPot => "inventory.throw-pot", "Throwpot", "Inventory", None, [];
+    ThrowDebuff => "inventory.throw-debuff", "ThrowDebuff", "Inventory", None, [];
+    AutoHeal => "inventory.auto-heal", "AutoHeal", "Hidden", None, [];
+    InventoryFill => "inventory.inventory-fill", "InventoryFill", "Inventory", None, [];
 }
 
 impl ModuleId {

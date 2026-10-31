@@ -11,6 +11,7 @@ use super::super::{
     },
     modules::utility::{
         armor_switch::{ArmorSwitch, Material},
+        auto_heal::AutoHeal,
         auto_hotbar::{self, AutoHotbar},
         inv_cleaner::{self, InvCleaner},
         inventory_manager::InventoryManager,
@@ -22,11 +23,14 @@ use super::{ModuleId, Runtime};
 use serde_json::{Value, json};
 use std::time::Duration;
 
-pub const MODULES: [ModuleId; 4] = [
+pub const MODULES: [ModuleId; 5] = [
     ModuleId::InventoryManager,
     ModuleId::InvCleaner,
     ModuleId::AutoHotbar,
     ModuleId::ArmorSwitch,
+    // AutoHeal's bowl handling and Replace (its use sequence lives in
+    // `throw_runtime`).
+    ModuleId::AutoHeal,
 ];
 
 #[derive(Debug, Default)]
@@ -35,6 +39,7 @@ pub struct Planners {
     cleaner: InvCleaner,
     hotbar: AutoHotbar,
     switch: ArmorSwitch,
+    heal: AutoHeal,
     /// Whether the active on-key run issued any click (for "No work
     /// available").
     worked: bool,
@@ -45,6 +50,7 @@ impl Planners {
         self.cleaner.cancel();
         self.hotbar.cancel();
         self.switch.cancel();
+        self.heal.cancel();
         self.worked = false;
     }
     pub fn opened(&self) -> bool {
@@ -52,6 +58,7 @@ impl Planners {
             || self.cleaner.opened()
             || self.hotbar.opened()
             || self.switch.opened()
+            || self.heal.opened()
     }
 }
 
@@ -164,7 +171,10 @@ impl Runtime {
         (n, n)
     }
     fn on_key(&self, module: ModuleId) -> bool {
-        self.extra_str(&format!("{}.trigger", module.id())) != "toggle"
+        matches!(
+            module,
+            ModuleId::InventoryManager | ModuleId::InvCleaner | ModuleId::AutoHotbar
+        ) && self.extra_str(&format!("{}.trigger", module.id())) != "toggle"
     }
     /// The selected InventoryManager profile (first profile when the
     /// selection is empty or unknown).
@@ -273,6 +283,14 @@ impl Runtime {
                         .switch
                         .step(snapshot, sets, Policy::default()),
                     self.extra_number(&format!("{prefix}.delay"), 100),
+                )
+            }
+            ModuleId::AutoHeal => {
+                // The use sequence holds the container claim while it runs.
+                let options = self.heal_options();
+                (
+                    self.inventory_extra.heal.step(snapshot, &options),
+                    self.inventory_delay("inventory.auto-heal.swap-delay", (75, 125)),
                 )
             }
             _ => unreachable!("extra inventory module"),

@@ -386,9 +386,48 @@ pub fn dispatch(game: &mut Game<'_>) {
         && with_client(&client, |r| !r.gui.open);
     let snapshot = allowed.then(|| snapshot(game)).flatten();
     let Some(snapshot) = snapshot else {
-        with_client(&client, |r| r.cancel_inventory());
+        with_client(&client, |r| {
+            r.cancel_inventory();
+            r.cancel_throws();
+        });
         return;
     };
+    // Hotbar use sequences (Throwpot, ThrowDebuff, AutoHeal) through the
+    // ordinary selected-slot, use and drop paths; only while playing.
+    let playing = game.screen == Screen::Playing;
+    let throws = with_client(&client, |r| r.throw_frame(&snapshot, playing));
+    for effect in throws {
+        use crate::game::vape_rs::core::throw_runtime::ThrowEffect;
+        match effect {
+            ThrowEffect::Select(slot) if slot < 9 => game.selected = usize::from(slot),
+            ThrowEffect::Use => super::vape_macros::use_once(game),
+            ThrowEffect::Drop if game.remote.is_some() => game.remote_drop(false),
+            ThrowEffect::Drop => game.drop_held(false),
+            _ => {}
+        }
+    }
+    // InventoryFill: the hovered slot of an open container screen.
+    if game.screen == Screen::Inventory
+        && let Some(size) = game.renderer.as_ref().map(|r| [r.config.width, r.config.height])
+    {
+        use crate::game::vape_rs::core::inventory_fill::FillInput;
+        use winit::{event::MouseButton, keyboard::KeyCode};
+        let batch = horizon_client::hud::HudBatch::new(size);
+        let input = FillInput {
+            now: snapshot.observed,
+            container_screen: true,
+            shift: game.physical_keys.contains(&KeyCode::ShiftLeft)
+                || game.physical_keys.contains(&KeyCode::ShiftRight),
+            left: game.physical_buttons.contains(&MouseButton::Left),
+            hovered: game
+                .slot_at(&batch, game.cursor.0, game.cursor.1)
+                .and_then(|s| u16::try_from(s).ok()),
+            carrying: snapshot.carried.is_some(),
+        };
+        if let Some(slot) = with_client(&client, |r| r.inventory_fill(input)) {
+            game.menu_ops(&[(Some(usize::from(slot)), 0, Input::QuickMove)]);
+        }
+    }
     let friends = with_client(&client, |r| r.friend_keys());
     let combat = crate::game::vape_inventory::combat(game, &friends, None);
     let effects = with_client(&client, |r| {
