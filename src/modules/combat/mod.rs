@@ -1,4 +1,5 @@
 pub mod aim_assist;
+pub mod anti_fireball;
 pub mod auto_mace;
 pub mod click_timing;
 pub mod clicker;

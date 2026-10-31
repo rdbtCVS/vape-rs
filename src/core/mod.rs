@@ -1,3 +1,4 @@
+pub mod anti_fireball_runtime;
 pub mod automation;
 pub mod combat_runtime;
 mod hud_extras;
@@ -97,6 +98,7 @@ pub struct Runtime {
     trigger_bot: super::modules::combat::trigger_bot::TriggerBot,
     combat: combat_runtime::Combat,
     modern_combat: modern_combat_runtime::ModernCombat,
+    anti_fireball: super::modules::combat::anti_fireball::AntiFireball,
     velocity: super::modules::combat::velocity::Velocity,
     knockback: super::modules::combat::knockback::Knockback,
     backtrack: super::modules::blatant::backtrack::Backtrack,
@@ -377,6 +379,9 @@ impl Default for Runtime {
         for definition in modern_combat_runtime::definitions() {
             settings.define(definition).unwrap();
         }
+        for definition in super::modules::combat::anti_fireball::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::combat::aim_assist::definitions() {
             settings.define(definition).unwrap();
         }
@@ -502,6 +507,7 @@ impl Default for Runtime {
             trigger_bot: Default::default(),
             combat: Default::default(),
             modern_combat: Default::default(),
+            anti_fireball: Default::default(),
             velocity: Default::default(),
             knockback: Default::default(),
             backtrack: Default::default(),
@@ -561,6 +567,10 @@ impl Runtime {
             }
             return;
         }
+        // AntiFireball's `setEnabled` override (the silent return).
+        if module == ModuleId::AntiFireball && self.anti_fireball_set_enabled(enabled) {
+            return;
+        }
         if self.enabled(module) == enabled {
             return;
         }
@@ -597,6 +607,7 @@ impl Runtime {
         if !enabled {
             self.combat_disabled(module);
             self.modern_combat_disabled(module);
+            self.anti_fireball_disabled(module);
         }
         if !enabled {
             match module {
@@ -1133,6 +1144,7 @@ impl Runtime {
     fn reset_combat(&mut self) {
         self.combat_session_reset();
         self.modern_combat_session_reset();
+        self.anti_fireball_session_reset();
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();
@@ -2398,7 +2410,8 @@ impl Runtime {
                 | ModuleId::InventoryBlur
                 | ModuleId::HitSwap
                 | ModuleId::AutoMace
-                | ModuleId::ShieldBreaker => continue,
+                | ModuleId::ShieldBreaker
+                | ModuleId::AntiFireball => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

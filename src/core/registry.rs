@@ -129,6 +129,7 @@ registry! {
     HitSwap => "combat.hit-swap", "HitSwap", "Utility", None, [];
     AutoMace => "combat.auto-mace", "AutoMace", "Combat", None, [];
     ShieldBreaker => "combat.shield-breaker", "ShieldBreaker", "Combat", None, [];
+    AntiFireball => "combat.anti-fireball", "AntiFireball", "Utility", None, [];
 }
 
 impl ModuleId {
