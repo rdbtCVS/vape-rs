@@ -1005,8 +1005,12 @@ impl Profile {
         self.items.iter().find(|r| r.filter.matches(Some(item)))
     }
 }
-/// Parses the `profiles` text setting: an array of profiles or one profile.
+/// Parses the `profiles` text setting: an array of profiles or one profile
+/// (none when empty).
 pub fn parse_profiles(text: &str, presets: &[Preset]) -> Result<Vec<Profile>, String> {
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
     let value: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     match &value {
         Value::Array(list) => list.iter().map(|p| Profile::parse(p, presets)).collect(),

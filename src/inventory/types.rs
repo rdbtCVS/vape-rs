@@ -83,6 +83,12 @@ pub struct ItemMeta {
     pub enchantments: Vec<(String, u32)>,
     /// Fastest `tool` rule speed (1.0 for items without a tool component).
     pub mining_speed: f32,
+    /// Summed `armor` and `armor_toughness` attribute modifier amounts of
+    /// the item's default modifiers, any slot group.
+    pub armor_points: f32,
+    pub armor_toughness: f32,
+    /// The item has a `tool` component.
+    pub tool: bool,
 }
 impl ItemMeta {
     pub fn enchantment(&self, id: &str) -> u32 {

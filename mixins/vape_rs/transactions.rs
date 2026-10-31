@@ -209,7 +209,19 @@ fn meta(
             .map(|(e, level)| (e.to_string(), *level))
             .collect(),
         mining_speed,
+        armor_points: modifier_sum(info, "minecraft:armor"),
+        armor_toughness: modifier_sum(info, "minecraft:armor_toughness"),
+        tool: info.is_some_and(|i| i.tool_damage_per_block.is_some()),
     }
+}
+fn modifier_sum(info: Option<&horizon_client::items::ItemInfo>, attribute: &str) -> f32 {
+    info.map_or(0.0, |i| {
+        i.modifiers
+            .iter()
+            .filter(|(a, ..)| a == attribute)
+            .map(|(_, _, amount, ..)| *amount as f32)
+            .sum()
+    })
 }
 fn slot(game: &Game<'_>, index: usize, role: SlotRole, value: Option<&ItemStack>) -> Slot {
     Slot {

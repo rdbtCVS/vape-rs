@@ -184,7 +184,9 @@ pub(super) fn definitions() -> Vec<Definition> {
             },
             json!([75.0, 125.0]),
         ),
-        Definition::boolean("world.chest-steal.check-menu", "Check menu", true),
+        // The reference's "Check in menu" (`checkMenu`): only standard chest
+        // menus. Same key as before, so saved configs keep their value.
+        Definition::boolean("world.chest-steal.check-menu", "Check in menu", false),
         Definition::boolean("world.chest-steal.best-only", "Best only", false),
         Definition::boolean("world.chest-steal.keep-open", "Keep open", false),
         Definition::boolean("world.chest-steal.shuffle", "Shuffle", false),
@@ -281,7 +283,8 @@ impl Runtime {
                 let effect = chest_effect(self.chest_steal.step(snapshot, &self.chest_options()));
                 (
                     effect,
-                    self.inventory_delay("world.chest-steal.click-delay", (150, 200)),
+                    self.chest_steal
+                        .delay(self.inventory_delay("world.chest-steal.click-delay", (150, 200))),
                     self.chest_steal.active(),
                 )
             }
@@ -437,7 +440,7 @@ impl Runtime {
     }
     fn chest_options(&self) -> chest_steal::Options {
         chest_steal::Options {
-            check_menu: self.inventory_bool("world.chest-steal.check-menu", true),
+            check_menu: self.inventory_bool("world.chest-steal.check-menu", false),
             best_only: self.inventory_bool("world.chest-steal.best-only", false),
             keep_open: self.inventory_bool("world.chest-steal.keep-open", false),
             shuffle: self.inventory_bool("world.chest-steal.shuffle", false),
