@@ -2,6 +2,8 @@ pub mod anti_fireball_runtime;
 pub mod automation;
 pub mod combat_extra;
 pub mod combat_runtime;
+pub mod freecam_runtime;
+pub mod freelook_runtime;
 mod hud_extras;
 pub mod inventory_extra;
 pub mod inventory_fill;
@@ -11,10 +13,12 @@ pub mod macro_runtime;
 pub mod modern_combat_runtime;
 pub mod movement_input;
 pub mod movement_runtime;
+pub mod pearl_runtime;
 pub mod profiles;
 mod rainbow;
 mod registry;
 pub mod render_runtime;
+pub mod rotation_runtime;
 pub mod settings;
 pub mod throw_runtime;
 mod visibility;
@@ -81,6 +85,9 @@ pub struct Runtime {
     inventory_schedule: inventory_runtime::Scheduler,
     inventory_extra: inventory_extra::Planners,
     throws: throw_runtime::Throws,
+    pearls: pearl_runtime::Pearls,
+    freecam: super::modules::render::freecam::Freecam,
+    freelook: super::modules::render::freelook::Freelook,
     inventory_fill: inventory_fill::Fill,
     settings: Settings,
     document: Document,
@@ -120,6 +127,7 @@ pub struct Runtime {
     long_jump: super::modules::blatant::long_jump::State,
     anti_fall: super::modules::blatant::anti_fall::State,
     world_movement: movement_runtime::State,
+    rotations: rotation_runtime::Rotations,
     /// A clicker was reset while holding its mapping down: [attack, use].
     clicker_release: [bool; 2],
     motion_override: Option<([f64; 3], [f64; 3])>,
@@ -417,6 +425,9 @@ impl Default for Runtime {
             .chain(inventory_extra::definitions())
             .chain(throw_runtime::definitions())
             .chain(inventory_fill::definitions())
+            .chain(pearl_runtime::definitions())
+            .chain(freecam_runtime::definitions())
+            .chain(freelook_runtime::definitions())
         {
             settings
                 .define(definition)
@@ -499,6 +510,9 @@ impl Default for Runtime {
             inventory_schedule: Default::default(),
             inventory_extra: Default::default(),
             throws: Default::default(),
+            pearls: Default::default(),
+            freecam: Default::default(),
+            freelook: Default::default(),
             inventory_fill: Default::default(),
             settings,
             document: Document::default(),
@@ -537,6 +551,7 @@ impl Default for Runtime {
             long_jump: Default::default(),
             anti_fall: Default::default(),
             world_movement: Default::default(),
+            rotations: Default::default(),
             clicker_release: [false; 2],
             motion_override: None,
             explosion_reentry: false,
@@ -614,6 +629,9 @@ impl Runtime {
             self.cancel_auto_fish();
         }
         self.movement_toggled(module, enabled);
+        self.pearls_toggled(module, enabled);
+        self.freecam_toggled(module, enabled);
+        self.freelook_toggled(module, enabled);
         if !enabled {
             self.combat_disabled(module);
             self.combat_extra_disabled(module);
@@ -744,6 +762,9 @@ impl Runtime {
         action: KeyAction,
         accepts_input: bool,
     ) -> bool {
+        if module == ModuleId::Freelook {
+            return self.freelook_key(key, action, accepts_input);
+        }
         let enabled = self.enabled(module);
         let mode = self.mode(module);
         let required = self
@@ -1157,6 +1178,7 @@ impl Runtime {
         self.combat_extra_reset();
         self.modern_combat_session_reset();
         self.anti_fireball_session_reset();
+        self.rotation_session_reset();
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();
@@ -1937,6 +1959,9 @@ impl Runtime {
         }
         self.reset_auto_tool();
         self.reset_combat();
+        self.pearls_session_reset();
+        self.freecam_session_reset(reason);
+        self.freelook_session_reset(reason);
         self.cancel_inventory();
         self.cancel_auto_fish();
         self.combat_guard.reset();
@@ -2336,6 +2361,10 @@ impl Runtime {
                 | ModuleId::ThrowDebuff
                 | ModuleId::AutoHeal
                 | ModuleId::InventoryFill
+                | ModuleId::AutoPearl
+                | ModuleId::PearlCatch
+                | ModuleId::Freecam
+                | ModuleId::Freelook
                 | ModuleId::FastPlace
                 | ModuleId::Fullbright
                 | ModuleId::ClearWater

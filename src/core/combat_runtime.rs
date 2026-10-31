@@ -6,7 +6,7 @@ use super::super::modules::combat::{
     keep_sprint::{self, KeepSprint},
     kill_aura::{self, KillAura},
     reach,
-    rotation::{Claim, Managed, UPDATES_PER_TICK},
+    rotation::{Claim, Claimant, Managed, UPDATES_PER_TICK},
     silent_aura::{self, Click, SilentAura},
 };
 use super::settings::Definition;
@@ -151,17 +151,24 @@ impl Runtime {
         let aura = &mut c.silent_aura;
         let hit_flick = &c.hit_flick;
         let player = (tick.player.yaw, tick.player.pitch);
-        let returned = if hit_flick.controlling() {
-            c.managed
-                .tick_by(player, tick.sensitivity, UPDATES_PER_TICK, |m| {
-                    hit_flick.step(&view, m)
-                })
-        } else {
-            c.managed
-                .tick(player, tick.sensitivity, UPDATES_PER_TICK, || {
-                    aura.step(&options, distance)
-                })
-        };
+        // Another owner's silent rotation (still its own, or returning) is
+        // stepped by `rotation_runtime`.
+        let driven = c.managed.active
+            && self.rotations.silent_owner().is_some_and(|o| {
+                o != Claimant::SilentAura && (c.claim.owned_by(o) || c.managed.relative)
+            });
+        let returned = !driven
+            && if hit_flick.controlling() {
+                c.managed
+                    .tick_by(player, tick.sensitivity, UPDATES_PER_TICK, |m| {
+                        hit_flick.step(&view, m)
+                    })
+            } else {
+                c.managed
+                    .tick(player, tick.sensitivity, UPDATES_PER_TICK, || {
+                        aura.step(&options, distance)
+                    })
+            };
         if returned {
             c.silent_aura.returned(&mut c.claim);
             c.hit_flick.yield_controller();

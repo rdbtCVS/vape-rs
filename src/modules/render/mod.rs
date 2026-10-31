@@ -9,6 +9,8 @@ pub mod block_overlay;
 pub mod center_stack;
 pub mod esp;
 pub mod explosions;
+pub mod freecam;
+pub mod freelook;
 pub mod health;
 pub mod indicators;
 pub mod item_esp;

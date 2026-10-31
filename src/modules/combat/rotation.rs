@@ -8,6 +8,12 @@
 // controller (`addPendingStep`/`applyPendingMovement`), so every step is a
 // multiple of the sensitivity's degrees-per-count, and is advanced the
 // reference's 50 controller updates per client tick.
+//
+// The reference's `RotationManager` runs one controller at a time: the
+// silent `Managed` rotation (`AdaptiveRotationController`) or a visible
+// `Fixed` one (`FixedRotationController`, `PointRotationController`) that
+// turns the view itself. The movement and world modules drive either through
+// `core::rotation_runtime` under the same claim.
 
 /// Every module that may own the rotation, with the reference priorities.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -208,6 +214,108 @@ pub struct Step {
     pub linear: bool,
 }
 
+/// `applyYawAcceleration` (axis 0) and `applyPitchAcceleration` (axis 1):
+/// the first enabled of angle-based, linear and cubic acceleration.
+fn accelerate(
+    axis: usize,
+    step: f64,
+    error: f64,
+    angle_based: bool,
+    linear: bool,
+    cubic: bool,
+) -> f64 {
+    if angle_based {
+        return if axis == 0 {
+            step * (225.0 + error) / 180.0
+        } else {
+            step * (135.0 + error) / 90.0
+        };
+    }
+    if linear {
+        return step + error * 0.05;
+    }
+    if !cubic {
+        return step;
+    }
+    let shifted = error / if axis == 0 { 100.0 } else { 75.0 } + 0.7;
+    let multiplier = (0.4 + 2.0 * shifted.powi(3) + shifted.powi(2)).max(1.0);
+    step * if axis == 0 {
+        multiplier.min(4.0)
+    } else {
+        multiplier
+    }
+}
+
+/// `setRandomizeMovement(true)`: `MouseRotationController.updateJitter`, a
+/// slow wander of whole counts added to the pending movement when it is
+/// applied, one step per elapsed millisecond (one per update at the
+/// manager's 50 updates a tick).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Jitter {
+    ticks: i32,
+    direction: [i32; 2],
+    counts: [i32; 2],
+    rng: u64,
+}
+impl Jitter {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            ticks: 0,
+            direction: [0; 2],
+            counts: [0; 2],
+            rng: seed | 1,
+        }
+    }
+    fn next(&mut self) -> u64 {
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 7;
+        self.rng ^= self.rng << 17;
+        self.rng
+    }
+    /// `Random.nextInt(bound)`.
+    fn below(&mut self, bound: i32) -> i32 {
+        (self.next() % bound as u64) as i32
+    }
+    /// `MathUtil.randomExclusiveUpper(random, min, max)`.
+    fn between(&mut self, min: i32, max: i32) -> i32 {
+        min + self.below(max - min)
+    }
+    fn step(&mut self, pending_yaw: f32) {
+        self.ticks += 1;
+        if self.ticks >= 250 + self.below(50) {
+            self.ticks = self.between(-100, -50);
+            self.direction = [self.between(-1, 2), -self.between(-1, 2)];
+        }
+        let mut step = self.direction;
+        if self.below(10) < 2 {
+            step[0] = 0;
+        }
+        if self.below(10) < 2 {
+            step[1] = 0;
+        }
+        if self.ticks < 0 {
+            step = [0; 2];
+        }
+        if self.below(20) == 1 {
+            self.counts[0] += step[0];
+            self.counts[1] += step[1];
+        }
+        if (pending_yaw > 0.0 && self.counts[0] < 0) || (pending_yaw < 0.0 && self.counts[0] > 0) {
+            self.counts[0] = 0;
+        }
+    }
+    /// `applyPendingMovement`'s jitter: `elapsed_ms` steps, added to the
+    /// pending counts, then cleared.
+    fn add(&mut self, yaw: &mut f32, pitch: &mut f32, elapsed_ms: u32) {
+        for _ in 0..elapsed_ms {
+            self.step(*yaw);
+        }
+        *yaw += self.counts[0] as f32;
+        *pitch += self.counts[1] as f32;
+        self.counts = [0; 2];
+    }
+}
+
 /// The adaptive (silent) managed rotation.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Managed {
@@ -224,6 +332,18 @@ pub struct Managed {
     /// The released controller's own return speed (AutoTotem's), instead
     /// of the ticking module's.
     return_step: Option<Step>,
+    /// `setTolerance` (0 for SilentAura).
+    tolerance: f32,
+    /// `isComplete` of the last update.
+    complete: bool,
+    /// `setAngleBasedAcceleration` and `setCubicAcceleration` (linear
+    /// acceleration is the step's).
+    angle_based: bool,
+    cubic: bool,
+    jitter: Option<Jitter>,
+    /// A pitch-pinned point target (`AutoPearlRotationController`),
+    /// resolved to a rotation from the eye at the next update.
+    point: Option<([f64; 3], f32)>,
 }
 impl Managed {
     /// `setController`: starts from the current view.
@@ -240,6 +360,11 @@ impl Managed {
         }
         self.relative = false;
         self.return_step = None;
+        self.tolerance = 0.0;
+        self.angle_based = false;
+        self.cubic = false;
+        self.jitter = None;
+        self.point = None;
     }
     /// A speed-0 controller (AutoTotem's silent open): the sent rotation
     /// stays where it is until released.
@@ -247,9 +372,48 @@ impl Managed {
         self.start(view);
         self.target = None;
     }
+    /// `setTargetRotation`; an `UNSET` axis is left where it is.
     pub fn set_target(&mut self, yaw: f32, pitch: f32) {
         self.relative = false;
-        self.target = Some((yaw, pitch.clamp(-90.0, 90.0)));
+        self.complete = false;
+        self.point = None;
+        let pitch = if pitch == UNSET {
+            UNSET
+        } else {
+            pitch.clamp(-90.0, 90.0)
+        };
+        self.target = Some((yaw, pitch));
+    }
+    pub fn set_tolerance(&mut self, tolerance: f32) {
+        self.tolerance = tolerance;
+    }
+    /// `setAngleBasedAcceleration` and `setCubicAcceleration`.
+    pub fn set_acceleration(&mut self, angle_based: bool, cubic: bool) {
+        self.angle_based = angle_based;
+        self.cubic = cubic;
+    }
+    /// `setRandomizeMovement(true)`, with the jitter's seed.
+    pub fn randomize(&mut self, seed: u64) {
+        self.jitter = Some(Jitter::new(seed));
+    }
+    /// `setTarget(point)` on a controller whose `setTargetRotation` pins
+    /// the pitch (`AutoPearlRotationController`): the first update aims the
+    /// yaw at `point` from the eye, and the pinned `setTargetRotation`
+    /// drops the point (`AdaptiveRotationController.setTargetRotation`
+    /// clears `target`), so that rotation then holds.
+    pub fn set_point(&mut self, point: [f64; 3], pitch: f32) {
+        self.relative = false;
+        self.complete = false;
+        self.point = Some((point, pitch));
+    }
+    /// `refreshTargetRotation` for a pending point target.
+    pub fn aim(&mut self, eye: [f64; 3]) {
+        if let Some((point, pitch)) = self.point {
+            self.set_target(look_at(eye, point).0, pitch);
+        }
+    }
+    pub fn complete(&self) -> bool {
+        self.complete
     }
     /// `releaseController`: return to the view, then hand rotation back.
     pub fn release(&mut self) {
@@ -273,14 +437,25 @@ impl Managed {
     pub fn sent(&self) -> Option<(f32, f32)> {
         self.active.then_some((self.yaw, self.pitch))
     }
-    fn axis(pending: f32, error: f64, mut step: f64, other: f64, degrees: f32, s: Step) -> f32 {
+    fn axis(&self, axis: usize, error: f64, other: f64, degrees: f32, s: Step) -> f32 {
+        let pending = if axis == 0 {
+            self.pending_yaw
+        } else {
+            self.pending_pitch
+        };
+        let mut step = s.counts;
         let ratio = error.abs() / other.abs();
         if s.proportional && ratio < 1.0 {
             step *= ratio;
         }
-        if s.linear {
-            step += error.abs() * 0.05;
-        }
+        step = accelerate(
+            axis,
+            step,
+            error.abs(),
+            self.angle_based,
+            s.linear,
+            self.cubic,
+        );
         if s.clamp {
             step = step.min((error / f64::from(degrees)).abs());
         }
@@ -295,33 +470,25 @@ impl Managed {
         let predicted_pitch = self.pitch - (-self.pending_pitch as i32) as f32 * degrees;
         let yaw_error = f64::from(wrap((target.0 - predicted_yaw) % 360.0));
         let pitch_error = f64::from(wrap((target.1 - predicted_pitch) % 360.0));
-        let outside = |e: f64| (e.abs() / f64::from(degrees)).round() > 0.0;
-        let yaw_done = !outside(yaw_error);
-        let pitch_done = !outside(pitch_error);
+        let limit = (f64::from(self.tolerance) / f64::from(degrees))
+            .round()
+            .max(0.0);
+        let outside = |e: f64| (e.abs() / f64::from(degrees)).round() > limit;
+        let yaw_done = target.0 == UNSET || !outside(yaw_error);
+        let pitch_done = target.1 == UNSET || !outside(pitch_error);
         if !yaw_done {
-            self.pending_yaw = Self::axis(
-                self.pending_yaw,
-                yaw_error,
-                step.counts,
-                pitch_error,
-                degrees,
-                step,
-            );
+            self.pending_yaw = self.axis(0, yaw_error, pitch_error, degrees, step);
         }
         if !pitch_done {
-            self.pending_pitch = Self::axis(
-                self.pending_pitch,
-                pitch_error,
-                step.counts,
-                yaw_error,
-                degrees,
-                step,
-            );
+            self.pending_pitch = self.axis(1, pitch_error, yaw_error, degrees, step);
         }
         let complete = yaw_done
             && pitch_done
             && self.pending_yaw.abs() < 1.0
             && self.pending_pitch.abs() < 1.0;
+        if let Some(jitter) = &mut self.jitter {
+            jitter.add(&mut self.pending_yaw, &mut self.pending_pitch, 1);
+        }
         // applyPendingMovement: whole counts move the managed rotation.
         let yaw_counts = self.pending_yaw as i32;
         let pitch_counts = self.pending_pitch as i32;
@@ -374,6 +541,7 @@ impl Managed {
             };
             complete = self.update(target, degrees, step);
         }
+        self.complete = complete;
         if self.relative
             && (complete
                 || (wrap(view.0 - self.yaw).abs() <= degrees
@@ -383,6 +551,174 @@ impl Managed {
             return true;
         }
         false
+    }
+}
+
+/// `FixedRotationController.UNSET_ROTATION`: that axis is left alone.
+pub const UNSET: f32 = -999.0;
+
+/// A visible controller (`FixedRotationController`): queues mouse counts that
+/// turn the view itself, `speed * 0.25` counts per update (plus 5% of the
+/// remaining error with linear acceleration).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fixed {
+    pub target: [f32; 2],
+    pub speed: f32,
+    /// `MouseRotationController.tolerance` (3 by default).
+    pub tolerance: f32,
+    pub linear_acceleration: bool,
+    pub scale_axes: bool,
+    /// `setClampStepToRemaining`.
+    pub clamp: bool,
+    /// `setRetainAfterCompletion`: stays active once complete.
+    pub retain: bool,
+    /// `setAngleBasedAcceleration`.
+    pub angle_acceleration: bool,
+    /// `setCubicAcceleration`.
+    pub cubic_acceleration: bool,
+    pending: [f32; 2],
+    complete: bool,
+    jitter: Option<Jitter>,
+    /// A `PointRotationController`'s point: every update aims the yaw at it
+    /// from the eye, with the pitch pinned
+    /// (`AutoPearlPointRotationController`).
+    point: Option<[f64; 3]>,
+    eye: Option<[f64; 3]>,
+}
+
+impl Fixed {
+    pub fn new(target: [f32; 2], speed: f32) -> Self {
+        Self {
+            target,
+            speed,
+            tolerance: 3.0,
+            linear_acceleration: false,
+            scale_axes: false,
+            clamp: false,
+            retain: false,
+            angle_acceleration: false,
+            cubic_acceleration: false,
+            pending: [0.0; 2],
+            complete: false,
+            jitter: None,
+            point: None,
+            eye: None,
+        }
+    }
+    /// A pitch-pinned point controller, aimed from `eye` until the manager
+    /// supplies the eye of each update.
+    pub fn point(point: [f64; 3], eye: [f64; 3], pitch: f32, speed: f32) -> Self {
+        let mut fixed = Self::new([look_at(eye, point).0, pitch], speed);
+        fixed.point = Some(point);
+        fixed.eye = Some(eye);
+        fixed
+    }
+    /// `setRandomizeMovement(true)`, with the jitter's seed.
+    pub fn randomize(&mut self, seed: u64) {
+        self.jitter = Some(Jitter::new(seed));
+    }
+    /// The player's eye for this tick's updates.
+    pub fn set_eye(&mut self, eye: [f64; 3]) {
+        self.eye = Some(eye);
+    }
+    pub fn complete(&self) -> bool {
+        self.complete
+    }
+    pub fn set_complete(&mut self, complete: bool) {
+        self.complete = complete;
+    }
+    /// `setTargetRotation`.
+    pub fn set_target(&mut self, target: [f32; 2]) {
+        self.target = target;
+        self.complete = false;
+    }
+    /// `isComplete() && !shouldRetainAfterCompletion()`: the manager drops it.
+    pub fn finished(&self) -> bool {
+        self.complete && !self.retain
+    }
+    fn outside(&self, error: f64, per_count: f32) -> bool {
+        let per_count = f64::from(per_count);
+        (error / per_count).round() > (f64::from(self.tolerance) / per_count).round().max(0.0)
+    }
+    /// `updateYaw` (axis 0) or `updatePitch` (axis 1) from `rotation`;
+    /// true when that axis is done.
+    pub fn update_axis(&mut self, axis: usize, rotation: [f32; 2], per_count: f32) -> bool {
+        if self.target[axis] == UNSET {
+            return true;
+        }
+        let pitch = if axis == 1 && rotation[1] == -90.0 {
+            -89.99
+        } else {
+            rotation[1]
+        };
+        let predicted = [
+            rotation[0] + self.pending[0].trunc() * per_count,
+            pitch + self.pending[1].trunc() * per_count,
+        ];
+        let error = [
+            f64::from(wrap((self.target[0] - predicted[0]) % 360.0)),
+            f64::from(wrap((self.target[1] - predicted[1]) % 360.0)),
+        ];
+        let absolute = error[axis].abs();
+        if !self.outside(absolute, per_count) {
+            return true;
+        }
+        let mut step = f64::from(self.speed) * 0.25;
+        let ratio = absolute / error[1 - axis].abs();
+        if self.scale_axes && ratio < 1.0 {
+            step *= ratio;
+        }
+        step = accelerate(
+            axis,
+            step,
+            absolute,
+            self.angle_acceleration,
+            self.linear_acceleration,
+            self.cubic_acceleration,
+        );
+        if self.clamp {
+            step = step.min((error[axis] / f64::from(per_count)).abs());
+        }
+        let step = step as f32;
+        self.pending[axis] += if error[axis] > 0.0 { step } else { -step };
+        false
+    }
+    /// `applyPendingMovement`: whole counts turn `rotation`, the remainder
+    /// is kept.
+    pub fn apply(&mut self, rotation: [f32; 2], per_count: f32) -> [f32; 2] {
+        if let Some(jitter) = &mut self.jitter {
+            let [yaw, pitch] = &mut self.pending;
+            jitter.add(yaw, pitch, 1);
+        }
+        let counts = [self.pending[0].trunc(), self.pending[1].trunc()];
+        self.pending = [self.pending[0] - counts[0], self.pending[1] - counts[1]];
+        [
+            rotation[0] + counts[0] * per_count,
+            (rotation[1] + counts[1] * per_count).clamp(-90.0, 90.0),
+        ]
+    }
+    /// `MouseRotationController.update` then `applyPendingMovement`.
+    pub fn update(&mut self, rotation: [f32; 2], per_count: f32) -> [f32; 2] {
+        if let (Some(point), Some(eye)) = (self.point, self.eye) {
+            // `updateTargetRotation`, through the pinned `setTargetRotation`.
+            self.set_target([look_at(eye, point).0, self.target[1]]);
+        }
+        let yaw = self.update_axis(0, rotation, per_count);
+        let pitch = self.update_axis(1, rotation, per_count);
+        if yaw && pitch && self.pending[0].abs() < 1.0 && self.pending[1].abs() < 1.0 {
+            self.complete = true;
+        }
+        self.apply(rotation, per_count)
+    }
+    /// One client tick's updates (`advanceControllerUpdates`: the manager
+    /// drops a finished controller only at the next tick).
+    pub fn tick(&mut self, rotation: [f32; 2], sensitivity: f64, updates: u32) -> [f32; 2] {
+        let per_count = degrees_per_count(sensitivity).max(1e-4);
+        let mut rotation = rotation;
+        for _ in 0..updates {
+            rotation = self.update(rotation, per_count);
+        }
+        rotation
     }
 }
 
@@ -494,6 +830,203 @@ mod tests {
             ended |= m.tick((0.0, 0.0), 0.5, UPDATES_PER_TICK, step);
         }
         assert!(ended && !m.active && m.sent().is_none());
+    }
+
+    #[test]
+    fn fixed_pitch_only_reaches_the_ground_and_keeps_yaw() {
+        let mut c = Fixed::new([UNSET, 90.0], 7.0);
+        c.tolerance = 5.0;
+        c.linear_acceleration = true;
+        let mut r = [33.0, 0.0];
+        let mut ticks = 0;
+        while !c.complete() && ticks < 20 {
+            r = c.tick(r, 0.5, UPDATES_PER_TICK);
+            ticks += 1;
+        }
+        assert!(c.complete(), "not complete after {ticks} ticks");
+        assert_eq!(r[0], 33.0);
+        assert!(r[1] > 84.0 && r[1] <= 90.0, "pitch {}", r[1]);
+        assert!(ticks <= 5, "{ticks}");
+    }
+
+    #[test]
+    fn fixed_yaw_turns_the_short_way_round() {
+        let mut c = Fixed::new([-170.0, UNSET], 12.0);
+        let mut r = [170.0, 10.0];
+        for _ in 0..10 {
+            r = c.tick(r, 0.5, UPDATES_PER_TICK);
+        }
+        assert!(c.complete());
+        assert!(wrap(r[0] + 170.0).abs() <= 3.5, "yaw {}", r[0]);
+        assert!(r[0] > 170.0 || r[0] < -160.0);
+    }
+
+    #[test]
+    fn fixed_clamped_and_retained_settles_without_overshoot() {
+        let mut c = Fixed::new([40.0, 30.0], 12.0);
+        c.tolerance = 0.5;
+        c.clamp = true;
+        c.linear_acceleration = true;
+        c.retain = true;
+        let mut r = [0.0, 0.0];
+        for _ in 0..20 {
+            r = c.tick(r, 0.5, UPDATES_PER_TICK);
+        }
+        assert!(c.complete() && !c.finished());
+        // Within the tolerance, never past the target.
+        let near = c.tolerance + degrees_per_count(0.5);
+        assert!(r[0] <= 40.0 && r[1] <= 30.0, "{r:?}");
+        assert!(40.0 - r[0] <= near && 30.0 - r[1] <= near, "{r:?}");
+    }
+
+    #[test]
+    fn managed_unset_axis_stays_and_tolerance_completes() {
+        let mut m = Managed::default();
+        m.start((25.0, 0.0));
+        m.set_target(UNSET, 90.0);
+        m.set_tolerance(5.0);
+        let step = || Step {
+            counts: 7.0 * 0.25,
+            clamp: false,
+            proportional: false,
+            linear: true,
+        };
+        for _ in 0..10 {
+            m.tick((25.0, 0.0), 0.5, UPDATES_PER_TICK, step);
+        }
+        assert!(m.complete());
+        assert_eq!(m.yaw, 25.0);
+        assert!(m.pitch > 84.0, "{}", m.pitch);
+    }
+
+    #[test]
+    fn acceleration_order_and_cubic_caps() {
+        // Angle-based wins over linear, linear over cubic.
+        assert_eq!(accelerate(0, 1.0, 45.0, true, true, true), 270.0 / 180.0);
+        assert_eq!(accelerate(1, 1.0, 45.0, true, false, false), 180.0 / 90.0);
+        assert_eq!(accelerate(0, 1.0, 40.0, false, true, true), 3.0);
+        assert_eq!(accelerate(0, 1.0, 40.0, false, false, false), 1.0);
+        // Cubic: at least 1x; the yaw is capped at 4x, the pitch is not.
+        assert!((accelerate(0, 2.0, 0.0, false, false, true) - 2.0 * 1.576).abs() < 1e-9);
+        assert_eq!(accelerate(0, 1.0, 300.0, false, false, true), 4.0);
+        assert!(accelerate(1, 1.0, 300.0, false, false, true) > 4.0);
+        assert_eq!(accelerate(1, 1.0, -70.0, false, false, true), 1.0);
+    }
+
+    #[test]
+    fn jitter_is_whole_counts_and_never_against_the_yaw_turn() {
+        let mut jitter = Jitter::new(11);
+        let mut moved = 0;
+        for _ in 0..5000 {
+            let (mut yaw, mut pitch) = (0.5, 0.0);
+            jitter.add(&mut yaw, &mut pitch, 1);
+            assert!(yaw >= 0.5 && (yaw - 0.5).fract() == 0.0, "{yaw}");
+            assert_eq!(pitch.fract(), 0.0);
+            moved += i32::from(yaw != 0.5 || pitch != 0.0);
+            assert_eq!(jitter.counts, [0; 2]);
+        }
+        // A slow wander: rare single counts.
+        assert!(moved > 0 && moved < 500, "{moved}");
+        assert_eq!(Jitter::new(11), Jitter::new(11));
+    }
+
+    #[test]
+    fn fixed_reaches_the_target_in_whole_counts() {
+        // PearlCatch's visible controller.
+        let mut c = Fixed::new([40.0, -90.0], 10.0);
+        c.tolerance = 0.35;
+        c.clamp = true;
+        c.scale_axes = true;
+        c.linear_acceleration = true;
+        c.retain = true;
+        let degrees = degrees_per_count(0.5);
+        let mut r = [0.0, 10.0];
+        for _ in 0..40 {
+            r = c.tick(r, 0.5, UPDATES_PER_TICK);
+        }
+        assert!(c.complete() && !c.finished());
+        assert!((r[0] - 40.0).abs() <= degrees, "{r:?}");
+        assert_eq!(r[1], -90.0);
+        let counts = r[0] / degrees;
+        assert!((counts - counts.round()).abs() < 1e-2);
+        c.retain = false;
+        assert!(c.finished());
+    }
+
+    #[test]
+    fn fixed_point_follows_the_yaw_and_pins_the_pitch() {
+        // AutoPearlPointRotationController with randomized movement.
+        let eye = [0.0, 1.62, 0.0];
+        let mut c = Fixed::point([-10.0, 0.0, 0.0], eye, -20.0, 1.0);
+        c.tolerance = 0.5;
+        c.clamp = true;
+        c.scale_axes = true;
+        c.linear_acceleration = true;
+        c.cubic_acceleration = true;
+        c.randomize(9);
+        assert_eq!(c.target, [90.0, -20.0]);
+        let mut r = [0.0, 0.0];
+        for _ in 0..60 {
+            r = c.tick(r, 0.5, UPDATES_PER_TICK);
+        }
+        assert!(c.complete());
+        assert!(
+            (r[0] - 90.0).abs() < 1.5 && (r[1] + 20.0).abs() < 1.5,
+            "{r:?}"
+        );
+        // The eye moved past the point: the yaw follows, the pitch stays.
+        c.set_eye([-20.0, 1.62, 0.0]);
+        for _ in 0..60 {
+            r = c.tick(r, 0.5, UPDATES_PER_TICK);
+        }
+        assert_eq!(c.target[1], -20.0);
+        assert!(
+            wrap(r[0] + 90.0).abs() < 1.5 && (r[1] + 20.0).abs() < 1.5,
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn managed_point_aims_once_and_holds_until_released() {
+        // AutoPearlRotationController: adaptive, cubic, randomized.
+        let mut m = Managed::default();
+        m.start((0.0, 0.0));
+        m.set_target(0.0, -20.0);
+        m.set_tolerance(0.5);
+        m.set_acceleration(false, true);
+        m.randomize(5);
+        m.set_point([-10.0, 0.0, 0.0], -20.0);
+        let step = || Step {
+            counts: 1.0 * 0.25,
+            clamp: true,
+            proportional: true,
+            linear: true,
+        };
+        m.aim([0.0, 1.62, 0.0]);
+        // The pinned setTargetRotation dropped the point: a later eye does
+        // not move the target.
+        m.aim([-20.0, 1.62, 0.0]);
+        for _ in 0..60 {
+            m.tick((0.0, 0.0), 0.5, UPDATES_PER_TICK, step);
+        }
+        assert!(m.complete() && m.active && !m.relative);
+        assert!(
+            (m.yaw - 90.0).abs() < 1.5 && (m.pitch + 20.0).abs() < 1.5,
+            "{m:?}"
+        );
+        m.release();
+        let mut ended = false;
+        for _ in 0..40 {
+            ended |= m.tick((0.0, 0.0), 0.5, UPDATES_PER_TICK, step);
+        }
+        assert!(ended && !m.active);
+    }
+
+    #[test]
+    fn wrap_matches_minecraft() {
+        assert_eq!(wrap(190.0), -170.0);
+        assert_eq!(wrap(-190.0), 170.0);
+        assert_eq!(wrap(180.0), -180.0);
     }
 
     #[test]

@@ -263,12 +263,20 @@ impl SilentAura {
         self.integrals = [0.0; 2];
         self.target = None;
         self.ready = false;
+        self.preempted(claim);
         if self.controlling {
             managed.release();
             self.controlling = false;
         }
         if !managed.active {
             claim.release(Claimant::SilentAura);
+        }
+    }
+    /// A higher owner took the claim and set its own controller: releasing
+    /// this one later is a no-op (`releaseController` of an inactive one).
+    fn preempted(&mut self, claim: &Claim) {
+        if self.controlling && !claim.owned_by(Claimant::SilentAura) {
+            self.controlling = false;
         }
     }
     /// The managed rotation finished returning to the view.
@@ -338,6 +346,7 @@ impl SilentAura {
         claim: &mut Claim,
         managed: &mut Managed,
     ) {
+        self.preempted(claim);
         if claim.blocked_for(Claimant::SilentAura)
             && !claim.acquire(Claimant::SilentAura, false, managed.relative)
         {
@@ -584,7 +593,7 @@ fn aim_point(e: &EntityView, aim: [f64; 3], eye: [f64; 3]) -> [f64; 3] {
 mod tests {
     use super::super::super::super::targeting::filter::NameLists;
     use super::super::super::super::targeting::filter::tests::entity as base;
-    use super::super::rotation::UPDATES_PER_TICK;
+    use super::super::rotation::{UNSET, UPDATES_PER_TICK};
     use super::*;
 
     fn zombie(id: i32, at: [f64; 3]) -> EntityView {
@@ -664,6 +673,31 @@ mod tests {
             }
         }
         assert!(!managed.active && claim.owner().is_none());
+    }
+
+    #[test]
+    fn a_preempting_owner_keeps_its_rotation_and_the_aura_restarts_after() {
+        let o = options();
+        let mut aura = SilentAura::new(7);
+        let (mut claim, mut managed) = (Claim::default(), Managed::default());
+        let t = tick(1000, 0.0, vec![zombie(5, [0.0, 0.0, 2.0])]);
+        aura.tick(&o, &t, &NameLists::default(), &mut claim, &mut managed);
+        assert!(claim.owned_by(Claimant::SilentAura) && managed.active);
+        // WindCharge (6) preempts and sets its own target.
+        assert!(claim.acquire(Claimant::WindCharge, true, managed.relative));
+        managed.set_target(UNSET, 90.0);
+        aura.reset(&mut claim, &mut managed);
+        assert!(
+            !managed.relative,
+            "the aura must not release the new owner's rotation"
+        );
+        // WindCharge finishes; its rotation returns and ends.
+        managed.release();
+        claim.release(Claimant::WindCharge);
+        while !managed.tick((0.0, 0.0), 0.5, UPDATES_PER_TICK, || aura.step(&o, 3.0)) {}
+        let t = tick(2000, 0.0, vec![zombie(5, [0.0, 0.0, 2.0])]);
+        aura.tick(&o, &t, &NameLists::default(), &mut claim, &mut managed);
+        assert!(claim.owned_by(Claimant::SilentAura) && managed.active);
     }
 
     #[test]

@@ -12,7 +12,9 @@ through the control socket, each against a baseline with the module off:
   drawn.
 - Step climbs a one-block ledge across the runway by walking into it.
 - WindCharge selects the charge, throws it at the feet with silent aim (the
-  camera pitch stays), jumps, restores the slot and disables itself.
+  camera pitch stays), jumps, restores the slot and disables itself. A second
+  fresh session with silent aim off checks the visible controller of the
+  shared rotation turns the camera down before the throw.
 
 Results go to result.json.
 """
@@ -55,6 +57,8 @@ def build(session, checks):
         session.call('fill', '-12', '88', '-12', '12', '88', '32', 'minecraft:stone')
         session.call('fill', '-12', '89', '-12', '12', '110', '32', 'minecraft:air')
         session.call('fill', '-3', '99', '-3', '3', '99', '30', 'minecraft:stone')
+        # The block updates reach the client's level a few ticks later.
+        session.call('wait', '10')
         counts = session.call('blocks', '-12', '88', '-12', '12', '99', '32').get('counts', {})
         if counts.get('minecraft:stone') == expected:
             break
@@ -240,6 +244,48 @@ def run(resources, allow_stale):
                      state(session)['selected'])
 
         session.capture('final')
+        ok = all(r['ok'] for r in checks.results)
+        print('PASS' if ok else 'FAIL', f'{sum(r["ok"] for r in checks.results)}/{len(checks.results)}')
+    return run_visible_wind_charge(resources, allow_stale) and ok
+
+
+def run_visible_wind_charge(resources, allow_stale):
+    """WindCharge with silent aim off: the shared rotation's visible
+    controller turns the camera to the feet, then the throw launches."""
+    with NativeSession(resources, 'movement-visible-', allow_stale=allow_stale) as session:
+        checks = Checks(session.root)
+        settings = {'utility.wind-charge.binds': [BINDS['utility.wind-charge']],
+                    'utility.wind-charge.silent-aim': False}
+        session.seed({'schema': 1, 'modules': {}, 'settings': settings})
+        session.launch(creative=True)
+        session.call('time', '6000')
+        reset(session)
+        session.call('wait-ready', '40')
+        build(session, checks)
+        session.call('hotbar', '2')
+        session.call('give', 'minecraft:wind_charge', '16')
+        session.call('hotbar', '1')
+        reset(session, z=10.5)
+        session.call('look', '45', '0')
+        session.call('wait', '10')
+        toggle(session, 'utility.wind-charge')
+        samples = []
+        for _ in range(40):
+            s = state(session)
+            samples.append({'y': s['player']['position'][1], 'selected': s['selected'],
+                            'yaw': s['player']['yaw'], 'pitch': s['player']['pitch']})
+            session.call('wait', '1')
+        session.capture('visible-aim')
+        session.call('wait', '40')
+        top = max(x['y'] for x in samples)
+        pitches = [round(x['pitch'], 1) for x in samples]
+        checks.check('visible WindCharge turned the camera pitch past 80', max(pitches) > 80.0, pitches[:16])
+        checks.check('visible WindCharge left the yaw alone (UNSET axis)',
+                     all(abs(x['yaw'] - 45.0) < 0.01 for x in samples), sorted({round(x['yaw'], 2) for x in samples}))
+        checks.check('visible WindCharge launched the player above a plain jump', top > 102.0, top)
+        checks.check('visible WindCharge disabled itself', not enabled(session, 'utility.wind-charge'))
+        checks.check('visible WindCharge restored the previous slot', state(session)['selected'] == 1,
+                     state(session)['selected'])
         ok = all(r['ok'] for r in checks.results)
         print('PASS' if ok else 'FAIL', f'{sum(r["ok"] for r in checks.results)}/{len(checks.results)}')
         return ok
