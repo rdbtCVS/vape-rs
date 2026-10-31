@@ -9,6 +9,7 @@
   "source_hashes": {
     "crates/horizon-client/src/game.rs": "42a649dfa4d7d357961a068ad9b90aa21517d0881f9484b075b73b7b8ee9152b",
     "crates/horizon-client/src/game/extras.rs": "6d6bd1cd5af7f17cf5e40f69af20856e2edc55d8f8b9721469bd6477024af376",
+    "crates/horizon-client/src/game/creatures.rs": "b84b6e82e1df143a41ec7dc52fcbe04c0154f4644f26c2ef7f62ac6844ab4df7",
     "crates/horizon-client-render/src/hud.rs": "45e6774e732ec31b88e390f087ec3460c0b17b50c0ea0dc62b2609d75e27026a",
     "crates/horizon-core/src/version.rs": "7a6cd0ca8f69b22d70ffc63e16e0b2872f3b128b25deb6604aa493d5ca2177ef",
     "crates/horizon-client/src/game/debug_keys.rs": "d92e6ad8ff807eed4ad2cee56eae11533e5e80884fdc90363c0a0d2bb2680400",
