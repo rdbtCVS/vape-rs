@@ -398,3 +398,206 @@ impl Runtime {
         (self.now_ms() < until && self.session.in_world()).then_some(step::TIMER)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::modules::combat::sprint;
+    use super::super::super::modules::movement::movement_task::tests::Flat;
+    use super::super::super::modules::movement::scaffold_bridge::tests::stone;
+    use super::super::lifecycle::Context;
+    use super::*;
+    use serde_json::json;
+
+    fn in_world(mode: &str) -> Runtime {
+        let mut r = Runtime::default();
+        r.observe_context(Context {
+            in_world: true,
+            alive: true,
+            interactive: true,
+        });
+        r.set_setting(&format!("{}.mode", scaffold::ID), json!(mode))
+            .unwrap();
+        r.set_enabled(ModuleId::Scaffold, true);
+        r
+    }
+
+    /// Back held at the runway's end, over its edge, facing +Z.
+    fn edge() -> scaffold::Tick {
+        scaffold::Tick {
+            now_ms: 0,
+            no_screen: true,
+            sneak_held: false,
+            sneaking: false,
+            pitch: 80.0,
+            forward: -1.0,
+            on_ground: true,
+            on_ladder: false,
+            edge: true,
+            held: Default::default(),
+        }
+    }
+
+    fn body() -> Body {
+        let pos = [0.5, 100.0, 0.3];
+        Body {
+            pos,
+            prev: pos,
+            on_ground: true,
+            eye_height: 1.62,
+            ..Default::default()
+        }
+    }
+
+    fn bridge_tick(hit: Option<Hit>) -> BridgeTick {
+        let mut inventory = Inventory {
+            slots: vec![None; 36],
+            ..Default::default()
+        };
+        inventory.slots[0] = stone(64);
+        let mut user = [false; 7];
+        user[Axis::Back as usize] = true;
+        BridgeTick {
+            no_screen: true,
+            body: body(),
+            inventory,
+            hit,
+            right_mouse: false,
+            mouse: [0, 0],
+            view: [0.0, 80.0],
+            user,
+        }
+    }
+
+    /// Sprint's tick as the movement writer builds it.
+    fn walking(r: &Runtime) -> sprint::Tick {
+        sprint::Tick {
+            playing: true,
+            movement_locked: r.movement_input_locked(),
+            ..Default::default()
+        }
+    }
+
+    /// Two hand-placed blocks behind the runway activate GodBridge; the
+    /// tick after, its locks hold the movement input and the right click.
+    fn activate(r: &mut Runtime, world: &mut Flat) {
+        for z in 0..4 {
+            world.solid.insert([0, 99, z]);
+        }
+        let requests = r.scaffold_requests(&edge(), &body(), false);
+        assert!(
+            requests.iter().any(|q| q.axis == Axis::Sneak
+                && q.owner == movement_input::Owner::Scaffold
+                && q.priority == 4
+                && q.pressed),
+            "the edge sneak until the bridge activates: {requests:?}"
+        );
+        assert!(r.combat.claim.owned_by(bridge::OWNER));
+        for placed in [None, Some(-1), Some(-2), None] {
+            if let Some(z) = placed {
+                world.solid.insert([0, 99, z]);
+            }
+            assert!(!r.scaffold_bridge_tick(bridge_tick(None), world).click);
+            r.scaffold_requests(&edge(), &body(), false);
+        }
+        assert!(!r.movement_input_locked());
+        let hit = Some(Hit {
+            pos: [0, 99, -2],
+            side: 2,
+        });
+        r.scaffold_bridge_tick(bridge_tick(hit), world);
+        assert!(r.movement_input_locked() && r.right_click_use_claimed());
+        assert!(r.rotation().active(bridge::OWNER));
+        r.scaffold_requests(&edge(), &body(), false);
+    }
+
+    #[test]
+    fn god_bridge_locks_sprint_and_the_use_input_until_the_mode_changes() {
+        let mut r = in_world("GodBridge");
+        let mut world = Flat {
+            feet: 100.0,
+            ..Default::default()
+        };
+        r.set_enabled(ModuleId::Sprint, true);
+        activate(&mut r, &mut world);
+        // Sprint.java: no new press while the movement input is locked.
+        assert!(!r.sprint_press(&walking(&r), false));
+        assert!(r.use_claimed());
+        // The task walking onto the line presses its keys as bindings (the
+        // client tick's head, then the movement writer).
+        r.scaffold_bridge_tick(bridge_tick(None), &mut world);
+        let requests = r.scaffold_requests(&edge(), &body(), false);
+        assert!(
+            requests
+                .iter()
+                .any(|q| q.owner == movement_input::Owner::KeyHelper && q.priority == 3),
+            "{requests:?}"
+        );
+        // The second writer pass this tick repeats the bindings.
+        assert_eq!(r.scaffold_requests(&edge(), &body(), true), requests);
+        // Switching to Legit swaps the sub-module: the locks and the
+        // rotation controller go, and Sprint presses again. The claim stays
+        // until `Scaffold.onDisable`.
+        r.set_setting(&format!("{}.mode", scaffold::ID), json!("Legit"))
+            .unwrap();
+        assert_eq!(
+            r.scaffold_bridge_tick(bridge_tick(None), &mut world),
+            BridgeActions::default()
+        );
+        assert!(!r.movement_input_locked() && !r.right_click_use_claimed());
+        assert!(!r.use_claimed());
+        assert!(!r.rotation().active(bridge::OWNER));
+        assert!(r.combat.claim.owned_by(bridge::OWNER));
+        assert!(r.sprint_press(&walking(&r), false));
+    }
+
+    #[test]
+    fn disabling_scaffold_or_leaving_the_world_clears_the_locks() {
+        let mut world = Flat {
+            feet: 100.0,
+            ..Default::default()
+        };
+        let mut r = in_world("GodBridge");
+        activate(&mut r, &mut world);
+        r.set_enabled(ModuleId::Scaffold, false);
+        assert!(!r.movement_input_locked() && !r.right_click_use_claimed());
+        assert!(!r.combat.claim.owned_by(bridge::OWNER));
+        assert!(r.scaffold_requests(&edge(), &body(), false).is_empty());
+
+        let mut world = Flat {
+            feet: 100.0,
+            ..Default::default()
+        };
+        let mut r = in_world("GodBridge");
+        activate(&mut r, &mut world);
+        r.observe_context(Context::default());
+        assert!(!r.movement_input_locked() && !r.right_click_use_claimed());
+        assert_eq!(
+            r.scaffold_bridge_tick(bridge_tick(None), &mut world),
+            BridgeActions::default(),
+            "nothing runs outside a world"
+        );
+    }
+
+    #[test]
+    fn telly_bridge_runs_its_own_sub_module() {
+        let mut world = Flat {
+            feet: 100.0,
+            ..Default::default()
+        };
+        let mut r = in_world("TellyBridge");
+        r.scaffold_requests(&edge(), &body(), false);
+        r.scaffold_bridge_tick(bridge_tick(None), &mut world);
+        assert_eq!(
+            r.world_movement.bridge.running,
+            Some(scaffold::Mode::TellyBridge)
+        );
+        r.set_setting(&format!("{}.mode", scaffold::ID), json!("GodBridge"))
+            .unwrap();
+        r.scaffold_bridge_tick(bridge_tick(None), &mut world);
+        assert_eq!(
+            r.world_movement.bridge.running,
+            Some(scaffold::Mode::GodBridge)
+        );
+        assert!(!r.movement_input_locked());
+    }
+}
