@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import time
+import gui_layout
 from native_session import NativeSession
 
 
@@ -40,12 +41,11 @@ def run(resources):
         session.capture('disabled-hurt')
         session.call('key', 'rshift', 'tap')
         session.capture('gui')
-        session.call('click-at', '107', '232')  # HUD editor lists the Legit modules
+        session.call('click-at', *map(str, gui_layout.category('Render')))
         session.capture('modules')
-        session.call('click-at', '190', '196')  # NoHurtCam, ninth by name
+        session.call('click-at', *map(str, gui_layout.row('Render', 'render.no-hurt-camera')))
         session.capture('enabled-in-gui')
         assert session.saved()['modules']['render.no-hurt-camera']['enabled'] is True
-        session.call('click-at', '26', '287')  # BACK
         session.call('key', 'rshift', 'tap')
         session.close()
         session.launch()

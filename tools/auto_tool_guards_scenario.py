@@ -54,6 +54,12 @@ def run(resources):
         session.call('wait', '15')
         assert selected(session) == 1
         session.capture('menu-cancelled-deadline')
+        # A cleared nether landing: the generated terrain would otherwise put
+        # a block under the crosshair at random, and mining it is new work
+        # whose own swap-back is correct.
+        for text in ('forceload add -3 -3 7 7', 'fill -3 99 -3 3 104 7 minecraft:air',
+                     'fill -3 98 -3 3 98 7 minecraft:obsidian'):
+            command(session, 'execute in minecraft:the_nether run ' + text)
         session.call('mouse', 'left', 'down')
         session.call('wait', '2')
         session.call('command', 'execute in minecraft:the_nether run tp @s 0 100 0')

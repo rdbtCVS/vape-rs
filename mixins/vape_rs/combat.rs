@@ -110,7 +110,8 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
                 threat: item_score(game, held.map(|s| &*s.item), false),
                 visible: visible(guest.position, 1.62),
                 vehicle: false,
-                blocking: false,
+                // The guest's model carries its raised shield (lan_update_models).
+                blocking: host.models.get(&guest.conn).is_some_and(|m| m.extra.blocking),
                 look: Some((guest.head_yaw, guest.pitch)),
             });
         }

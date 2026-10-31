@@ -142,7 +142,9 @@ def run(resources, allow_stale):
         checks = Checks(session.root)
         settings = {f'{module}.binds': [key] for module, key in BINDS.items()}
         settings['blatant.inv-walk.rotate'] = True
-        session.seed({'schema': 1, 'modules': {}, 'settings': settings})
+        # InvWalk is hidden by default; unhide it as the GUI would.
+        session.seed({'schema': 1, 'modules': {'blatant.inv-walk': {'visible': True}},
+                      'settings': settings})
         session.launch(creative=True)
         session.call('time', '6000')
         reset(session)

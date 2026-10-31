@@ -7,8 +7,9 @@ isolated survival world on the integrated server.
   module the gate is cleared and the player jumps again on landing (more
   jumps in the same ticks). Off again, the gate is back.
 * NoClickDelay: a click on air sets the host's ten-tick missed-attack
-  cooldown; held for two ticks and released, a click on a cow right after is
-  dropped without the module and lands on the server with it.
+  cooldown; held for two ticks and turned to a cow, a release and press in
+  the same tick is dropped without the module and lands on the server with
+  it.
 * Performance: the host's own frame statistics (ctl bench) for 10 s with no
   module on, then with twelve render and HUD modules on in front of 24 cows
   and 8 chests, then off again. The CPU time per frame must stay within
@@ -48,22 +49,33 @@ SETTINGS = {'render.name-tags.animals': True}
 
 
 def jumps(r, ticks=60):
-    """Hold jump under the ceiling; count take-offs in `ticks` ticks."""
+    """Hold jump under the ceiling for `ticks` host ticks; the host tick of
+    each take-off. Ticks come from the host, so a slow sample under load
+    does not stretch the window."""
     r.reset(z=-20)
     r.call('key', 'space', 'down')
-    count, last = 0, True
-    for _ in range(ticks):
+    state = r.call('state')
+    start, last, takeoffs = state['ticks'], True, []
+    while state['ticks'] - start < ticks:
         r.wait(1)
-        ground = r.player()['on_ground']
+        state = r.call('state')
+        ground = state['player']['on_ground']
         if last and not ground:
-            count += 1
+            takeoffs.append(state['ticks'] - start)
         last = ground
     r.release()
-    return count
+    return takeoffs
+
+
+def median_gap(takeoffs):
+    gaps = sorted(b - a for a, b in zip(takeoffs, takeoffs[1:]))
+    return gaps[len(gaps) // 2] if gaps else None
 
 
 def no_jump_delay(r):
-    # A stone ceiling two blocks above the floor along the jump lane.
+    # A stone ceiling two blocks above the floor along the jump lane. A bonk
+    # lands in about six ticks, so the module turns a ten-tick spacing into
+    # a six-tick one: at least half as many jumps again.
     r.fill(-2, FLOOR + 3, -23, 2, FLOOR + 3, -17, 'minecraft:stone')
     r.wait(6)
     off = jumps(r)
@@ -72,10 +84,15 @@ def no_jump_delay(r):
     r.toggle('legit.no-jump-delay', False)
     after = jumps(r)
     r.fill(-2, FLOOR + 3, -23, 2, FLOOR + 3, -17, 'minecraft:air')
-    r.m['no_jump_delay'] = {'jumps_60_ticks': [off, on, after]}
-    r.checks.check('NoJumpDelay off: under a low ceiling the jump gate spaces jumps ten ticks apart', 3 <= off <= 9, off)
-    r.checks.check('NoJumpDelay on: the player jumps again on landing (more jumps)', on >= off * 2, [off, on])
-    r.checks.check('NoJumpDelay disabled: the jump gate is back', after <= 9 and on >= after * 2, [off, on, after])
+    r.m['no_jump_delay'] = {'takeoff_ticks': [off, on, after],
+                            'median_gap': [median_gap(off), median_gap(on), median_gap(after)]}
+    gate = lambda t: len(t) >= 3 and median_gap(t) >= 9
+    r.checks.check('NoJumpDelay off: under a low ceiling the jump gate spaces jumps ten ticks apart', gate(off),
+                   [len(off), median_gap(off)])
+    r.checks.check('NoJumpDelay on: the player jumps again on landing (more jumps)',
+                   len(on) * 2 >= len(off) * 3 and median_gap(on) <= 7, [len(off), len(on), median_gap(on)])
+    r.checks.check('NoJumpDelay disabled: the jump gate is back', gate(after) and len(on) * 2 >= len(after) * 3,
+                   [len(after), median_gap(after)])
 
 
 def miss_then_hit(r, cow_id):
@@ -86,7 +103,9 @@ def miss_then_hit(r, cow_id):
     r.attacks()
     r.call('mouse', 'left', 'down')
     r.wait(2)
-    r.call('mouse', 'left', 'up')
+    # Still held: releasing first would let the host's next tick clear the
+    # cooldown (continueAttack with the button up), as vanilla does. Turned
+    # to the cow, the click releases and presses again in one tick.
     r.call('look', '0', '20')
     r.call('mouse', 'left', 'click')
     r.wait(6)
@@ -144,9 +163,8 @@ def performance(r):
     r.checks.check('performance: frames were recorded in every bench', all(b.get('frames', 0) > 50 for b in
                                                                           (plain, loaded, after)),
                    [b.get('frames') for b in (plain, loaded, after)])
-    # The frame rate follows the compositor's pacing of this window (vsync,
-    # occlusion by other windows), which the scenario does not control, so
-    # it is recorded; the check is on the frame's own CPU time.
+    # The frame rate depends on the machine's load, which the scenario does
+    # not control, so it is recorded; the check is on the frame's own CPU time.
     cpu = [b.get('cpu', {}).get('avg_ms') or 0 for b in (plain, loaded, after)]
     r.checks.check('performance: twelve render/HUD modules add under 3 ms of CPU per frame',
                    cpu[1] <= cpu[0] + 3.0 and cpu[1] <= cpu[2] + 3.0,
@@ -158,6 +176,9 @@ def performance(r):
 def run(resources, allow_stale):
     with NativeSession(resources, 'delays-perf-', allow_stale=allow_stale) as session:
         checks = Checks(session.root)
+        # Off: vanilla's AFK limiter (30 fps a minute after the last input).
+        (session.root / 'game').mkdir(parents=True, exist_ok=True)
+        (session.root / 'game' / 'options.txt').write_text('inactivityFpsLimit:"minimized"\n')
         session.seed({'schema': 1, 'modules': {},
                       'settings': {**{f'{m}.binds': [k] for m, k in BINDS.items()}, **SETTINGS}})
         session.launch(creative=True)

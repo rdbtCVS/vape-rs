@@ -104,11 +104,21 @@ fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: boo
     let active = requests && playing(game);
     let invisible = game.potions.effects.list.iter().any(|effect| effect.id == "invisibility");
     let (sprint, parkour, forward, jump) = with_client(&client, |runtime| {
-        let cancel_invis = runtime.settings().get("combat.sprint.cancel-invis")
-            .and_then(serde_json::Value::as_bool).unwrap_or(false);
         let tapped = if again { false } else { runtime.replace_parkour_tap(false) };
+        // Sprint's latched press (reference onPreEntityUpdate). No module
+        // claims movement input: the claim's only takers, Scaffold's Blatant
+        // and Telly modes, are not ported.
+        let tick = crate::game::vape_rs::modules::combat::sprint::Tick {
+            playing: active,
+            user_down: runtime.movement().user(Axis::Sprint, &view),
+            sprinting: game.player.as_ref().is_some_and(|p| p.sprinting),
+            collided_horizontally: game.player.as_ref().is_some_and(|p| p.collision.horizontal),
+            invisible,
+            may_fly: game.player.as_ref().is_some_and(|p| p.may_fly),
+            movement_locked: false,
+        };
         (
-            active && runtime.enabled(ModuleId::Sprint) && !(cancel_invis && invisible),
+            runtime.sprint_press(&tick, again),
             // Parkour's `onTick` returns while Freecam is on.
             active && runtime.enabled(ModuleId::Parkour) && !runtime.enabled(ModuleId::Freecam) && !tapped,
             runtime.movement().user(Axis::Forward, &view),
