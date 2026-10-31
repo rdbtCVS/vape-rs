@@ -577,8 +577,9 @@ file = "crates/horizon-client/src/motion.rs"
 name = "vape_world_motion"
 source = "world_motion.rs"
 
-# Scaffold Legit, InvWalk, WindCharge and NoFall's jump release; under
-# game/remote.rs for the remote use path and the open menu id.
+# Scaffold (Legit, GodBridge, TellyBridge), InvWalk, WindCharge and NoFall's
+# jump release; under game/remote.rs for the remote use path and the open
+# menu id.
 [[module]]
 id = "world-actions"
 file = "crates/horizon-client/src/game/remote.rs"

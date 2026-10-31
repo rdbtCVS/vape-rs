@@ -86,12 +86,17 @@ pub(crate) fn movement_again(game: &mut crate::game::Game<'_>) {
     resolve_movement(game, true, true);
 }
 
-fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: bool) {
-    let client = game.__horizon_mixins_vape_rs_client().clone();
-    let view = HostView {
+/// The host's canonical movement keys and toggle mappings.
+pub(crate) fn host_view(game: &crate::game::Game<'_>) -> HostView {
+    HostView {
         keys: KEYS.map(|(_, key)| game.keys.contains(&key)),
         toggles: [game.toggles.is_down(0), game.toggles.is_down(1)],
-    };
+    }
+}
+
+fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: bool) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let view = host_view(game);
     let active = requests && playing(game);
     let invisible = game.potions.effects.list.iter().any(|effect| effect.id == "invisibility");
     let (sprint, parkour, forward, jump) = with_client(&client, |runtime| {
@@ -99,7 +104,8 @@ fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: boo
             .and_then(serde_json::Value::as_bool).unwrap_or(false);
         let tapped = if again { false } else { runtime.replace_parkour_tap(false) };
         (
-            active && runtime.enabled(ModuleId::Sprint) && !(cancel_invis && invisible),
+            // Sprint.java: nothing while the movement input is locked.
+            active && runtime.enabled(ModuleId::Sprint) && !(cancel_invis && invisible) && !runtime.movement_input_locked(),
             active && runtime.enabled(ModuleId::Parkour) && !tapped,
             runtime.movement().user(Axis::Forward, &view),
             runtime.movement().user(Axis::Jump, &view),

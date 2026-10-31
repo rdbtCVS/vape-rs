@@ -119,7 +119,15 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
 }
 
 pub(super) fn held(game: &Game<'_>) -> HeldItem {
-    let stack = game.inventory.get(game.selected).and_then(|s| s.as_ref());
+    item_at(game, game.selected)
+}
+
+/// The inventory slot's item as the item limits read it.
+pub(super) fn item_at(game: &Game<'_>, slot: usize) -> HeldItem {
+    item(game, game.inventory.get(slot).and_then(|s| s.as_ref()), slot)
+}
+
+pub(super) fn item(game: &Game<'_>, stack: Option<&horizon_client::items::ItemStack>, slot: usize) -> HeldItem {
     let info = stack.and_then(|s| game.res.items().get(&s.item));
     HeldItem {
         id: stack.map(|s| s.item.trim_start_matches("minecraft:").to_owned()),
@@ -129,7 +137,7 @@ pub(super) fn held(game: &Game<'_>) -> HeldItem {
         block: info.is_some_and(|i| i.block.is_some()),
         food: info.is_some_and(|i| i.food.is_some()),
         potion: stack.is_some_and(|s| s.item.ends_with("potion")),
-        slot: game.selected,
+        slot,
     }
 }
 
@@ -184,7 +192,7 @@ pub(super) fn aim_assist(game: &mut Game<'_>) {
         attack_down: game.left,
         aiming_block,
         playing: playing(game),
-        movement_locked: false,
+        movement_locked: with_client(&client, |runtime| runtime.movement_input_locked()),
         sensitivity: game.settings.sensitivity,
         elapsed_ms: 0,
     };
@@ -500,6 +508,7 @@ pub(super) fn clickers(game: &mut Game<'_>) {
             entity_hit,
             block_hit,
             sneaking,
+            use_claimed: false,
         };
         let actions = with_client(&client, |runtime| runtime.clicker_frame(right, &input));
         if actions.release {

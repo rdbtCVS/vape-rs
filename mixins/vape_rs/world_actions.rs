@@ -1,10 +1,14 @@
 // Host side of the movement/world modules (the shared rotation manager,
-// Scaffold Legit, InvWalk, WindCharge, NoFall's jump release). It sits under game/remote.rs so the
+// Scaffold and its bridge modes, InvWalk, WindCharge, NoFall's jump release). It sits under game/remote.rs so the
 // remote use path, the open menu id and the physical keys are reachable.
 use crate::game::Game;
 use crate::game::vape_rs::core::movement_input::{Axis, HostView, Owner, Request};
+use crate::game::vape_rs::core::movement_runtime::BridgeTick;
 use crate::game::vape_rs::core::{ModuleId, with_client};
+use crate::game::vape_rs::modules::movement::movement_task::{Body, World};
+use crate::game::vape_rs::modules::movement::scaffold_bridge::{Hit, Inventory, Stack};
 use crate::game::vape_rs::modules::movement::{inv_walk, scaffold, wind_charge};
+use horizon_core::geometry::Vec3;
 use winit::keyboard::KeyCode;
 
 thread_local! {
@@ -34,6 +38,77 @@ fn scaffold_edge(game: &mut Game<'_>) -> bool {
     motion.no_player_collision(bounds).unwrap_or(false)
 }
 
+/// The bridge modes' world queries.
+struct HostWorld<'g, 'a>(&'g mut Game<'a>);
+
+impl World for HostWorld<'_, '_> {
+    fn air(&mut self, pos: [i32; 3]) -> bool {
+        let name = &self.0.res.facts().get(self.0.world.block(pos[0], pos[1], pos[2])).name;
+        matches!(&**name, "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air")
+    }
+    fn clear_below(&mut self, at: [f64; 2], shrink: f64) -> bool {
+        let game = &mut *self.0;
+        let entities = game.player_entity_collisions();
+        let Some(player) = game.player.as_mut() else { return false; };
+        let (vx, vz) = (player.velocity.x, player.velocity.z);
+        let bounds = player
+            .bounds()
+            .move_by(Vec3::new(at[0] - player.position.x, 0.0, at[1] - player.position.z))
+            .deflate(Vec3::new(shrink, 0.0, shrink))
+            .move_by(Vec3::new(vx, -1.0, vz));
+        let mut motion = horizon_client::motion::MotionWorld { entities: &entities, player, scene: &mut game.world, assets: &game.pack.assets, collision_binding: game.collision, resources: game.motion };
+        motion.no_player_collision(bounds).unwrap_or(false)
+    }
+}
+
+/// The local player for the bridge modes and the movement task.
+fn body(game: &mut Game<'_>) -> Option<Body> {
+    let on_ladder = on_ladder(game);
+    let previous = game.previous_position;
+    let player = game.player.as_ref()?;
+    Some(Body {
+        pos: [player.position.x, player.position.y, player.position.z],
+        prev: [previous.x, previous.y, previous.z],
+        motion: [player.velocity.x, player.velocity.y, player.velocity.z],
+        yaw: game.yaw,
+        pitch: game.pitch,
+        on_ground: player.ground.on_ground,
+        sneaking: player.shift_key_down || player.pose == horizon_client::pose::Pose::Crouching,
+        sprinting: player.sprinting,
+        flying: player.flying,
+        eye_height: f64::from(player.dimensions.eye_height),
+        on_ladder,
+    })
+}
+
+/// The inventory as the bridge modes read it.
+fn inventory(game: &Game<'_>) -> Inventory {
+    let stack = |s: Option<&horizon_client::items::ItemStack>, slot| {
+        s.map(|s| Stack { item: crate::game::vape_combat::item(game, Some(s), slot), count: s.count })
+    };
+    Inventory {
+        slots: (0..36).map(|slot| stack(game.inventory.get(slot).and_then(Option::as_ref), slot)).collect(),
+        offhand: stack(game.offhand.as_ref(), 40),
+        selected: game.selected,
+        creative: game.creative,
+    }
+}
+
+/// `normalReachRayTrace`: the block the crosshair's 3-block ray hits.
+fn crosshair_block(game: &Game<'_>) -> Option<Hit> {
+    let (eye, dir) = game.aim()?;
+    let hit = game.clip_ray(eye, dir, 3.0)?;
+    let side = match hit.face {
+        [0, -1, 0] => 0,
+        [0, 1, 0] => 1,
+        [0, 0, -1] => 2,
+        [0, 0, 1] => 3,
+        [-1, 0, 0] => 4,
+        _ => 5,
+    };
+    Some(Hit { pos: hit.pos, side })
+}
+
 /// `isOnLadder`: the player is in a climbable block (`LivingEntity.onClimbable`).
 fn on_ladder(game: &mut Game<'_>) -> bool {
     let entities = game.player_entity_collisions();
@@ -58,15 +133,12 @@ pub(crate) fn requests(game: &mut Game<'_>, active: bool, again: bool, view: &Ho
         out.push(Request { axis: Axis::Jump, owner: Owner::WindCharge, priority: 4, pressed: true });
     }
     let scaffold = active && with_client(&client, |runtime| runtime.enabled(ModuleId::Scaffold));
-    if scaffold && !again && game.player.is_some() {
+    if scaffold && game.player.is_some() {
         let edge = scaffold_edge(game);
-        let on_ladder = on_ladder(game);
         let held = crate::game::vape_combat::held(game);
-        let player = game.player.as_ref().unwrap();
-        let on_ground = player.ground.on_ground;
-        let sneaking = player.shift_key_down || player.pose == horizon_client::pose::Pose::Crouching;
+        let Some(body) = body(game) else { return out; };
         let gui_open = with_client(&client, |runtime| runtime.gui.open);
-        let sneak = with_client(&client, |runtime| {
+        let requests = with_client(&client, |runtime| {
             let movement = runtime.movement();
             let forward = f32::from(u8::from(movement.user(Axis::Forward, view))) - f32::from(u8::from(movement.user(Axis::Back, view)));
             let sneak_held = movement.user(Axis::Sneak, view);
@@ -74,19 +146,17 @@ pub(crate) fn requests(game: &mut Game<'_>, active: bool, again: bool, view: &Ho
                 now_ms: runtime.now_ms(),
                 no_screen: game.screen == crate::game::Screen::Playing && !gui_open,
                 sneak_held,
-                sneaking,
+                sneaking: body.sneaking,
                 pitch: game.pitch,
                 forward,
-                on_ground,
-                on_ladder,
+                on_ground: body.on_ground,
+                on_ladder: body.on_ladder,
                 edge,
                 held,
             };
-            runtime.scaffold_sneak(&tick)
+            runtime.scaffold_requests(&tick, &body, again)
         });
-        if let Some(sneak) = sneak {
-            out.push(Request { axis: Axis::Sneak, owner: Owner::Scaffold, priority: 3, pressed: sneak == scaffold::Sneak::Press });
-        }
+        out.extend(requests);
     }
     out
 }
@@ -117,8 +187,14 @@ pub(crate) fn tick(game: &mut Game<'_>) {
     // controller turns the view; it waits while a screen is open.
     let no_screen = matches!(game.screen, crate::game::Screen::Playing) && !gui_open;
     let sensitivity = f64::from(game.settings.sensitivity);
+    let body = body(game);
+    scaffold_bridge_tick(game, &client, no_screen, body);
     let view = (game.yaw, game.pitch);
-    if let Some([yaw, pitch]) = with_client(&client, |runtime| runtime.rotation_tick(view, sensitivity, no_screen)) {
+    let rotated = with_client(&client, |runtime| match &body {
+        Some(body) => runtime.rotation_tick_at(view, sensitivity, no_screen, body),
+        None => runtime.rotation_tick(view, sensitivity, no_screen),
+    });
+    if let Some([yaw, pitch]) = rotated {
         game.yaw = yaw;
         game.pitch = pitch;
     }
@@ -156,6 +232,44 @@ pub(crate) fn tick(game: &mut Game<'_>) {
         player.vape_rs_set_inv_walk(keys);
     }
     wind_charge_tick(game, &client);
+}
+
+/// Scaffold GodBridge/TellyBridge's pre-tick: the slot, the right click
+/// (`use.onTick(1)`) and the movement task's keys.
+fn scaffold_bridge_tick(game: &mut Game<'_>, client: &crate::game::vape_rs::core::Client, no_screen: bool, body: Option<Body>) {
+    let Some(body) = body else { return; };
+    let bridging = with_client(client, |runtime| {
+        runtime.enabled(ModuleId::Scaffold) && scaffold::Options::read(runtime.settings()).mode != scaffold::Mode::Legit
+    });
+    if !bridging {
+        return;
+    }
+    let view = crate::game::vape_input_delays::host_view(game);
+    let user = with_client(client, |runtime| {
+        let movement = runtime.movement();
+        Axis::ALL.map(|axis| movement.user(axis, &view))
+    });
+    let mouse = game.mouse.accumulated();
+    let tick = BridgeTick {
+        no_screen,
+        body,
+        inventory: inventory(game),
+        hit: crosshair_block(game),
+        right_mouse: game.mouse_reading().1[1],
+        mouse: [mouse.0 as i32, mouse.1 as i32],
+        view: [game.yaw, game.pitch],
+        user,
+    };
+    let actions = with_client(client, |runtime| runtime.scaffold_bridge_tick(tick, &mut HostWorld(game)));
+    let alive = game.player.as_ref().is_some_and(|p| p.health.health() > 0.0);
+    if let Some(slot) = actions.select.filter(|s| *s < 9) {
+        if alive && game.title.is_none() {
+            game.selected = slot;
+        }
+    }
+    if actions.click && alive {
+        crate::game::remote::vape_macros::use_once(game);
+    }
 }
 
 fn wind_charge_tick(game: &mut Game<'_>, client: &crate::game::vape_rs::core::Client) {

@@ -1,10 +1,19 @@
 // Runtime state and entry points for the movement/world modules in
-// `modules::movement` (Scaffold Legit, InvWalk, WindCharge) and the NoFall
-// jump-key detail. Kept apart from core/mod.rs so the shared runtime only
-// carries one field and one toggle call for them.
+// `modules::movement` (Scaffold and its bridge modes, InvWalk, WindCharge),
+// the NoFall jump-key detail and the shared module control claims. Kept
+// apart from core/mod.rs so the shared runtime only carries one field and
+// one toggle call for them.
 use super::super::actions::{Lease, Owner, Resource};
 use super::super::modules::blatant::no_fall;
+use super::super::modules::movement::god_bridge::GodBridge;
+use super::super::modules::movement::movement_task::{Body, Keys, Tasks, World};
+use super::super::modules::movement::scaffold_bridge::{
+    self as bridge, Ctx, EdgeTick, Hit, Inventory, Locks, Rotor,
+};
+use super::super::modules::movement::telly_bridge::TellyBridge;
 use super::super::modules::movement::{inv_walk, scaffold, step, wind_charge};
+use super::super::modules::rng::Rng;
+use super::movement_input::{self, Axis, Request};
 use super::rotation_runtime::Shared;
 use super::{ModuleId, Runtime};
 
@@ -22,6 +31,63 @@ pub struct State {
     step: step::Step,
     /// Step's 0.45 timer runs until this time.
     step_timer_until: Option<u64>,
+    bridge: Bridge,
+    /// `SharedModuleControlClaims.movementInput` and `.rightClickUse`: one
+    /// lock each, shared by every module that sets them.
+    pub(super) claims: Locks,
+}
+
+/// Scaffold's running mode and the pieces the bridge modes drive.
+#[derive(Debug)]
+struct Bridge {
+    /// The mode whose sub-module is enabled.
+    running: Option<scaffold::Mode>,
+    god: GodBridge,
+    telly: TellyBridge,
+    rotor: Rotor,
+    keys: Keys,
+    tasks: Tasks,
+    rng: Rng,
+    /// This tick's edge sneak, for the movement writer's second pass.
+    sneak: Option<scaffold::Sneak>,
+}
+
+impl Default for Bridge {
+    fn default() -> Self {
+        Self {
+            running: None,
+            god: GodBridge::default(),
+            telly: TellyBridge::default(),
+            rotor: Rotor::default(),
+            keys: Keys::default(),
+            tasks: Tasks::default(),
+            rng: Rng::new(0x5caf_f01d),
+            sneak: None,
+        }
+    }
+}
+
+/// One pre-tick of host state for Scaffold's bridge modes.
+#[derive(Clone, Debug)]
+pub struct BridgeTick {
+    pub no_screen: bool,
+    pub body: Body,
+    pub inventory: Inventory,
+    pub hit: Option<Hit>,
+    pub right_mouse: bool,
+    /// This tick's mouse movement in counts.
+    pub mouse: [i32; 2],
+    pub view: [f32; 2],
+    /// The user's own state of each movement axis (`Axis` order).
+    pub user: [bool; 7],
+}
+
+/// What a bridge mode does in the host this tick.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BridgeActions {
+    pub select: Option<usize>,
+    /// One right click (`use.onTick(1)`).
+    pub click: bool,
 }
 
 impl Runtime {
@@ -30,15 +96,15 @@ impl Runtime {
         match module {
             ModuleId::Scaffold if enabled => {
                 let options = scaffold::Options::read(&self.settings);
-                if options.mode != scaffold::Mode::Legit {
-                    self.notify(format!(
-                        "Scaffold: the {:?} mode is not ported yet; only Legit works",
-                        options.mode
-                    ));
-                }
-                self.world_movement.legit.enable(&options);
+                self.scaffold_mode(Some(options.mode), &options);
             }
-            ModuleId::Scaffold => self.world_movement.legit.reset(),
+            ModuleId::Scaffold => {
+                let options = scaffold::Options::read(&self.settings);
+                self.scaffold_mode(None, &options);
+                // `Scaffold.onDisable`.
+                self.combat.claim.release(bridge::OWNER);
+                self.world_movement.bridge.tasks.clear();
+            }
             ModuleId::WindCharge if !enabled => {
                 let mut rotation = Shared::of(&mut self.combat, &mut self.rotations);
                 let state = &mut self.world_movement;
@@ -55,16 +121,188 @@ impl Runtime {
         }
     }
 
-    /// Scaffold Legit's sneak for this pre-entity-update.
-    pub fn scaffold_sneak(&mut self, tick: &scaffold::Tick) -> Option<scaffold::Sneak> {
+    /// The sub-module swap: the running mode's `onDisable`, then the new
+    /// one's `onEnable`. Leaving a bridge mode also clears the locks (Telly's
+    /// `onDisable` leaves them set).
+    fn scaffold_mode(&mut self, mode: Option<scaffold::Mode>, options: &scaffold::Options) {
+        let state = &mut self.world_movement;
+        let b = &mut state.bridge;
+        if b.running == mode {
+            return;
+        }
+        let mut rotation = Shared::of(&mut self.combat, &mut self.rotations);
+        match b.running.take() {
+            Some(scaffold::Mode::Legit) => state.legit.reset(),
+            Some(old) => {
+                if old == scaffold::Mode::GodBridge {
+                    b.god.disable();
+                } else {
+                    b.telly.disable();
+                }
+                bridge::release_controls(&mut b.rotor, &mut rotation, &mut b.tasks, &mut b.keys);
+                state.claims = Locks::default();
+            }
+            None => {}
+        }
+        b.sneak = None;
+        match mode {
+            Some(scaffold::Mode::Legit) => state.legit.enable(options),
+            Some(scaffold::Mode::GodBridge) => b.god.enable(),
+            Some(scaffold::Mode::TellyBridge) => b.telly.enable(),
+            None => {}
+        }
+        b.running = mode;
+    }
+
+    /// The options of the running Scaffold mode, after a mode change.
+    fn scaffold_options(&mut self) -> Option<scaffold::Options> {
         if !self.enabled(ModuleId::Scaffold) || !self.session.in_world() {
             return None;
         }
         let options = scaffold::Options::read(&self.settings);
+        self.scaffold_mode(Some(options.mode), &options);
+        Some(options)
+    }
+
+    /// Scaffold Legit's sneak for this pre-entity-update.
+    pub fn scaffold_sneak(&mut self, tick: &scaffold::Tick) -> Option<scaffold::Sneak> {
+        let options = self.scaffold_options()?;
         if options.mode != scaffold::Mode::Legit {
             return None;
         }
         self.world_movement.legit.tick(&options, tick)
+    }
+
+    /// The movement writer's Scaffold requests: Legit's sneak, or for a
+    /// bridge mode the task's completion check (`onPreLocalPlayerTick`), the
+    /// edge sneak (`onPreEntityUpdate`) and the key bindings. `again` (the
+    /// writer's second pass this tick) reuses this tick's decisions.
+    pub fn scaffold_requests(
+        &mut self,
+        tick: &scaffold::Tick,
+        body: &Body,
+        again: bool,
+    ) -> Vec<Request> {
+        let sneak_request = |sneak: scaffold::Sneak, priority| Request {
+            axis: Axis::Sneak,
+            owner: movement_input::Owner::Scaffold,
+            priority,
+            pressed: sneak == scaffold::Sneak::Press,
+        };
+        let Some(options) = self.scaffold_options() else {
+            return Vec::new();
+        };
+        if options.mode == scaffold::Mode::Legit {
+            if again {
+                return Vec::new();
+            }
+            return self
+                .world_movement
+                .legit
+                .tick(&options, tick)
+                .map(|s| sneak_request(s, 3))
+                .into_iter()
+                .collect();
+        }
+        let b = &mut self.world_movement.bridge;
+        if !again {
+            b.tasks.update(body, tick.no_screen, &mut b.keys);
+            let edge = EdgeTick {
+                now_ms: tick.now_ms,
+                no_screen: tick.no_screen,
+                can_activate: true,
+                on_ladder: tick.on_ladder,
+                pitch_blocked: options.pitch_check && f64::from(tick.pitch) < options.pitch,
+                forward: tick.forward,
+                on_ground: tick.on_ground,
+                sneaking: tick.sneaking,
+                edge: tick.edge,
+            };
+            let mut rotation = Shared::of(&mut self.combat, &mut self.rotations);
+            b.sneak = if options.mode == scaffold::Mode::GodBridge {
+                b.god.pre_entity(&edge, &mut rotation)
+            } else {
+                b.telly.pre_entity(&edge, &mut rotation)
+            };
+        }
+        let mut out = b.keys.requests();
+        out.extend(b.sneak.map(|s| sneak_request(s, 4)));
+        out
+    }
+
+    /// A bridge mode's pre-tick, then the movement task's keys.
+    pub fn scaffold_bridge_tick(
+        &mut self,
+        tick: BridgeTick,
+        world: &mut dyn World,
+    ) -> BridgeActions {
+        let Some(options) = self.scaffold_options() else {
+            return BridgeActions::default();
+        };
+        if options.mode == scaffold::Mode::Legit {
+            return BridgeActions::default();
+        }
+        let now_ms = self.now_ms();
+        let mut rotation = Shared::of(&mut self.combat, &mut self.rotations);
+        let state = &mut self.world_movement;
+        let b = &mut state.bridge;
+        b.keys.observe(tick.user);
+        let body = tick.body;
+        let mut ctx = Ctx {
+            now_ms,
+            no_screen: tick.no_screen,
+            body,
+            inventory: tick.inventory,
+            hit: tick.hit,
+            right_mouse: tick.right_mouse,
+            mouse: tick.mouse,
+            view: tick.view,
+            options: &options,
+            world,
+            keys: &mut b.keys,
+            tasks: &mut b.tasks,
+            rotation: &mut rotation,
+            rotor: &mut b.rotor,
+            locks: &mut state.claims,
+            rng: &mut b.rng,
+            select: None,
+            click: false,
+        };
+        if options.mode == scaffold::Mode::GodBridge {
+            b.god.tick(&mut ctx);
+        } else {
+            b.telly.tick(&mut ctx);
+        }
+        let actions = BridgeActions {
+            select: ctx.select,
+            click: ctx.click,
+        };
+        b.tasks.apply(&body, &mut b.keys, world);
+        actions
+    }
+
+    /// Session cleanup: the manager forgot the bridge's controller, so the
+    /// mode, its task and its bindings start over (the next tick enables the
+    /// mode again).
+    pub(super) fn scaffold_session_reset(&mut self) {
+        let state = &mut self.world_movement;
+        state.legit.reset();
+        let rng = std::mem::replace(&mut state.bridge.rng, Rng::new(0));
+        state.bridge = Bridge {
+            rng,
+            ..Bridge::default()
+        };
+        state.claims = Locks::default();
+    }
+
+    /// `SharedModuleControlClaims.movementInput.isLocked()`.
+    pub fn movement_input_locked(&self) -> bool {
+        self.world_movement.claims.movement
+    }
+
+    /// `SharedModuleControlClaims.rightClickUse.isClaimed()`.
+    pub fn right_click_use_claimed(&self) -> bool {
+        self.world_movement.claims.right_click
     }
 
     /// InvWalk's options when it hands the physical keys over behind `screen`.
