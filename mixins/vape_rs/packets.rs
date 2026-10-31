@@ -240,7 +240,7 @@ fn classify(game: &Game<'_>, packet: &S) -> Packet {
             id: a.id,
             hurt_time: game.mobs.iter().find(|m| m.id as i32 == a.id && !m.removed).map(|m| m.hurt_time),
         },
-        S::PlayerAction(a) if a.action == 5 => Packet::ReleaseUse,
+        S::PlayerAction(a) if a.action == 6 => Packet::ReleaseUse, // RELEASE_USE_ITEM (5 is DROP_ITEM)
         _ => Packet::Other,
     }
 }

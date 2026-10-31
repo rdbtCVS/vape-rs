@@ -1,6 +1,6 @@
 # Current implementation handoff
 
-Updated 2026-10-30 after the clicker/Reach/blatant-movement batch and the
+Updated 2026-10-31 after the re-pin to Horizon main and the inventory round; before that, 2026-10-30, after the clicker/Reach/blatant-movement batch and the
 interface-font GUI text, and the GUI frame overflow reflow. Before that came the classic V4 click-GUI remake;
 the round before
 added live entity snapshots, the reference target filter, AimAssist (Simple),
@@ -20,7 +20,7 @@ compile-only: no game scenario has run for them yet.
 | --- | --- |
 | HUD (legit, HUD group) | Coordinates, FPS, Compass, Clock, Keystrokes/CPS, Armor Status, Potion Status |
 | Render | Fullbright, StorageESP (partial: through-wall outlines for chests, trapped chests, hoppers, furnaces, dispensers, droppers, shulkers; no ender chests/fill), ESP (partial: 3D mode only), Tracers (partial), Trajectories (partial), NameTags† (partial), ItemESP†, AntiDebuff†, friend/enemy recolour settings, and the former HUD-editor Game group: NoHurtCam, Clear Water, NoJumpDelay, NoClickDelay, Time Changer†, Weather† |
-| Inventory | AutoTool, AutoArmor, AutoTotem (partial), Refill, ChestSteal |
+| Inventory | AutoTool, AutoArmor, AutoTotem (partial: random slot, timing variance; no silent open), Refill (pots/soup, double-click), ChestSteal, Throwpot, ThrowDebuff, AutoHeal (Legit only), InventoryFill†, InventoryManager†, InvCleaner†, AutoHotbar†, ArmorSwitch† |
 | World / movement | FastPlace, AutoFish, Sprint (baseline), Parkour (experimental), SafeWalk, Anti-AFK† |
 | Combat | AimAssist (Simple mode; Adaptive open), TriggerBot, Velocity, AutoClicker†, RightClicker†, Reach† (Normal/Advanced; Misplace open), WTap† |
 | Other (exact-name search only) | HitBoxes†, Timer†, Fly†, NoFall† (Normal/AntiCheat), Step† (step height only), LongJump†, AntiFall†, NoItemRelease†, PotionSaver†, Regen† |
@@ -100,8 +100,12 @@ Unconnected groundwork present in source (no module uses it yet):
 - StorageESP, AutoTool, profile, lifecycle and NoHurtCam pass on the new pin. Refill, ChestSteal, AutoFish, FastPlace, Fullbright,
   Clear Water, the delay removals and localization still have compile/unit
   evidence only.
-- Ledger: 16 integrated, 48 implemented-core, 13 excluded-approved, 2
-  not-applicable-reviewed, 393 not-started, 0 validated
+- **Inventory round** ([inventory-throw.json](evidence/inventory-throw.json),
+  [inventory-recovery.json](evidence/inventory-recovery.json)), fresh survival
+  homes: Throwpot, ThrowDebuff one-of-each, AutoHeal Legit, Refill soup with
+  mid-run close, ChestSteal close/reopen and AutoTotem random slot pass.
+- Ledger: 7 validated, 21 integrated, 95 implemented-core, 1 blocked, 13
+  excluded-approved, 2 not-applicable-reviewed, 333 not-started
   ([decisions](decisions.md) explains `integrated` vs `validated`).
 - [hooks.md](hooks.md) lists every current target and module.
 
@@ -134,6 +138,8 @@ Concrete implementation milestones:
 | `530b106` | Classic V4 click GUI |
 | `f73ca64` | AutoClicker, RightClicker, Reach, HitBoxes, Timer, Fly, NoFall, NoSlowdown (compile-only); MODIFY_ARG audit support |
 | `951a729` | GUI text in the interface font; GUI scale applied on release |
+| `e653e78` | Re-pin to Horizon main 8f91f89 / horizon-mixins 0e9229d |
+| `f0ee445`, `5204104`, `f7d5e88` | Inventory planners, use sequences, Refill/AutoTotem extras, inventory scenarios |
 
 ## Open dependencies and next work
 
@@ -182,13 +188,13 @@ the interface-font text.
    Indicators, Bedplates, Explosions. **BlockOverlay** transparent fill still
    needs an opaque-body-safe geometry insertion capability in the mixin tool or
    an explicit host geometry hook ([block-overlay.md](specs/block-overlay.md)).
-4. **Inventory / consumables:** InventoryManager rule model and editor frames,
-   InvCleaner, AutoHotbar, InventoryFill, custom item-name/potion metadata,
-   ThrowPot, ThrowDebuff, AutoHeal, ArmorSwitch, Refill pots/soup
-   modes and double-click. AutoTotem still lacks silent
-   opening, random slot, extra timing variance, count display and
-   inventory-free operation. Refill/ChestSteal/AutoFish need host scenarios
-   for the bounded-gate recovery.
+4. **Inventory / consumables:** InventoryManager rule-editor frames and
+   scenarios for InventoryManager, InvCleaner, AutoHotbar, ArmorSwitch and
+   InventoryFill; custom item-name/potion metadata; an AutoFish recovery
+   scenario. Blocked on Horizon: AutoTotem silent open / inventory-free
+   operation and AutoHeal Silent/Potions (no server clicks without the
+   inventory screen, no held-item/use API). The AutoTotem count display waits
+   on the module list.
 5. **HUD / UI:** ClientSettings (floating/integrated/none), Text GUI and module
    list, ModuleDisplayInfo; the HUD-module family (Freelook, Reach Display, Scoreboard, Inventory Blur, Motion Blur, Block Hit
    Animation, Block Render Color Override, Health); triage of the remaining

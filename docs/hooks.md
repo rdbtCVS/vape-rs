@@ -73,6 +73,11 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `vape_world_actions` | `crates/horizon-client/src/game/remote.rs` | `mixins/vape_rs/world_actions.rs` |
 | `vape_smooth_text` | `crates/horizon-client/src/ui_theme.rs` | `mixins/vape_rs/smooth_text.rs` |
 
+Inventory worker (2026-10-31), no new hooks:
+
+- `vape_transactions::dispatch`, in `client-frame`, runs the use-sequence executor (`Runtime::throw_frame`) for Throwpot, ThrowDebuff and AutoHeal Legit. Its effects use the host's own paths: `Game.selected`, `vape_macros::use_once`, and `remote_drop`/`drop_held`.
+- The same dispatch runs InventoryFill on `Screen::Inventory` screens. It reads the physical Shift keys and the left button, finds the hovered slot with `Game::slot_at`, and shift-clicks it with `menu_ops`.
+
 The runtime source is deterministically expanded from src/lib.rs. The published tool can't add a field to `Game<'_>`, so `vape_client_owner` keeps one Arc<Mutex<Runtime>> per thread behind the same `__horizon_mixins_vape_rs_client` accessor. Only the window thread's client Game uses it; hooks return before using it on a server or dedicated Game, and that thread drops its unused runtime when it ends. Adapters release runtime borrows before calling host actions. Session generations invalidate stale entity, slot, container and hook observations. Transient state never enters local profiles.
 
 Native input/menu effects use Horizon’s normal action paths. Macro, fishing, tool and container ownership is coordinated per client. Server/dedicated simulation is guarded out. The GUI owns a Paused screen and completes closing on a later frame so a close click cannot attack.

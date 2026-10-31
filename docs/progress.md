@@ -857,3 +857,197 @@ User request: bump the pins to the latest remote main.
 - KeepSprint's Horizon dependency (remote-attack slowdown, #3251) is now in the pin.
 
 Validation ([repin-main-2026-10-31.json](evidence/repin-main-2026-10-31.json)): fmt, all-target Clippy `-D warnings`, 118 lib tests and the payload test pass; stage/audit (36 hooks, 22 support modules) pass; host check and fast build pass. Fresh-home scenarios on the new executable: smoke 27/27, LAN 16/16, inbound hold/replay (LAN) 27/27.
+
+## 2026-10-31: validation — GUI reruns, movement scenario, NoSlowdown hook fix
+
+Validation worker (branch `worker/validation`, pin 8f91f89 / 0e9229d).
+
+- GUI scenarios rerun on the re-pinned build, all pass: gui 11, text editor 6
+  (private display), HUD editor 9, binding capture 2, HUD detail 7, profiles
+  6, corrupt profile 2, lifecycle 7 ([validation-gui.json](evidence/validation-gui.json)).
+  `gui_scenario.py` coordinates follow the Render frame order and Friends rows.
+- `tools/movement_scenario.py`: fresh survival home on the integrated
+  server; each module toggled through its bind. Timer (client/server tick
+  ratio 1.0 / 2.0 / 1.0), Fly (rise, hover, Speed 0.5, gravity back), NoFall
+  Normal (13-block drop 10 -> 0) and AntiCheat (10 -> 1, the reference's
+  3-block status pairs), Speed Bhop (15.2 vs walk 8.5 blocks per 40 ticks,
+  hops) and AntiCheat B (16.8), LongJump (7.6 vs sprint jump 3.6, toggles
+  off), Step (climbs a 1-block wall), AntiFall (lowest 142.4 vs 116 off;
+  lagback zeroes horizontal motion only, as the reference, so on this
+  vanilla-like server the player bobs below the edge), NoSlowdown, Anti-AFK
+  (acts after the 10 s delay, stays put), no kick. Distances are scaled by
+  the client ticks that really passed. **52/52**
+  ([validation-movement.json](evidence/validation-movement.json)).
+- Bug fixed: NoSlowdown had no effect after the re-pin (shield walk 1.24 on
+  and off). Its hook targeted `MotionWorld::controlled_simulation_tick`, which
+  the pinned `game.rs` no longer calls; it now targets
+  `controlled_simulation_tick_with_sprint_window` (off 1.23 / on 6.32 / walk
+  6.18 blocks per 30 ticks).
+
+## 2026-10-31: validation — combat scenario, LAN PvP scenario, NoItemRelease and JumpReset fixes
+
+Pinned Horizon 8f91f896a / horizon-mixins 0e9229d, fresh isolated homes.
+
+- `tools/combat_scenario.py` (integrated server, survival): **39/39**
+  (`combat-unwn75pj`). AutoClicker holds at 11.0 server-logged attacks/s
+  for 10-12 CPS, stops on release and on disable; RightClicker 13 snowballs/s
+  and FastPlace 16 (stack of 16 used up) against the host's 5/s repeat, back
+  to 5 after; HitBoxes takes a click 0.25 beside a cow, misses off/after;
+  NoItemRelease: a 14-tick eat finishes server-side (0 / 1 / 0 apples with
+  off / on / after, 44-tick full hold eats 1).
+- `tools/pvp_scenario.py` (LAN host plus a vape-rs guest): **23/23**
+  (`pvp-guest-ht8rynoz`). KnockbackDelay 500 ms: the push lands 503 ms after
+  the hurt (0 ms off); disabling mid-hold released it 41 ms after the tap; a
+  push held over a disconnect never replays after reconnecting. JumpReset:
+  push-arc peak 0.965 off and after, 1.252 on (a jump). WTap: 4 unsprinting
+  ticks after a sprint hit against 1 off.
+- Fixed: NoItemRelease matched `PlayerAction` action 5, which is DROP_ITEM in
+  this protocol; RELEASE_USE_ITEM is 6 (`mixins/vape_rs/packets.rs`).
+- Fixed: JumpReset never jumped. Its landed-motion check ran in
+  `vape_packets::tick` after the same tick's input resolution, so the jump
+  key came a tick later with the player in the air. The packet tick (held
+  packet replay, JumpReset, outbound flush, Regen) now runs first at the
+  client tick HEAD, as packets precede the tick in vanilla
+  (`mixins/vape_rs/adapters/tick.rs`). inbound_hold_scenario to be rerun.
+- Reach: the client pick extends (cow at 3.64 picked with 3.9, none off and
+  after) but the server records no attack. Horizon's integrated/LAN server
+  re-picks a guest attack with its own 3-block reach (`lan_actions`
+  guest_attack -> look_at_entity + attack) instead of attacking the sent id
+  as vanilla handleAttack does. Blocked on Horizon.
+- Regen and PotionSaver: off and on measure the same (health +3 in 1 s; a
+  speed effect 599 -> 519 ticks over 4 s). This server ticks the player once
+  per server tick whatever movement packets arrive, so neither can change
+  its clock here. Host-limited, not validated.
+- Evidence: docs/evidence/validation-combat.json, validation-pvp.json.
+
+## 2026-10-31: validation — render/legit frames, inbound hold rerun, Time Changer and AntiDebuff fixes
+
+Pinned Horizon 8f91f896a / horizon-mixins 0e9229d, fresh isolated homes.
+
+- `tools/legit_render_scenario.py` (integrated server, frames from the host's
+  own screenshots): **40/40** (`legit-render-8bkfza5i`).
+  - Time Changer hour 0: the client reads 18000 while the server stays at
+    6002. Sky luma goes 185 -> 8 -> 189, and the server's time is back after.
+  - Weather Raining under a clear server sky: sky luma 189 -> 93 -> 190. The
+    server's weather stays clear.
+  - Fullbright in a sealed room at midnight. Night Vision: luma 8.5 -> 70 -> 8.3.
+    Gamma (relaunched with the mode): 8.3 -> 87 -> 8.2.
+  - Clear Water under water: frame diff 20.5 on, 2.1 after a fresh dive.
+  - AntiDebuff (Remove Effects on): slowness, nausea and blindness leave the
+    client list, and walking goes back to 6.33 from 2.53 blocks per 30 ticks.
+    Disabled, new debuffs stay and slow again.
+  - ItemESP: diff 2.47 for an item behind a wall, 0.0 after.
+  - NameTags (animals): diff 1.32 for a still cow, 0.10 after.
+- Fixed: Time Changer left the forced time in place after disable. The modern
+  server only sends the clock when it jumps, so the module kept writing over
+  the only copy. It now tracks the real clock beside the written one and
+  restores it on disable (`mixins/vape_rs/legit.rs`).
+- Fixed: AntiDebuff removed slowness from the effect list, but the speed
+  attribute modifier stayed (the server's attribute sync re-adds it), so
+  walking stayed slow. The modifier is now stripped every tick while the
+  module is on (`mixins/vape_rs/legit.rs`).
+- `tools/inbound_hold_scenario.py` (LAN host plus a vape-rs guest): **27/27**
+  (`hold-guest-p1v7oao5`) after the packet-tick reorder.
+  - Blink Bi-directional, including the teleport flush and a reconnect with
+    nothing replayed.
+  - Backtrack: the pig is 3.42 behind its server position while held, 0.31
+    without, and released at once on disable.
+  - FakeLag Repel: the first hit is not delayed; the hit on a hurt target is
+    held and lands by its deadline.
+  - Test fixes: the Backtrack baseline now allows interpolation lag (< 1.2),
+    and the Repel check is timed on two attacks three ticks apart.
+- Evidence: docs/evidence/validation-legit-render.json, validation-hold.json.
+
+## 2026-10-31: validation — utility modules, delay removals, a frame-time measurement
+
+Pinned Horizon 8f91f896a / horizon-mixins 0e9229d, fresh isolated homes.
+
+- `tools/utility_scenario.py` (integrated server, survival): **18/18**
+  (`utility-kppox6bq`).
+  - Refill moves 4 soups from the main inventory into the free hotbar slots in
+    0.6 s, leaves the stone alone, closes the inventory and turns itself off.
+    Off, nothing moves.
+  - ChestSteal takes all three stacks and closes the chest in 0.59 s. Off, the
+    open chest is left alone. Closed by the player mid-steal, the clicks stop
+    with the screen (1 of 78 items taken, the rest stays in the chest).
+  - Binds do not reach a menu screen, so the toggle is not used mid-steal.
+  - AutoFish: a Lure III cast catches nothing in 40 s without the module. With
+    it, the bite is reeled in and a catch arrives (24 s).
+- `tools/delays_perf_scenario.py`: **39/39** (`delays-perf-_xnqd1x5`).
+  - NoJumpDelay under a two-block ceiling: 7 / 21 / 7 take-offs in 60 ticks
+    with off / on / after.
+  - NoClickDelay: a click on a cow right after a missed click is dropped
+    without the module (0/3), lands with it (3/3), and is dropped again after
+    (0/3).
+- Performance (ctl bench, 10 s each). The run had twelve render/HUD modules on
+  (hud coordinates/fps/keystrokes/armor/potions, ESP, Tracers, StorageESP,
+  NameTags, ItemESP, Trajectories, Fullbright) in front of 24 cows and
+  8 chests.
+  - CPU per frame: avg 1.75 -> 4.11 -> 1.86 ms for off / on / after.
+  - CPU p99: 5.5 -> 40.5 -> 7.8 ms. Spikes like these with the modules on are
+    a real cost and are not yet profiled.
+  - The frame rate (118 / 30 / 30 fps) followed the compositor's pacing of the
+    window and is not attributed to the modules. In an earlier run, frames
+    with every module off after the bench ran at 30 fps too.
+  - The check is on CPU time (within 3 ms of plain).
+- Not covered: localization (client.localization is not-started, nothing to
+  validate).
+- Evidence: docs/evidence/validation-utility.json, validation-delays-perf.json.
+
+## 2026-10-31: inventory worker, arrangement planners (InventoryManager, InvCleaner, AutoHotbar, ArmorSwitch)
+
+- Snapshot additions (`mixins/vape_rs/transactions.rs`): per-item `ItemMeta` (custom name, potion contents, splash/lingering flag, food, block, hardness, enchantments, mining speed) and player `Vitals` (health, max health, selected slot, ground, effects, using item). `Click::Throw`/`ThrowStack` map to `Input::Throw` (button 0/1) and `Click::SwapHotbar(n)` maps to `Input::Swap`.
+- `src/inventory/rules.rs`: InventoryManager rule model (matchers, categories, conditions, presets, slot and inventory filters, profiles). The JSON shape follows the reference's.
+- `src/inventory/session.rs`: shared click session (open inventory, open wait, one gated click per snapshot, close wait, close). `src/inventory/arrange.rs`: shared armor and placement helpers.
+- Planners: `inventory_manager.rs`, `inv_cleaner.rs`, `auto_hotbar.rs`, `armor_switch.rs` in `src/modules/utility/`. Each step re-plans from the snapshot.
+- Runtime: `src/core/inventory_extra.rs` maps settings to planner options and steps to scheduler outcomes. The round-robin scheduler takes a module slice, so the four modules share the container claim, the stall watchdog and the gate with ChestSteal, AutoArmor, Refill and AutoTotem. On Key runs disable themselves when finished; ArmorSwitch always does. The reference "Activation" mode is stored as `<module>.trigger`, because `.activation` is the generic bind mode.
+
+Validation: fmt, all-target Clippy `-D warnings`, 131 lib tests and the payload test pass; stage/audit (36 hooks, 22 modules) pass; host check reports 0 errors. No game scenario has run yet.
+## 2026-10-31: inventory worker, use sequences, InventoryFill, Refill and AutoTotem extras
+
+- **Throwpot, ThrowDebuff, AutoHeal: one use-sequence executor.** `src/modules/utility/throw_items.rs` holds the plans and the sequencer; `src/core/throw_runtime.rs` holds the claims and settings.
+  - Throwpot (`inventory.throw-pot`): Type both/pots/soup, Mode dynamic/single, Delay, Scroll, Scroll delay, Random, Throw bowls.
+  - ThrowDebuff (`inventory.throw-debuff`): Mode all/one-of-each/first, and Harming, Weakness, Poison and Slowness toggles.
+  - AutoHeal (`inventory.auto-heal`, Hidden category):
+    - Legit mode: select, use, swap delay, restore.
+    - Bowl Mode stack/throw/none and Replace, as clicks through the shared session.
+    - Silent mode and Potions are blocked: Horizon has no silent held-item or use API.
+  - Host side: `vape_transactions::dispatch` turns the executor's effects into slot selection, `use_once` and drop.
+- **InventoryFill** (`src/core/inventory_fill.rs`, `inventory.inventory-fill`): shift-clicks the hovered container slot while Shift and the left button are held, at the CPS setting.
+- **Refill:**
+  - Adds the double-click: a 20 % second shift-click, sent only when it can still move something.
+  - A run now finishes, closing and disabling, once the inventory it worked in is closed. Before this fix it reopened the inventory. The host scenario found this.
+- **AutoTotem** adds Random slot, Extra randomization (the reference's delay distribution) and the Show totem count value. Silent open and Silent move delay are blocked: Horizon has no API to click the player inventory without a screen.
+- **Scenarios:**
+  - `tools/throw_scenario.py`: Throwpot, ThrowDebuff, and AutoHeal on and then off.
+  - `tools/inventory_scenario.py`: Refill interrupted and then completed, ChestSteal closed mid-run and then reopened, and AutoTotem Random slot.
+
+Validation:
+- fmt, all-target Clippy `-D warnings`, 140 lib tests, 3 integration tests and the payload test pass. The host build passes.
+- `tools/throw_scenario.py` passed in survival in a fresh isolated home (evidence `docs/evidence/inventory-throw.json`):
+  - Throwpot healed 10 → 20 HP with two of three Instant Health pots and restored slot 5.
+  - ThrowDebuff one-of-each threw one poison and one weakness and kept the second poison.
+  - AutoHeal Legit healed 6 → 15 HP using 2 of 4 pots; once disabled it threw nothing more at low health.
+- `tools/inventory_scenario.py`: the first run failed on the Refill reopen bug above; the rerun is recorded in the next entry.
+
+## 2026-10-31: inventory worker, recovery scenario through the bounded gate
+
+- `tools/inventory_scenario.py` passed in survival in a fresh isolated home against the host build of 5204104 (evidence `docs/evidence/inventory-recovery.json`, scenario dir deleted after the run):
+  - Refill (soup): closing its inventory mid-run disabled it with 1 of 3 hotbar soups moved and the screen back to playing; a second run completed (3 hotbar soups, 2 left in main) and closed the screen.
+  - ChestSteal: escape after 3 of 6 diamonds left 3 in the chest; reopening took the remaining 3 and closed the chest.
+  - AutoTotem (random slot): one of two main-inventory totems moved to the offhand and the screen returned to playing.
+- AutoFish recovery has no scenario yet; it stays integrated.
+- Validation on worker/inventory (main 604d679 already merged): `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` clean; `cargo test --workspace --locked --offline` 140 lib + 3 integration passed; `cargo run -p xtask --locked --offline -- payload-test` 140 passed.
+
+## 2026-10-31: validation — merged main, verification
+
+worker/validation was merged with main, which brings the inventory worker's
+arrangement planners, use sequences and Refill extras. After the merge:
+
+- `cargo fmt --check`, `clippy -D warnings` and `cargo test` pass
+  (140 + 3 tests).
+- `xtask payload-test`, `stage` and the host `check` against Horizon
+  8f91f896a pass. The audit restores the original AST after removing 36 hooks
+  and 22 support modules.
+- The Refill run above was made before the merge. Main's Refill extras are
+  covered by the inventory worker's own scenarios.
