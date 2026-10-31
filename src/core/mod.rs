@@ -1,4 +1,5 @@
 pub mod automation;
+pub mod combat_runtime;
 pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
@@ -82,6 +83,7 @@ pub struct Runtime {
     aim_assist: super::modules::combat::aim_assist::AimAssist,
     aim_clock: Option<std::time::Instant>,
     trigger_bot: super::modules::combat::trigger_bot::TriggerBot,
+    combat: combat_runtime::Combat,
     velocity: super::modules::combat::velocity::Velocity,
     knockback: super::modules::combat::knockback::Knockback,
     backtrack: super::modules::blatant::backtrack::Backtrack,
@@ -319,6 +321,9 @@ impl Default for Runtime {
         for definition in super::modules::combat::trigger_bot::definitions() {
             settings.define(definition).unwrap();
         }
+        for definition in combat_runtime::definitions() {
+            settings.define(definition).unwrap();
+        }
         for definition in super::modules::combat::aim_assist::definitions() {
             settings.define(definition).unwrap();
         }
@@ -429,6 +434,7 @@ impl Default for Runtime {
             aim_assist: Default::default(),
             aim_clock: None,
             trigger_bot: Default::default(),
+            combat: Default::default(),
             velocity: Default::default(),
             knockback: Default::default(),
             backtrack: Default::default(),
@@ -496,6 +502,9 @@ impl Runtime {
         }
         if module == ModuleId::AutoFish && !enabled {
             self.cancel_auto_fish();
+        }
+        if !enabled {
+            self.combat_disabled(module);
         }
         if !enabled {
             match module {
@@ -567,6 +576,7 @@ impl Runtime {
         if id.starts_with("combat.trigger-bot.") {
             self.trigger_bot.reset();
         }
+        self.combat_setting_changed(id);
         if id.starts_with("combat.velocity.") {
             self.reset_velocity();
         }
@@ -994,6 +1004,7 @@ impl Runtime {
     /// TriggerBot's synthetic press is a click, so releasing it needs no
     /// host action.
     fn reset_combat(&mut self) {
+        self.combat_session_reset();
         self.reset_aim_assist();
         self.trigger_bot.reset();
         self.reset_velocity();
@@ -2173,7 +2184,10 @@ impl Runtime {
                 | ModuleId::JumpReset
                 | ModuleId::KnockbackDelay
                 | ModuleId::Backtrack
-                | ModuleId::AntiDebuff => continue,
+                | ModuleId::AntiDebuff
+                | ModuleId::KillAura
+                | ModuleId::SilentAura
+                | ModuleId::KeepSprint => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

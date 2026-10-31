@@ -100,6 +100,9 @@ registry! {
     KnockbackDelay => "combat.knockback-delay", "KnockbackDelay", "Utility", None, [];
     Backtrack => "blatant.backtrack", "BackTrack", "Utility", None, [];
     AntiDebuff => "render.anti-debuff", "AntiDebuff", "Render", None, [];
+    KillAura => "combat.kill-aura", "KillAura", "Other", None, [];
+    SilentAura => "combat.silent-aura", "SilentAura", "Combat", None, [];
+    KeepSprint => "combat.keep-sprint", "KeepSprint", "Other", None, [];
 }
 
 impl ModuleId {

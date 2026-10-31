@@ -857,3 +857,47 @@ User request: bump the pins to the latest remote main.
 - KeepSprint's Horizon dependency (remote-attack slowdown, #3251) is now in the pin.
 
 Validation ([repin-main-2026-10-31.json](evidence/repin-main-2026-10-31.json)): fmt, all-target Clippy `-D warnings`, 118 lib tests and the payload test pass; stage/audit (36 hooks, 22 support modules) pass; host check and fast build pass. Fresh-home scenarios on the new executable: smoke 27/27, LAN 16/16, inbound hold/replay (LAN) 27/27.
+
+## 2026-10-31: combat worker, shared rotation, KillAura, SilentAura, KeepSprint
+
+- `modules/combat/rotation.rs`: the shared rotation claim (priority owners,
+  pending takeover on release) and the managed rotation. The managed rotation
+  steps toward its target in 50 updates per tick with sensitivity-quantised
+  deltas, then returns to the view before the claim is released.
+- KillAura: swing/attack range, max angle (half on each side), max targets,
+  Distance/Yaw/Armor/Threat/Health sort, APS, perfect swing, require mouse,
+  GUI check, limited items, disable on death and use release/reuse around the
+  attack.
+- SilentAura: the PID rotation mode, Center/Closest target area, random aim,
+  switch, shield check, extra swing and the clicker. Its clicker
+  (SilentAuraClicker) ray-tests the managed rotation, not the view. AI modes
+  stay excluded-approved.
+- KeepSprint: runs at the `remote_player_attack` HEAD. It runs the host body
+  once under a re-entry guard, then replaces the 0.6 cut and sprint stop with
+  the configured slowdown and sprint. Includes buffer abuse and only-in-air.
+- Hooks: `send-state-rotation` (MODIFY_ARG on the motion packet's rotation)
+  and `keep-sprint` (HEAD, cancellable). New support modules: `vape_aura`
+  (client tick) and `vape_combat_remote` (attack by id, miss, swing,
+  KeepSprint). Stage/audit: 38 hooks, 24 modules.
+- `tools/aura_scenario.py` (single player, NoAI 1000-health zombie): 16/16.
+  KillAura hits off-crosshair inside its angle; it does not hit outside the
+  angle, behind a screen, or after disable. SilentAura hits while the view
+  stays unchanged, does not hit outside its angle, and stops when disabled.
+- `tools/keep_sprint_scenario.py` (LAN host + guest, fresh homes): 13/13.
+  Without KeepSprint, guest KillAura hits on the host show the ~0.78 speed
+  dip. With KeepSprint at slowdown 1.0: 0 dips over 6 hits and sprinting
+  throughout. After disable the dip returns.
+
+Validation: fmt, Clippy -D warnings, 131 lib tests and the payload test pass.
+Stage/audit (38 hooks, 24 modules) and the host check/build pass. Evidence:
+docs/evidence/combat-aura.json and combat-keep-sprint.json.
+
+Not ported or limited:
+- The managed rotation does not cover the riding rotation packet.
+- No third-person render of the managed rotation, and no movement fix.
+- The mouse-over and block raytrace are not redirected; the wall check uses
+  the target filter's visibility.
+- SilentAura's Render type (Ring/Box) is not ported.
+- A SilentAura miss in single player only swings.
+- KeepSprint changes only hits on remote players, because that is where the
+  host applies the cut.

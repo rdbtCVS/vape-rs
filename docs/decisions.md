@@ -78,3 +78,11 @@
 - **Pinned to Horizon main `8f91f896a`** (2,292 commits after `cc7bcbf`; Minecraft 26.3 / protocol 777 unchanged) and **published horizon-mixins main `0e9229d`** (0.6.0: named hooks, bundle crates/data, post-build steps; unpatched), at the user's request. Still an untagged main commit; choose a tagged release before a public build.
 - **Drift:** `game/mod_input.rs` was deleted with the Wasm code mods (hashed, never hooked; hash dropped). `name_tag_quads` gained a `unit` argument, which the NameTags copy now passes. All 36 hook targets resolved unchanged.
 - **KeepSprint is unblocked:** Horizon #3251 applies the attacker's 0.6 speed cut and sprint stop on the remote attack path (`attack_strength::ATTACKER_SLOWDOWN`), which the module can now change.
+
+## 2026-10-31: combat rotation and auras
+
+- **One rotation owner.** `rotation::Claim` follows the reference's SharedModuleControlClaims: higher priority preempts, and a waiting owner takes over on release. SilentAura's managed rotation is sent only through the motion packet's rotation argument (`send-state-rotation`). The camera and `game.yaw/pitch` are never changed, so the view stays where the player looks.
+- **SilentAuraClicker merged into SilentAura.** The clicker needs the managed rotation and the aura's target every tick, so it runs in the same runtime tick. It is not a separate module. Its settings stay under SilentAura as in the reference GUI.
+- **Attacks by id replicate the host order.** On a server: `Attack`, then `remote_player_attack`, the strength reset, the swing and `Punch`. Locally: `attack_mob` plus the swing. WTap's attack bookkeeping runs on both paths.
+- **KeepSprint wraps the host body.** The HEAD hook calls `remote_player_attack` once under a re-entry guard. It acts only when the result shows exactly the vanilla 0.6 cut, so a host change to the cut makes it inert instead of wrong.
+- **Not routed:** the mouse-over/block raytrace, the riding rotation packet and the third-person rotation render (open items, no workaround). Aura shield/cooldown bypass from ShieldBreaker/HitSwap/AutoMace arrives with those modules.
