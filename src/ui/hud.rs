@@ -9,11 +9,19 @@ pub struct ArmorPiece {
     pub broken: bool,
 }
 impl ArmorPiece {
+    /// `ArmorStatusItemComponent.getDurabilityPercent`: none without
+    /// durability, 1 at exactly no durability left, 100 past it.
     pub fn percent(&self) -> Option<u32> {
+        let maximum = self.max_damage as f32;
+        let remaining = maximum - self.damage as f32;
         (self.max_damage > 0).then(|| {
-            ((self.max_damage.saturating_sub(self.damage) as f64 / self.max_damage as f64 * 100.0)
-                .ceil() as u32)
-                .clamp(1, 100)
+            if remaining == 0.0 {
+                1
+            } else if remaining < 0.0 {
+                100
+            } else {
+                (remaining / maximum * 100.0).ceil() as u32
+            }
         })
     }
 }
@@ -144,8 +152,43 @@ pub struct Layout {
     pub commands: Vec<Command>,
 }
 /// Minecraft yaw zero faces south; the reference strip uses north = zero.
+/// This is the reference's own wrap, so a yaw of 180 reads 360, not 0.
 pub fn heading(yaw: f32) -> f32 {
-    (yaw + 180.0).rem_euclid(360.0)
+    let mut heading = yaw % 360.0;
+    if heading < -180.0 {
+        heading += 360.0;
+    }
+    if heading > 180.0 {
+        heading -= 360.0;
+    }
+    heading + 180.0
+}
+// Vape theme colours (`ThemeColors`): B, I, d, Y, Z, A and i.
+const GREEN: u32 = 0xff058669;
+const ORANGE: u32 = 0xffec812c;
+const RED: u32 = 0xfffa3238;
+const BIOME: u32 = 0xffffa054;
+const GREY: u32 = 0xffa3a3a3;
+const LIGHT: u32 = 0xffd1d1d1;
+const DIVIDER: u32 = 0x33ffffff;
+/// `RenderUtils.q(ratio, true)`: red through yellow to the theme green.
+fn durability_color(ratio: f32) -> u32 {
+    let ratio = ratio.clamp(0.0, 1.0);
+    let (from, to, t) = if ratio <= 0.5 {
+        ([255.0, 0.0, 0.0], [255.0, 255.0, 0.0], ratio * 2.0)
+    } else {
+        ([255.0, 255.0, 0.0], [5.0, 134.0, 105.0], ratio * 2.0 - 1.0)
+    };
+    (0..3).fold(0xff000000, |argb, i| {
+        argb | ((from[i] + (to[i] - from[i]) * t).round() as u32) << (16 - i * 8)
+    })
+}
+/// A tinted texture multiplies every channel, alpha included.
+fn tint(base: u32, by: u32) -> u32 {
+    (0..4).fold(0, |argb, i| {
+        let shift = i * 8;
+        argb | (((base >> shift) & 0xff) * ((by >> shift) & 0xff) / 255) << shift
+    })
 }
 pub fn biome_title(id: &str) -> String {
     id.strip_prefix("minecraft:")
@@ -201,17 +244,64 @@ impl Layout {
             if pressed { 0xff1a191a } else { 0xffd1d1d1 },
         );
     }
-    fn arrow(&mut self, x: f32, y: f32, positive: bool) {
-        self.fill(x - 4.0, y - 4.0, 8.0, 8.0, 0x91252426);
-        let points = if positive {
-            [[x - 2.2, y + 0.5], [x, y - 1.5], [x + 1.7, y + 0.5]]
-        } else {
-            [[x - 2.2, y - 1.0], [x + 1.7, y - 1.0], [x, y + 1.0]]
-        };
-        self.commands.push(Command::Triangle {
-            points,
-            color: if positive { 0xff06a17e } else { 0xffe35656 },
+    fn line(&mut self, from: [f32; 2], to: [f32; 2], width: f32, color: u32) {
+        self.commands.push(Command::Line {
+            from,
+            to,
+            width,
+            color,
         });
+    }
+    fn triangle(&mut self, points: [[f32; 2]; 3], color: u32) {
+        self.commands.push(Command::Triangle { points, color });
+    }
+    /// `CoordinatesHudFrame.drawDirectionArrow`.
+    fn arrow(&mut self, x: f32, y: f32, positive: bool) {
+        self.fill(x - 4.0, y - 4.0, 8.0, 8.0, 0x911a191a);
+        if positive {
+            self.triangle(
+                [[x - 2.2, y + 0.5], [x, y - 1.5], [x + 1.7, y + 0.5]],
+                GREEN,
+            );
+        } else {
+            self.triangle([[x - 2.2, y - 1.0], [x + 1.7, y - 1.0], [x, y + 1.0]], RED);
+        }
+    }
+    /// The reference's cracked `armor` shield, drawn as geometry over its
+    /// 24x25 texture pixels; the texture itself is not shipped.
+    fn shield(&mut self, x: f32, y: f32, scale: f32, color: u32) {
+        let at = |px: f32, py: f32| [x + px * scale, y + py * scale];
+        for [x0, y0, x1, y1] in [
+            [8.0, 3.5, 19.5, 6.5],
+            [13.5, 6.5, 19.5, 13.0],
+            [5.0, 8.0, 11.5, 13.0],
+            [5.0, 5.0, 6.5, 8.0],
+        ] {
+            let [left, top] = at(x0, y0);
+            self.fill(left, top, (x1 - x0) * scale, (y1 - y0) * scale, color);
+        }
+        let point = [
+            at(5.5, 13.0),
+            at(19.5, 13.0),
+            at(17.5, 16.5),
+            at(12.0, 19.5),
+            at(6.5, 16.5),
+        ];
+        for i in 1..4 {
+            self.triangle([point[0], point[i], point[i + 1]], color);
+        }
+    }
+    /// The reference's `bar-1` broken-bar dashes over its 49x12 texture pixels.
+    fn broken_bar(&mut self, x: f32, y: f32, scale: f32, color: u32) {
+        for (x0, x1) in [(5.0, 23.5), (25.5, 44.5)] {
+            self.fill(
+                x + x0 * scale,
+                y + 3.5 * scale,
+                (x1 - x0) * scale,
+                3.0 * scale,
+                color,
+            );
+        }
     }
 }
 impl HudPanel {
@@ -356,116 +446,130 @@ impl HudPanel {
                 }
             }
             Content::Armor { pieces, compact } => {
-                let step = if *compact { 24.0 } else { 20.0 };
+                // ArmorStatusItemComponent rows sit 2 in; compact rows are
+                // 22 tall with 2 between them, detailed rows 20.
+                let height = if *compact { 22.0 } else { 20.0 };
+                let step = height + if *compact { 2.0 } else { 0.0 };
                 for (i, piece) in pieces.iter().enumerate() {
                     let y = 2.0 + i as f32 * step;
-                    let percent = piece.percent();
-                    let ratio = percent.unwrap_or(100) as f32 / 100.0;
-                    if piece.broken || ratio < 0.1 {
-                        output.fill(
-                            0.0,
-                            y,
-                            output.width,
-                            step,
-                            if piece.broken { 0x78fa3239 } else { 0x32fa3239 },
-                        );
-                    }
                     if piece.broken {
-                        output.text(5.0, y + 3.0, 1.1, "!", 0xfffa3239);
-                    } else {
-                        output.commands.push(Command::ArmorIcon {
-                            slot: piece.slot,
-                            x: if *compact { 5.0 } else { 4.0 },
-                            y: y + if *compact { 0.0 } else { 2.0 },
-                            preview: piece.preview,
-                        });
-                    }
-                    if let Some(percent) = percent {
-                        let c = if ratio > 0.5 {
-                            0xff06a17e
-                        } else if ratio > 0.2 {
-                            0xffe0b84a
+                        output.fill(0.0, y, output.width, height, 0x78fa3239);
+                        if *compact {
+                            output.shield(6.0, y + 3.0, 0.45, RED);
+                            output.broken_bar(3.0, y + 15.0, 0.15, RED);
                         } else {
-                            0xfffa3239
-                        };
-                        let (x, bar_y, w) = if *compact {
-                            (3.0, y + 17.0, 20.0)
-                        } else {
-                            output.text(
-                                28.0,
-                                y + 5.0,
-                                0.85,
-                                format!("{}%", if piece.broken { 0 } else { percent }),
-                                color,
-                            );
-                            (28.0, y + 13.0, 20.0)
-                        };
-                        output.fill(x, bar_y, w, 1.5, 0x99000000);
-                        output.fill(x, bar_y, w * if piece.broken { 0.0 } else { ratio }, 1.5, c);
+                            output.shield(4.0, y + 3.0, 0.45, RED);
+                            output.broken_bar(25.0, y + 11.0, 0.2, RED);
+                            output.line([22.0, y + 4.0], [22.0, y + 16.0], 2.0, RED);
+                            output.text(28.0, y + 5.0, 0.85, "0%", color);
+                        }
+                        continue;
                     }
-                    if *compact && i + 1 < pieces.len() {
-                        output.fill(9.0, y + 23.0, 8.0, 1.0, 0x33ffffff);
+                    let percent = piece.percent();
+                    if *compact && percent.is_none() {
+                        continue;
+                    }
+                    // No durability reads as -1%, which the detailed row
+                    // still warns about, as the reference does.
+                    let ratio = percent.map_or(-0.01, |p| p as f32 / 100.0);
+                    if ratio < 0.1 {
+                        let alpha = (30.0 + 30.0 * (0.1 - ratio) / 0.1) as u32;
+                        output.fill(0.0, y, output.width, height, alpha << 24 | 0xfa3239);
                     }
                     if !*compact {
-                        output.fill(22.0, y + 4.0, 1.5, 12.0, 0x33ffffff);
+                        output.line([22.0, y + 4.0], [22.0, y + 16.0], 2.0, DIVIDER);
+                    }
+                    output.commands.push(Command::ArmorIcon {
+                        slot: piece.slot,
+                        x: if *compact { 5.0 } else { 4.0 },
+                        y: y + if *compact { 0.0 } else { 2.0 },
+                        preview: piece.preview,
+                    });
+                    let Some(percent) = percent else {
+                        continue;
+                    };
+                    let (x, bar_y) = if *compact {
+                        (3.0, y + 17.0)
+                    } else {
+                        output.text(28.0, y + 5.0, 0.85, format!("{percent}%"), color);
+                        (28.0, y + 13.0)
+                    };
+                    output.fill(x, bar_y, 20.0, 1.5, 0x99000000);
+                    output.fill(x, bar_y, 20.0 * ratio, 1.5, durability_color(ratio));
+                    if *compact && i + 1 < pieces.len() {
+                        output.line([9.0, y + 23.0], [17.0, y + 23.0], 2.0, DIVIDER);
                     }
                 }
             }
             Content::Potions { effects } => {
-                output.width = effects
-                    .iter()
-                    .map(|e| measure(&e.name) * 0.85 + 40.0)
-                    .fold(40.0, f32::max)
-                    .max(output.width);
+                // PotionEffectsHudFrame: 30-tall rows from the top edge.
+                let mut text_width = 0_i32;
                 for (i, effect) in effects.iter().enumerate() {
-                    let y = 2.0 + i as f32 * 30.0;
-                    let ratio = if effect.duration < 0 {
-                        1.0
+                    let y = i as f32 * 30.0;
+                    // Infinite effects (duration -1) came after the
+                    // reference's versions; they keep a full ring and read ∞.
+                    let percent = if effect.duration < 0 {
+                        100.0
                     } else {
-                        effect.duration as f32 / effect.maximum.max(1) as f32
-                    }
-                    .clamp(0.0, 1.0);
-                    let c = if ratio > 0.5 {
-                        0xff06a17e
-                    } else if ratio > 0.25 {
-                        0xffe0b84a
+                        effect.duration as f32 / effect.maximum.max(1) as f32 * 100.0
+                    };
+                    let ring = if percent <= 25.0 {
+                        RED
+                    } else if percent <= 50.0 {
+                        ORANGE
                     } else {
-                        0xfffa3239
+                        GREEN
                     };
                     output.commands.push(Command::Arc {
-                        center: [16.0, y + 16.0],
-                        radius: 11.0,
+                        center: [16.125, y + 16.125],
+                        radius: 10.225,
                         start: 0.0,
                         end: 360.0,
-                        width: 1.8,
+                        width: 0.8,
                         color: 0xc8000000,
                     });
-                    output.commands.push(Command::Arc {
-                        center: [16.0, y + 16.0],
-                        radius: 11.0,
-                        start: -90.0,
-                        end: -90.0 + 360.0 * ratio,
-                        width: 2.0,
-                        color: c,
+                    output.commands.push(if percent >= 100.0 {
+                        Command::Arc {
+                            center: [16.0, y + 16.0],
+                            radius: 10.25,
+                            start: 0.0,
+                            end: 360.0,
+                            width: 1.5,
+                            color: ring,
+                        }
+                    } else {
+                        // Anticlockwise from the top, emptying from the right.
+                        Command::Arc {
+                            center: [16.0, y + 16.0],
+                            radius: 10.0,
+                            start: 270.0 - 3.6 * percent,
+                            end: 270.0,
+                            width: 1.5,
+                            color: ring,
+                        }
                     });
-                    output.commands.push(Command::Sprite {
-                        id: format!("mob_effect/{}", effect.id),
-                        x: 9.0,
-                        y: y + 9.0,
-                        width: 14.0,
-                        height: 14.0,
-                    });
-                    output.fill(30.0, y + 10.0, 1.5, 11.5, 0x33ffffff);
-                    output.text(35.0, y + 7.0, 0.85, &effect.name, color);
+                    output.line([30.0, y + 10.0], [30.0, y + 21.5], 2.0, DIVIDER);
                     let duration = if effect.duration < 0 {
                         "∞".into()
                     } else {
                         let seconds = effect.duration / 20;
-                        format!("{}:{:02}", seconds / 60, seconds % 60)
+                        format!("{:02}:{:02}", seconds / 60, seconds % 60)
                     };
-                    output.width = output.width.max(40.0 + measure(&duration) * 0.85);
-                    output.text(35.0, y + 17.0, 0.85, duration, c);
+                    text_width = text_width
+                        .max((measure(&effect.name) * 0.85) as i32)
+                        .max((measure(&duration) * 0.85) as i32);
+                    output.text(35.0, y + 9.0, 0.85, &effect.name, color);
+                    let label = if percent > 100.0 { LIGHT } else { ring };
+                    output.text(35.0, y + 17.0, 0.85, duration, label);
+                    output.commands.push(Command::Sprite {
+                        id: format!("mob_effect/{}", effect.id),
+                        x: 9.0,
+                        y: y + 10.0,
+                        width: 14.0,
+                        height: 14.0,
+                    });
                 }
+                output.width = output.width.max(40.0 + text_width as f32);
             }
             Content::Lines => {
                 if output.width == 0.0 {
@@ -493,6 +597,7 @@ impl HudPanel {
                 yaw,
                 biome,
             } => {
+                // CoordinatesHudFrame: Math.round positions, text x truncated.
                 let values = position.map(|v| ((v + 0.5).floor() as i64).to_string());
                 let heading = heading(*yaw);
                 let positive = [
@@ -504,38 +609,21 @@ impl HudPanel {
                     let row = output.height / 4.0;
                     for i in 0..3 {
                         let label = ["X", "Y", "Z"][i];
-                        output.text(8.0, row * (i as f32 + 0.5), 0.7, label, color);
-                        output.text(
-                            8.0 + measure(label) * 0.7 + 2.5,
-                            row * (i as f32 + 0.5) - 2.5,
-                            1.1,
-                            &values[i],
-                            color,
-                        );
+                        let y = row * (i as f32 + 0.5);
+                        output.text(8.0, y, 0.7, label, color);
+                        let x = (8.0 + measure(label) * 0.7 + 2.5).floor();
+                        output.text(x, y - 2.5, 1.1, &values[i], color);
                         if i != 1 {
-                            output.arrow(
-                                output.width - 12.0,
-                                row * (i as f32 + 0.5) + if i == 0 { 1.5 } else { 0.0 },
-                                positive[i],
-                            );
+                            let y = y + if i == 0 { 1.5 } else { 0.0 };
+                            output.arrow(output.width - 12.0, y, positive[i]);
                         }
-                        output.fill(
-                            8.0,
-                            row * (i as f32 + 1.0) + 1.5,
-                            output.width - 15.0,
-                            1.0,
-                            0x33ffffff,
-                        );
+                        let y = row * (i as f32 + 1.0) + 1.5;
+                        output.line([8.0, y], [output.width - 7.0, y], 1.0, DIVIDER);
                     }
                     let y = row * 3.5 - 2.5;
                     output.text(8.0, y, 0.7, "BIOME:", color);
-                    output.text(
-                        8.0 + measure("BIOME:") * 0.7 + 4.0,
-                        y,
-                        0.7,
-                        biome,
-                        0xffa7a5a7,
-                    );
+                    let x = (8.0 + measure("BIOME:") * 0.7 + 4.0).floor();
+                    output.text(x, y, 0.7, biome, BIOME);
                 } else {
                     let half = output.height / 2.0;
                     let mut x = 10.0_f32;
@@ -547,22 +635,21 @@ impl HudPanel {
                         x += (5.0 + measure("0") * 1.2 * values[i].len() as f32).max(22.0);
                         if i != 1 {
                             output.arrow(x, half / 2.0 + 4.0, positive[i]);
-                            x += 10.0;
                         }
                         if i != 2 {
-                            output.fill(x.floor(), (half / 2.0).floor(), 1.2, 8.0, 0x33ffffff);
+                            if i == 0 {
+                                x += 10.0;
+                            }
+                            let (left, top) = (x.floor(), (half / 2.0).floor());
+                            output.line([left, top], [left, top + 8.0], 1.2, DIVIDER);
                             x += 10.0;
                         }
                     }
+                    // The frame ends 12 past the Z arrow's centre.
                     output.width = output.width.max(x + 12.0);
                     output.text(10.0, half * 1.5 - 2.5, 0.75, "BIOME:", color);
-                    output.text(
-                        10.0 + measure("BIOME: ") * 0.75,
-                        half * 1.5 - 2.5,
-                        0.75,
-                        biome,
-                        0xffa7a5a7,
-                    );
+                    let x = (10.0 + measure("BIOME: ") * 0.75).floor();
+                    output.text(x, half * 1.5 - 2.5, 0.75, biome, BIOME);
                 }
             }
             Content::TextGui(_) | Content::TargetInfo(_) => {}
@@ -576,44 +663,59 @@ impl HudPanel {
                 output.text(5.0, 5.5, 1.0, text.clone(), color);
             }
             Content::Compass { yaw } => {
+                // CompassStripComponent: 1400 tenth-degree steps across the
+                // strip from 70 degrees left of the heading, the first one
+                // truncated to a tenth; every fifth degree gets a tick.
                 let heading = heading(*yaw);
-                let start = heading - 70.0;
-                for tick in ((start / 5.0).ceil() as i32)..=((heading + 70.0) / 5.0).floor() as i32
-                {
-                    let degree = tick * 5;
-                    let normalized = degree.rem_euclid(360);
-                    let x = (degree as f32 - start) * (output.width + 4.0) / 140.0;
-                    let major = normalized % 45 == 0;
-                    output.fill(
-                        x,
-                        output.height / 2.0 - 6.0,
-                        if major { 1.5 } else { 1.0 },
-                        if major { 10.0 } else { 8.0 },
-                        color,
-                    );
-                    if normalized % 15 == 0 {
+                let first = ((heading - 70.0) * 10.0) as i32;
+                let spacing = (output.width + 4.0) / 1400.0;
+                let middle = output.height / 2.0;
+                let mut tenth = first + (50 - first.rem_euclid(50)) % 50;
+                while tenth - first < 1400 {
+                    let x = (tenth - first + 1) as f32 * spacing;
+                    let degree = (tenth / 10).rem_euclid(360);
+                    let major = degree % 45 == 0;
+                    // compassbigpoint/compasssmallpoint: a one-pixel column
+                    // just right of x, with a faint shadow copy unbackgrounded.
+                    let (top, bottom, white, shadow) = if major {
+                        (middle - 9.125, middle - 2.875, 0x66ffffff, 0x28000000)
+                    } else {
+                        (middle - 7.0, middle - 5.0, 0x60ffffff, 0x13000000)
+                    };
+                    if !self.background {
+                        output.line([x + 1.0, top], [x + 1.0, bottom], 1.0, shadow);
+                    }
+                    output.line([x + 1.0, top], [x + 1.0, bottom], 1.0, white);
+                    if degree % 15 == 0 {
                         let text = if major {
-                            ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][(normalized / 45) as usize]
+                            ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][(degree / 45) as usize]
                                 .into()
                         } else {
-                            normalized.to_string()
+                            degree.to_string()
                         };
-                        output.text(
-                            x - measure(&text) * 0.35,
-                            output.height / 2.0,
-                            0.7,
-                            text,
-                            if major { color } else { 0xffa7a5a7 },
-                        );
+                        let label = if !self.background {
+                            0xffe6e6e6
+                        } else if major {
+                            0xffffffff
+                        } else {
+                            GREY
+                        };
+                        output.text(x - measure(&text) * 0.35, middle, 0.7, text, label);
                     }
+                    tenth += 50;
                 }
-                let x = output.width / 2.0;
-                output.commands.push(Command::Triangle {
-                    points: [[x - 3.0, 0.0], [x + 3.0, 0.0], [x, 5.0]],
-                    color,
-                });
-                let text = format!("{:.0}", heading);
-                output.text(x - measure(&text) * 0.35, -8.0, 0.7, text, color);
+                // compassarrow at half scale, tinted by the foreground.
+                let (x, y) = (output.width / 2.0 - 2.7, -2.5);
+                let arrow = tint(RED, color);
+                output.fill(x + 1.8, y + 1.0, 5.4, 1.5, arrow);
+                output.triangle(
+                    [[x + 1.8, y + 2.5], [x + 7.2, y + 2.5], [x + 4.5, y + 6.75]],
+                    arrow,
+                );
+                output.fill(x + 4.0, y + 8.0, 1.0, 6.0, tint(0x8be52e33, color));
+                let text = (heading as i32).to_string();
+                let x = output.width / 2.0 + 2.3 - measure(&text) * 0.4;
+                output.text(x, -8.0, 0.8, text, 0xffe6e6e6);
             }
         }
         output
@@ -632,7 +734,7 @@ mod tests {
                 heading(90.0),
                 heading(540.0)
             ],
-            [0.0, 90.0, 180.0, 270.0, 0.0]
+            [0.0, 90.0, 180.0, 270.0, 360.0]
         );
         assert_eq!(
             biome_title("minecraft:old_growth_birch_forest"),
@@ -722,5 +824,197 @@ mod tests {
                 _ => true,
             }));
         }
+    }
+    fn texts(layout: &Layout) -> Vec<(f32, f32, &str, u32)> {
+        layout
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Text {
+                    x, y, text, color, ..
+                } => Some((*x, *y, text.as_str(), *color)),
+                _ => None,
+            })
+            .collect()
+    }
+    fn piece(slot: usize, max_damage: u32, damage: u32, broken: bool) -> ArmorPiece {
+        ArmorPiece {
+            slot,
+            max_damage,
+            damage,
+            preview: false,
+            broken,
+        }
+    }
+    #[test]
+    fn armor_percent_follows_the_reference_edges() {
+        assert_eq!(piece(0, 0, 0, false).percent(), None);
+        assert_eq!(piece(0, 363, 363, false).percent(), Some(1));
+        assert_eq!(piece(0, 363, 400, false).percent(), Some(100));
+        assert_eq!(piece(0, 363, 0, false).percent(), Some(100));
+        assert_eq!(piece(0, 363, 362, false).percent(), Some(1));
+        assert_eq!(piece(0, 363, 181, false).percent(), Some(51));
+        assert_eq!(durability_color(0.0), 0xffff0000);
+        assert_eq!(durability_color(0.5), 0xffffff00);
+        assert_eq!(durability_color(1.0), GREEN);
+        assert_eq!(tint(RED, 0xffffffff), RED);
+        assert_eq!(tint(RED, 0x80ffffff) >> 24, 0x80);
+    }
+    #[test]
+    fn armor_rows_draw_detailed_and_compact_reference_layouts() {
+        let pieces = vec![
+            piece(0, 100, 0, false),
+            piece(1, 100, 95, false),
+            piece(2, 0, 0, false),
+            piece(3, 100, 100, true),
+        ];
+        let detailed = panel(
+            Content::Armor {
+                pieces: pieces.clone(),
+                compact: false,
+            },
+            54.0,
+            84.0,
+        )
+        .layout(|s| s.len() as f32 * 6.0);
+        let text = texts(&detailed);
+        // The no-durability helmet has no percentage; the broken boots read 0%.
+        assert_eq!(
+            text.iter().map(|t| (t.1, t.2)).collect::<Vec<_>>(),
+            [(7.0, "100%"), (27.0, "5%"), (67.0, "0%")]
+        );
+        // Low and no-durability rows warn with a fill as tall as the row.
+        let warnings = detailed
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Fill {
+                    y, height, color, ..
+                } if *color & 0xffffff == 0xfa3239 => Some((*y, *height, *color >> 24)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            warnings,
+            [(22.0, 20.0, 45), (42.0, 20.0, 63), (62.0, 20.0, 120)]
+        );
+        let icons = |layout: &Layout| {
+            layout
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    Command::ArmorIcon { slot, x, y, .. } => Some((*slot, *x, *y)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            icons(&detailed),
+            [(0, 4.0, 4.0), (1, 4.0, 24.0), (2, 4.0, 44.0)]
+        );
+        // The broken row draws the red shield and bar instead of an icon.
+        assert!(detailed.commands.iter().any(|c| matches!(
+            c,
+            Command::Triangle { color: RED, points } if points[0][1] > 62.0
+        )));
+        let compact = panel(
+            Content::Armor {
+                pieces,
+                compact: true,
+            },
+            26.0,
+            98.0,
+        )
+        .layout(|s| s.len() as f32 * 6.0);
+        assert!(texts(&compact).is_empty());
+        // Compact skips the no-durability piece entirely.
+        assert_eq!(icons(&compact), [(0, 5.0, 2.0), (1, 5.0, 26.0)]);
+        let dividers = compact
+            .commands
+            .iter()
+            .filter(|c| matches!(c, Command::Line { color: DIVIDER, .. }))
+            .count();
+        assert_eq!(dividers, 2);
+    }
+    #[test]
+    fn potion_rows_count_down_with_reference_colours() {
+        let effects = vec![
+            PotionView::preview("speed", 6500, false),
+            PotionView::preview("slowness", 5000, true),
+            PotionView::preview("fire_resistance", 1000, false),
+            PotionView {
+                maximum: 100,
+                ..PotionView::preview("water_breathing", -1, false)
+            },
+            PotionView {
+                maximum: 72000,
+                ..PotionView::preview("night_vision", 72000, false)
+            },
+        ];
+        let output =
+            panel(Content::Potions { effects }, 40.0, 152.0).layout(|s| s.len() as f32 * 6.0);
+        let durations = texts(&output)
+            .into_iter()
+            .filter(|t| t.0 == 35.0 && (t.1 - 17.0) % 30.0 == 0.0)
+            .map(|t| (t.2, t.3))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            durations,
+            [
+                ("05:25", GREEN),
+                ("04:10", ORANGE),
+                ("00:50", RED),
+                ("∞", GREEN),
+                ("60:00", GREEN)
+            ]
+        );
+        let rings = output
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Arc {
+                    center,
+                    start,
+                    end,
+                    color,
+                    ..
+                } if *color != 0xc8000000 => Some((center[1], *start, *end, *color)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rings[0], (16.0, 270.0 - 234.0, 270.0, GREEN));
+        assert_eq!(rings[1], (46.0, 90.0, 270.0, ORANGE));
+        assert_eq!(rings[3], (106.0, 0.0, 360.0, GREEN));
+        // "Fire Resistance" is the widest text: 15 glyphs at 0.85.
+        assert_eq!(output.width, 40.0 + (15.0 * 6.0 * 0.85_f32) as i32 as f32);
+    }
+    #[test]
+    fn compass_ticks_follow_the_tenth_degree_strip() {
+        let output =
+            panel(Content::Compass { yaw: 0.0 }, 308.0, 30.0).layout(|s| s.len() as f32 * 6.0);
+        let ticks = output
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Line { from, color, .. } if *color >> 24 >= 0x60 => {
+                    Some((from[0], *color))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        // 140 degrees in steps of 5 from 110 to 250, S major at the centre.
+        assert_eq!(ticks.len(), 28);
+        let spacing = 312.0 / 1400.0;
+        assert!(ticks.contains(&(701.0 * spacing + 1.0, 0x66ffffff)));
+        assert!(ticks.contains(&(51.0 * spacing + 1.0, 0x60ffffff)));
+        let text = texts(&output);
+        assert!(text.contains(&(701.0 * spacing - 3.0 * 0.7, 15.0, "S", 0xffffffff)));
+        assert!(text.contains(&(851.0 * spacing - 9.0 * 0.7, 15.0, "195", GREY)));
+        assert!(text.contains(&(154.0 + 2.3 - 9.0 * 0.8, -8.0, "180", 0xffe6e6e6)));
+        let mut bare = panel(Content::Compass { yaw: 0.0 }, 308.0, 30.0);
+        bare.background = false;
+        let bare = bare.layout(|s| s.len() as f32 * 6.0);
+        assert!(texts(&bare).iter().all(|t| t.3 == 0xffe6e6e6));
+        assert_eq!(bare.commands.len(), output.commands.len() + 28);
     }
 }
