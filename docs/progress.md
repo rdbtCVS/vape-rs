@@ -957,3 +957,39 @@ Pinned Horizon 8f91f896a / horizon-mixins 0e9229d, fresh isolated homes.
   - Test fixes: the Backtrack baseline now allows interpolation lag (< 1.2),
     and the Repel check is timed on two attacks three ticks apart.
 - Evidence: docs/evidence/validation-legit-render.json, validation-hold.json.
+
+## 2026-10-31: validation — utility modules, delay removals, a frame-time measurement
+
+Pinned Horizon 8f91f896a / horizon-mixins 0e9229d, fresh isolated homes.
+
+- `tools/utility_scenario.py` (integrated server, survival): **18/18**
+  (`utility-kppox6bq`).
+  - Refill moves 4 soups from the main inventory into the free hotbar slots in
+    0.6 s, leaves the stone alone, closes the inventory and turns itself off.
+    Off, nothing moves.
+  - ChestSteal takes all three stacks and closes the chest in 0.59 s. Off, the
+    open chest is left alone. Closed by the player mid-steal, the clicks stop
+    with the screen (1 of 78 items taken, the rest stays in the chest).
+  - Binds do not reach a menu screen, so the toggle is not used mid-steal.
+  - AutoFish: a Lure III cast catches nothing in 40 s without the module. With
+    it, the bite is reeled in and a catch arrives (24 s).
+- `tools/delays_perf_scenario.py`: **39/39** (`delays-perf-_xnqd1x5`).
+  - NoJumpDelay under a two-block ceiling: 7 / 21 / 7 take-offs in 60 ticks
+    with off / on / after.
+  - NoClickDelay: a click on a cow right after a missed click is dropped
+    without the module (0/3), lands with it (3/3), and is dropped again after
+    (0/3).
+- Performance (ctl bench, 10 s each). The run had twelve render/HUD modules on
+  (hud coordinates/fps/keystrokes/armor/potions, ESP, Tracers, StorageESP,
+  NameTags, ItemESP, Trajectories, Fullbright) in front of 24 cows and
+  8 chests.
+  - CPU per frame: avg 1.75 -> 4.11 -> 1.86 ms for off / on / after.
+  - CPU p99: 5.5 -> 40.5 -> 7.8 ms. Spikes like these with the modules on are
+    a real cost and are not yet profiled.
+  - The frame rate (118 / 30 / 30 fps) followed the compositor's pacing of the
+    window and is not attributed to the modules. In an earlier run, frames
+    with every module off after the bench ran at 30 fps too.
+  - The check is on CPU time (within 3 ms of plain).
+- Not covered: localization (client.localization is not-started, nothing to
+  validate).
+- Evidence: docs/evidence/validation-utility.json, validation-delays-perf.json.
