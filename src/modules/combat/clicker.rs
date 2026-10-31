@@ -372,6 +372,9 @@ pub struct Input {
     pub entity_hit: bool,
     pub block_hit: bool,
     pub sneaking: bool,
+    /// HitSelect's right-click cancel is active and the crosshair entity is
+    /// still invulnerable with the player on the ground (`isHitSelectActive`).
+    pub hit_select: bool,
 }
 
 /// What the adapter does this frame.
@@ -505,9 +508,14 @@ impl Engine {
     }
 
     /// `shouldDeferAttack` on the pinned modern host (attack cooldown aside,
-    /// handled by the host itself): Trigger mode only clicks on entities.
+    /// handled by the host itself): Trigger mode only clicks on entities, and
+    /// HitSelect holds clicks on an entity it would cancel.
     fn defer(o: &Options, input: &Input) -> bool {
-        o.trigger && !input.entity_hit
+        if input.entity_hit {
+            input.hit_select
+        } else {
+            o.trigger
+        }
     }
 
     /// `stopBreakingBlock`.
@@ -777,5 +785,23 @@ mod tests {
             turned |= e.frame(&o, &input(n)).turn != (0, 0);
         }
         assert!(turned);
+    }
+
+    #[test]
+    fn hit_select_defers_only_entity_clicks() {
+        let o = options();
+        let held = |hit_select, entity_hit| {
+            run(&mut Engine::new(5), &o, 2000, |n| Input {
+                entity_hit,
+                hit_select,
+                ..input(n)
+            })
+            .0
+        };
+        assert_eq!(held(true, true), 0);
+        assert!(held(false, true) > 0);
+        // Without an entity in the crosshair the flag is never set; the
+        // clicker's own rules decide.
+        assert!(held(true, false) > 0);
     }
 }

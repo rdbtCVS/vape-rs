@@ -60,6 +60,10 @@ pub trait People {
     fn bot(&self, _entity: &EntityView) -> bool {
         false
     }
+    /// TargetFilter's "Recolor visuals" team colour (0xRRGGBB).
+    fn team_color(&self, _entity: &EntityView) -> Option<u32> {
+        None
+    }
 }
 
 /// Lowercased name lists from the local friend/enemy records.

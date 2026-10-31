@@ -1722,6 +1722,218 @@ Scenarios on merged main, each in a fresh isolated home: hud_detail 8/8, weather
 
 Open, from the worker: HUD text still uses the host bitmap font (a cross-HUD decision shared with hud-client); localization, the HUD editor's transparency and the armor bar's glow are not ported.
 
+## 2026-10-31: status and README refreshed; workers told to wrap up
+
+- All nine round-3 workers were told to finish only their current item and to update progress.md, hooks.md and decisions.md (append-only). Each writes its ledger file, merges main `97dbaa7`, runs the gates and sends a final report naming its unfinished scope. Their branches are merged one at a time, with gates and scenarios rerun on main.
+- docs/status.md was rewritten for main `97dbaa7`. It covers ledger counts (472 rows: 101 validated, 36 integrated, 54 implemented-core, 246 not-started, 12 blocked, 13 excluded-approved, 10 not-applicable-reviewed), the validated, integrated and implemented-core module lists, the work in flight, host blockers, gate and scenario evidence (431 tests, 44 hooks, 29 support modules), Phase 8 status and the re-pin candidate `5062f225`. Performance is still unvalidated until an idle-machine run.
+- README "What works today" now lists only scenario-validated modules as tested. Integrated and partly connected modules are named separately. LongJump, Step and AntiFall are no longer advertised.
+- New finding: 37 category-level reference classes have no ledger rows. Most are modules ModManager never registers (LongJump, AntiFall, Step, Strafe, Phase, Regen, OmniSprint, PotionSaver, AntiFML, DiscardedBlink, KnockbackTest, SelfDestruct, debug modules). The port ships LongJump, AntiFall and Step (compile-only, 2026-10-30) although the reference GUI never shows them. Open: decide whether to track them as extras or drop them for fidelity.
+- Tests: docs only; no code changed. Gates for main `97dbaa7` are in the hud-modules entry above.
+
+## 2026-10-31: combat part A (worker round 2)
+
+Worker combat-a, branch `t3/1e32141e`. Main `97dbaa7` and the docs-only `8203df1` are merged in.
+
+Changed files:
+- Pure modules:
+  - `src/modules/combat/hit_select.rs` (new)
+  - `src/modules/combat/block_hit.rs` (new)
+  - `src/modules/combat/hit_flick.rs` (new)
+  - `src/modules/utility/target_filter.rs` (new)
+  - small edits: `rotation.rs` (`Managed::tick_by`), `silent_aura.rs` (controller hand-off), `clicker.rs` (AutoClicker holds entity clicks that HitSelect would cancel), `blatant/outbound.rs`, `render/esp.rs` (TargetFilter recolour) and `targeting/filter.rs`
+- Runtime glue: `src/core/combat_extra.rs`, `combat_runtime.rs`, `mod.rs`, `registry.rs` and `hud_extras.rs`.
+- Host side:
+  - five new hooks and three support modules: `mixins/vape_rs/hit_select.rs`, `block_hit.rs`, `teams.rs` and the `adapters/` entries
+  - edits to `aura.rs`, `combat.rs`, `packets.rs` and `horizon-mixin.toml`
+- Scenario tool: `tools/combat_a_scenario.py`.
+
+Feature results (ledger updates in `target/ledger-updates/combat-a.json`):
+
+| Feature | Rows | Status |
+|---|---|---|
+| HitSelect | `module.hitselect`, both modes (Normal, Right-click use cancel), helpers `module.wtapsprintresetmode` (with its KB reduction and Critical hits modes) and `module.wtaprightclickusecancelmode` | validated |
+| BlockHit | `module.blockhit`, modes Manual/Predict/Auto/Lag, helpers `module.manualblockhitmode`, `predictblockhitmode`, `autoblockhitmode`, `lagblockhitmode` and `blockhitmode` | validated |
+| TargetFilter | `module.antibot` (TargetFilter), helper `module.antibotentitycache` | validated |
+| HitFlick | `module.hitflick`, helper `module.hitflickadaptiverotationcontroller` | implemented-core |
+
+How each landed:
+- **HitSelect** uses the reference wtap-package classes for its modes. It cancels through:
+  - `hit-select-attack` (cancellable HEAD on `remote_start_attack`, priority 110)
+  - `hit-select-use`
+  - `hit-select-continue-attack`
+- **BlockHit**:
+  - On 26.3 it blocks with the off-hand shield (see decisions).
+  - `block-hit-mouse` covers Manual and Auto.
+  - `block-hit-send` covers Lag's held release-use queue.
+  - Predict's damage notice comes from the inbound damage and entity events.
+- **TargetFilter**:
+  - Modes: Teams by server and Teams by color. Colours are detected from the player list, which is the reference's 26.3 path.
+  - It is wired into the shared target filter, so KillAura, SilentAura, AimAssist and TriggerBot all honour it.
+  - It recolours ESP.
+- **HitFlick (pure port only)**:
+  - Implemented: the flick phases, the adaptive controller speeds read on every update, and the managed rotation shared with SilentAura.
+  - It shares the primary action claim with BlockHit Lag, and FakeLag Repel yields to either.
+  - Not hooked in the host, and the aura passes an empty view, so it never leaves Idle in the host.
+
+Scenarios. Each ran in fresh isolated homes through `tools/native_session.py`, on this branch's host builds of the work in progress. Each `build.json` records `source_dirty: true`: the HitSelect and TargetFilter runs on `574e57d`, the BlockHit runs on `bd28e42`. Those changes were committed as `bd28e42` and `e2efab5`; none of the runs postdate HitFlick `fa4aa29` or the merges. Evidence is in `docs/evidence/`:
+
+| Evidence dir | Checks | What it shows |
+|---|---|---|
+| `combat-a-hitselect-normal-sp` | 9/9 | Normal cancels most clicks inside the invulnerability window; a cancelled click still swings |
+| `combat-a-hitselect-rcuc-sp` | 9/9 | Right-click use cancel drops clicks on the invulnerable cow, without a swing |
+| `combat-a-hitselect-kb-sp` | 9/9 | KB reduction: every click after the received knockback goes through |
+| `combat-a-hitselect-crit-sp` | 9/9 | Critical hits: clicks while rising after the knockback are cancelled |
+| `combat-a-blockhit-manual-sp` | 10/10 | Manual |
+| `combat-a-blockhit-auto-sp` | 12/12 | Auto |
+| `combat-a-blockhit-lag-lan-guest` | 12/12 | Lag on a LAN guest: the held release-use stalls the guest on the host |
+| `combat-a-blockhit-predict-lan-guest` | 11/11 | Predict on a LAN guest |
+| `combat-a-targetfilter-lan-guest` (plus `-lan-host`) | 20/20 | KillAura spares a same-team host and attacks one in another team; Teams by color detects red `#FF5555`, spares a red host and attacks a blue one; ESP captures |
+
+Gates on head `5ed4f97`:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all --check` | ok |
+| Clippy `-D warnings` | clean |
+| `cargo test --workspace --locked --offline` | 238 + 1 + 4 + 0 passed, 0 failed |
+| payload-test | 238 passed |
+| stage + audit | ok: 49 hooks (47 HEAD + 2 MODIFY_ARG) and 32 support modules, original AST restored; this branch adds 5 hooks and 3 modules to main's 44/29 |
+| host check | not run on this branch: the queued locked job was stopped at the coordinator's request; the coordinator runs `gates.sh --host` (host check and build) and these scenarios on main after the merge |
+| host build | not run on this branch (same reason) |
+
+Limits and open items in this scope:
+- HitFlick host side:
+  - the physical (`play_mouse`) and synthetic (`attack_once`) attack intercepts, which are the reference attack-cancellation adapters
+  - Blink's packet hold
+  - the `set_sprinting` cancel
+  - the forward and sprint key owner
+  - a scenario
+- `module.physicalattackcancellationadapter` and `module.syntheticattackcancellationadapter` stay not-started. In the reference they serve HitSwap and AutoMace (combat-b) and HitFlick's intercepts.
+- Not started:
+  - SilentAura: the Ring and Box render modes, Show target, Target color and Attack color, Break blocks (with its whitelist, items and delay), Kiss rotation and `onSyntheticAttack`, plus `module.silentauraaimjitter` and `module.silentauraentityidcomparator`
+  - KillAura's Show target, Target color and Attack color
+  - AimAssist's Adaptive mode, with `module.aimassisttargetingsubmodule` and `module.aimassistworkerthread`
+  - the riding-packet and third-person rotation in the combat rotation claim
+- TargetFilter:
+  - The Invalid Player Spawn notification is not ported.
+  - The scenario exercised KillAura only. The other three consumers share the filter and have unit tests.
+  - The 16 "Your team color" rows (`module.antibot.mode.*`), Auto-Detect and `module.antibotstatetracker` are legacy-only (< 1.21.11). They are left at not-started for a not-applicable review.
+- BlockHit:
+  - ItemMacroAction's BlockHit interaction is not ported.
+  - The 0.25 s shield warm-up limits Predict.
+- The primary action claim is two OR'd flags, not a shared claim object.
+- The header on line 3 of docs/hooks.md still gives the old 38/25 count; the current count is in the note at its end.
+
+Next: the HitFlick host intercepts, which would also give the attack-cancellation adapters a host side for combat-b, then the SilentAura render modes.
+
+## 2026-10-31: inventory (worker round 2)
+
+Fixed or ported:
+- Refill: when the player closed the inventory inside the first click delay, Refill reopened it. Now `Refill::observe` runs every update, so finishing (close and disable) isn't paced by the delay. Test: `a_close_inside_the_first_delay_finishes_without_reopening`.
+- AutoTotem "Silent open" and "Silent move delay":
+  - The swap happens with no screen shown.
+  - Movement, use, attack and break are held for the session plus one delay, through three new HEAD hooks (`auto-totem-use`, `auto-totem-attack`, `auto-totem-break`; see hooks.md).
+- ChestSteal "Check in menu" now defaults to off. AutoHeal's hidden "Inventory Only" is not ported (decisions.md).
+- InventoryManager / InvCleaner: the earlier commits are listed in decisions.md:
+  - `d831f4e`: best armor
+  - `4c1e905`: idles without a profile
+  - `38949b6`: AutoHotbar any material
+
+Validation:
+- Gates:
+  - fmt clean
+  - all-target Clippy `-D warnings` clean
+  - 216 lib + 3 integration tests pass
+  - payload-test passes (216)
+  - the fast host build passes, and stage/audit removes exactly 46 hooks and 29 support modules
+- Host scenarios: three, all in survival on fresh isolated homes. Captures were inspected.
+- `tools/inventory_planners_scenario.py`: 10/10 cases pass (`inv-plan-8y1g__lh`). Every case checks that item counts are conserved, nothing stays on the cursor, the selected slot is unchanged, the screen ends closed and the module turns off.
+  - InvCleaner: drops 4 rotten flesh, 1 harmful splash potion, 1 stone sword and 5 sticks.
+  - InvCleaner, interrupted with Escape: 3 thrown, 5 left, with no reopen.
+  - InvCleaner, user cursor stack: it waits, and the 2 held flint never drop.
+  - InvCleaner, item picked up mid-run: the picked-up items are cleaned in the same run.
+  - InventoryManager: it equips armor and drops junk. With a full inventory, the stone sword displaced from slot 19 is kept, not lost.
+  - AutoHotbar: puts the rules' items in their hotbar slots; with a user cursor stack it waits.
+  - ArmorSwitch: switches there and back. When interrupted, only the head is swapped, and the rerun changes nothing.
+- `tools/inventory_scenario.py` (`inv-rec-opt5z12g`):
+  - Refill interrupted: 0 hotbar soups.
+  - Refill complete: 3 soups on the hotbar, 2 left in main.
+  - ChestSteal interrupt and reopen: 1 item taken, then 6.
+  - AutoTotem equip: totem in the offhand, 1 left in main.
+- `tools/inventory_parity_scenario.py` (`inv-parity-ophwsw3r`):
+  - ChestSteal Best only: takes the diamond helmet and 32 cobblestone, leaves the stone sword (worse than the held diamond sword) and closes the chest.
+  - AutoTotem Silent open:
+    - The screen stays `playing` throughout, with W and the use key held.
+    - The hold lasts 0.486 s (30 samples), and no snowballs are thrown during it.
+    - The totem is equipped at 0.327 s, inside the 0.26–0.746 s window.
+    - Walking (0.118) and throwing resume afterwards.
+- Evidence is in docs/evidence/inventory-r2-{planners,recovery,parity}/.
+
+Open:
+- InventoryFill has no host scenario. The control socket can't hold a mouse button across frames in a container screen: `mouse` requires the playing screen and never sets `physical_buttons`, and `drag-at`/`click-at` send the press and release in one event batch. It stays integrated.
+- AutoHotbar "Only best" scores items with our own categories, not the reference's per-class comparators (food nutrition×saturation, the potion per-effect amplifier compare, attack-speed and fire-aspect terms). The comparator helper rows stay below validated.
+- AutoTotem's non-silent screen does not yet cancel the player's own clicks while AutoTotem has the inventory open (the reference's `onWindowClick`; decisions.md).
+- AutoArmor's Delay range is out of scope for this round.
+
+### Later in the round (final head)
+
+Landed after the runs above:
+- `d75d562`: AutoHotbar "Only best" uses the reference's per-class comparators, menu-order candidates and run-long touched slots (decisions.md). This resolves the comparator item under "Open" above.
+- `3d1ea7f`: InventoryManager profile selection uses `findByName`, case-insensitive. No match selects nothing.
+- `4dd6f8f` and `f4fd2cd`: AutoHeal Silent is ported, so it is no longer blocked.
+  - Custom items are used at onTick with a server-only held-item change, and the client's selected slot never moves.
+  - "Potions" swaps the potion into "Slot" and sends 88.99 pitch through `auto-heal-pre-motion` (HEAD of `remote_send_state`).
+  - `auto-heal-post-motion` (HEAD of the empty `native_tick`, right after the motion packet) throws it. The camera never moves.
+- `f4fd2cd`: Throwpot's tie order follows `ItemDataComparator` (decisions.md).
+- Merged main at `5d44e13` (10bd7ad) and `109d27c` (97dbaa7).
+
+Gates on `109d27c`:
+- fmt clean
+- all-target Clippy `-D warnings` clean
+- tests: 246 lib + 1 integration + 4 xtask pass
+- payload-test passes (246)
+- host build passes, and stage/audit removes exactly 49 hooks and 29 support modules
+
+Scenarios rerun on the clean `109d27c` build, each in survival on a fresh isolated home. Captures were inspected.
+- `tools/inventory_planners_scenario.py` `inv-plan-2tmlf9o9`: 11/11, the 10 cases above plus `hotbar_comparators`.
+  - The latter takes an iron pickaxe over the faster golden one, the Power II bow, Swiftness II, and golden carrots over pumpkin pie.
+  - Case 7 takes the iron sword over the stone and wooden ones.
+- `tools/inventory_scenario.py` `inv-rec-a3h0tumc`: 4/4.
+  - The first run, `inv-rec-i0ftuvdr`, passed both Refill cases. It then failed before ChestSteal: `interact` reported the player 42.9 blocks from the chest at load average 17. The rerun passed.
+- `tools/inventory_parity_scenario.py` `inv-parity-skftk8v_`: 2/2.
+  - ChestSteal Best only passes.
+  - AutoTotem Silent open: the screen stays `playing`. The hold lasts 0.591 s over 35 samples, the totem is equipped at 0.417 s inside the 0.266–0.857 s window, and walking resumes at 0.118.
+- `tools/auto_heal_silent_scenario.py` `inv-heal-sqi9ovc6`: 2/2.
+  - Custom item: an Instant Health splash potion in slot 4.
+    - Nothing is used while the inventory screen is open.
+    - After it closes, health goes from 10 to 14, the client's slot stays 1 and the snowballs stay 16.
+    - The server's `SelectedItemSlot` is 0, and a right click throws a snowball (16 → 15).
+  - Potions with Replace: the potion in inventory.13 is swapped into Slot 6 and thrown, and health goes from 10 to 14.
+    - The camera stays at yaw 0, pitch -10 throughout.
+    - The client's slot stays 1, the stick stays in slot 1, and nothing is left on the cursor.
+  - The first run, `inv-heal-whkoefuz`, looked level, so its splash missed the player. Case 1 now looks down, because custom items keep the camera's look, as in the reference.
+- Evidence is in docs/evidence/inventory-r2-final-{planners,recovery,parity}/ and docs/evidence/inventory-r2-autoheal-silent/.
+
+Still open in this scope:
+- The InventoryManager/InvCleaner rule editor UI (brief part B) is not built. The reference has about 4,200 lines of cleaner UI and 1,410 of HotbarSlotRule UI. Its rows stay not-started.
+- InventoryFill: no host scenario, because the harness can't hold a mouse button in a container screen (above).
+- AutoTotem's non-silent `onWindowClick` cancel.
+- AutoHeal deviations:
+  - no same-slot swap
+  - the crafting grid isn't searched
+  - vanilla stew and food are not eaten by a single use
+  - Silent "Bowl mode" runs through the inventory session
+  - the bowl modes (Throw, Stack, None) have no scenario
+- AutoHotbar deviations: `findOverflowSlots` kinds, and moves are number-key swaps.
+- Modes without a scenario:
+  - the Toggle activations
+  - ArmorSwitch gold, leather and chain
+- ChestSteal's distance comparator: the take order isn't asserted in a host scenario.
+- ItemDataComparator: the Throwpot order isn't asserted in a host scenario.
+- InventoryActionGuard: no combat scenario.
+- ThrowDebuff orders nearest-first; the reference doesn't sort. Left to its owner.
+- Host gates: the host build above ran on `109d27c`. `5195a4f` and later change only docs and the AutoHeal scenario tool. On the coordinator's instruction, the post-merge host check and build are not run here; the coordinator runs `gates.sh --host` and these scenarios on main after the merge.
+
 ## 2026-10-31: client foundation (worker round 3)
 
 Worker client-foundation, branch t3/7064aa90. Rows: client.bindings, client.macros, client.profiles; client.friends next.

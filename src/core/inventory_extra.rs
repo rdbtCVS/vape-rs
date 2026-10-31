@@ -5,7 +5,7 @@
 // planner steps to scheduler outcomes.
 use super::super::{
     inventory::{
-        rules::{Profile, parse_presets, parse_profiles},
+        rules::{Profile, find_profile, parse_presets, parse_profiles},
         session::{Effect, Policy, Step},
         types::Snapshot,
     },
@@ -176,18 +176,14 @@ impl Runtime {
             ModuleId::InventoryManager | ModuleId::InvCleaner | ModuleId::AutoHotbar
         ) && self.extra_str(&format!("{}.trigger", module.id())) != "toggle"
     }
-    /// The selected InventoryManager profile (first profile when the
-    /// selection is empty or unknown).
+    /// The selected InventoryManager profile: `findByName` matches the saved
+    /// selection case-insensitively, and nothing is selected without a match.
     pub fn inventory_profile(&self) -> Result<Option<Profile>, String> {
         const IM: &str = "inventory.inventory-manager";
         let presets = parse_presets(self.extra_str(&format!("{IM}.presets")))?;
         let mut profiles = parse_profiles(self.extra_str(&format!("{IM}.profiles")), &presets)?;
         let selected = self.extra_str(&format!("{IM}.profile"));
-        let index = profiles
-            .iter()
-            .position(|p| p.name == selected)
-            .unwrap_or(0);
-        Ok((index < profiles.len()).then(|| profiles.swap_remove(index)))
+        Ok(find_profile(&profiles, selected).map(|index| profiles.swap_remove(index)))
     }
     /// Steps one of [`MODULES`]; `combat_blocked` is the shared combat guard.
     pub(super) fn extra_step(&mut self, module: ModuleId, snapshot: &Snapshot) -> Outcome {
@@ -207,7 +203,9 @@ impl Runtime {
                 }
                 let profile = match self.inventory_profile() {
                     Ok(Some(profile)) => profile,
-                    Ok(None) => Profile::default(),
+                    // `shouldSkipProcessing`: no selected profile, nothing
+                    // to manage; the module stays on and idles.
+                    Ok(None) => return (None, delay, false),
                     Err(error) => {
                         self.notify(format!("InventoryManager: {error}"));
                         self.set_enabled(module, false);
@@ -332,6 +330,16 @@ mod tests {
     use super::super::super::inventory::{session::tests::snapshot, types::Click};
     use super::*;
     use std::time::Instant;
+
+    #[test]
+    fn manager_without_a_profile_idles_and_stays_on() {
+        let mut runtime = Runtime::default();
+        runtime.set_enabled(ModuleId::InventoryManager, true);
+        let mut s = snapshot(false, Instant::now());
+        s.session = runtime.session().epoch().value();
+        assert!(runtime.inventory_step(&s).is_empty());
+        assert!(runtime.enabled(ModuleId::InventoryManager));
+    }
 
     #[test]
     fn on_key_cleaner_opens_drops_closes_and_disables() {

@@ -501,10 +501,16 @@ pub(super) fn clickers(game: &mut Game<'_>) {
             entity_hit,
             block_hit,
             sneaking,
+            hit_select: !right && entity_hit && crate::game::vape_hit_select::defers(game),
         };
         let actions = with_client(&client, |runtime| runtime.clicker_frame(right, &input));
         if actions.release {
-            if right { game.right = false } else { game.left = false }
+            if right {
+                game.right = false
+            } else {
+                game.left = false;
+                crate::game::vape_block_hit::clicker_release(game);
+            }
         }
         if actions.press {
             if right {
@@ -513,6 +519,7 @@ pub(super) fn clickers(game: &mut Game<'_>) {
             } else {
                 crate::game::remote::vape_macros::attack_once(game);
                 game.left = true;
+                crate::game::vape_block_hit::clicker_press(game);
             }
         }
         if actions.turn != (0, 0) {

@@ -56,16 +56,18 @@ pub fn next_click(
     profile: &Profile,
     origin: &mut Option<u16>,
 ) -> Option<(u16, Click)> {
-    if snapshot.carried.is_some() {
+    if let Some(carried) = snapshot.carried.as_ref() {
+        // Only a carried armor piece belongs to the armor swap; anything
+        // else is a condense in progress (or the player's) and must not be
+        // put back at its origin by the armor step.
         if profile.best_armor
+            && carried.armor.is_some()
             && let Some(click) = arrange::equip_next(snapshot, origin)
         {
             return Some(click);
         }
         // Condense continues: drop the carried part onto a matching stack.
-        if let Some(target) =
-            condense_target(snapshot, profile, snapshot.carried.as_ref()?, *origin)
-        {
+        if let Some(target) = condense_target(snapshot, profile, carried, *origin) {
             return Some((target, Click::Pickup));
         }
         return place_carried(snapshot, *origin);
@@ -240,6 +242,26 @@ mod tests {
         let mut origin = None;
         assert_eq!(next_click(&s, &p, &mut origin), Some((12, Click::Pickup)));
         s.carried = s.slots[12].item.take();
+        assert_eq!(next_click(&s, &p, &mut origin), Some((13, Click::Pickup)));
+    }
+    #[test]
+    fn best_armor_does_not_put_a_condensing_stack_back() {
+        let p = profile(
+            r#"{"name":"a","armor_mode":"Best armor","inventoryFilters":[
+                {"itemFilter":"minecraft:cobblestone","filterAction":"Condense stacks"}]}"#,
+        );
+        assert!(p.best_armor);
+        let mut s = snapshot(true, std::time::Instant::now());
+        s.slots[20].item = None;
+        let mut cobble = item("cobblestone", ItemClass::Other, 0.0);
+        cobble.max_count = 64;
+        cobble.fingerprint.count = 20;
+        s.slots[12].item = Some(cobble.clone());
+        s.slots[13].item = Some(cobble);
+        let mut origin = None;
+        assert_eq!(next_click(&s, &p, &mut origin), Some((12, Click::Pickup)));
+        s.carried = s.slots[12].item.take();
+        // Onto the other stack, not back into slot 12.
         assert_eq!(next_click(&s, &p, &mut origin), Some((13, Click::Pickup)));
     }
 }

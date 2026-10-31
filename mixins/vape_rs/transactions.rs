@@ -175,8 +175,26 @@ fn meta(
     .iter()
     .map(|b| items.mining_speed(Some(stack), b))
     .fold(1.0_f32, f32::max);
+    // The tooltip's name line in the client language: custom name first,
+    // then the item's own name; the item name is the same line without a
+    // custom name.
+    let translate = |key: &str| game.pack.names.display_get(key);
+    let display_name = horizon_client::item_tooltip::name_line(stack, &translate);
+    let item_name = if stack.custom_name().is_some() {
+        let mut plain = stack.clone();
+        plain.data_mut().custom_name = None;
+        horizon_client::item_tooltip::name_line(&plain, &translate)
+    } else {
+        display_name.clone()
+    };
     ItemMeta {
         custom_name: stack.custom_name(),
+        display_name,
+        item_name,
+        lore: horizon_client::item_tooltip::lore_texts(stack)
+            .iter()
+            .map(|line| line.plain())
+            .collect(),
         effects,
         thrown_potion: matches!(
             id,
@@ -191,7 +209,29 @@ fn meta(
             .map(|(e, level)| (e.to_string(), *level))
             .collect(),
         mining_speed,
+        armor_points: modifier_sum(info, "minecraft:armor"),
+        armor_toughness: modifier_sum(info, "minecraft:armor_toughness"),
+        mainhand_modifiers: info.map_or(0.0, |i| {
+            i.modifiers
+                .iter()
+                .filter(|(.., slot)| slot == "mainhand")
+                .map(|(_, _, amount, ..)| *amount as f32)
+                .sum()
+        }),
+        first_modifier: info
+            .and_then(|i| i.modifiers.first())
+            .map_or(0.0, |(_, _, amount, ..)| *amount as f32),
+        tool: info.is_some_and(|i| i.tool_damage_per_block.is_some()),
     }
+}
+fn modifier_sum(info: Option<&horizon_client::items::ItemInfo>, attribute: &str) -> f32 {
+    info.map_or(0.0, |i| {
+        i.modifiers
+            .iter()
+            .filter(|(a, ..)| a == attribute)
+            .map(|(_, _, amount, ..)| *amount as f32)
+            .sum()
+    })
 }
 fn slot(game: &Game<'_>, index: usize, role: SlotRole, value: Option<&ItemStack>) -> Slot {
     Slot {
@@ -245,6 +285,7 @@ fn vitals(game: &Game<'_>) -> Vitals {
             .map(|e| unprefixed(&e.id))
             .collect(),
         using_item: game.using.is_some(),
+        view: (game.yaw, game.pitch),
     }
 }
 
@@ -330,20 +371,7 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     let Some(current) = snapshot(game) else {
         return false;
     };
-    if !current.screen_open
-        || current.session != request.session
-        || current.container_id != request.container_id
-        || current.revision != request.revision
-    {
-        return false;
-    }
-    let Some(slot) = current.slot(request.slot) else {
-        return false;
-    };
-    if slot.item.as_ref().map(|i| &i.fingerprint) != request.expected.as_ref() {
-        return false;
-    }
-    if current.carried.as_ref().map(|i| &i.fingerprint) != request.expected_carried.as_ref() {
+    if !current.screen_open || !current_matches(&current, request) {
         return false;
     }
     let input = match request.click {
@@ -366,6 +394,69 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     // slots/carried stack for remote ContainerClick packets.
     game.menu_ops(&[(Some(usize::from(request.slot)), button, input)])
 }
+/// The request still names this session, menu, revision and slot contents.
+fn current_matches(current: &Snapshot, request: &Request) -> bool {
+    current.session == request.session
+        && current.container_id == request.container_id
+        && current.revision == request.revision
+        && current
+            .slot(request.slot)
+            .is_some_and(|slot| slot.item.as_ref().map(|i| &i.fingerprint) == request.expected.as_ref())
+        && current.carried.as_ref().map(|i| &i.fingerprint) == request.expected_carried.as_ref()
+}
+/// AutoTotem's silent swap: with no screen the click goes to the player
+/// menu (window 0) through the remote menu engine, which predicts it and
+/// sends the ordinary `ContainerClick`; the server's player menu needs no
+/// open screen. A shown inventory screen takes the ordinary path.
+fn submit_silent(game: &mut Game<'_>, request: &Request) -> bool {
+    if game.screen == Screen::Inventory {
+        return submit(game, request);
+    }
+    let Some(current) = snapshot(game) else {
+        return false;
+    };
+    if current.screen_open
+        || current.container_id != 0
+        || request.click != Click::SwapOffhand
+        || !current_matches(&current, request)
+    {
+        return false;
+    }
+    let ops = [(Some(usize::from(request.slot)), 40, Input::Swap)];
+    if game.remote.is_some() {
+        game.remote_menu_ops(&ops)
+    } else {
+        false
+    }
+}
+/// `closeInventory` of a silent session (`closeScreen`): the player menu's
+/// `ContainerClose`, or the player's own inventory screen if one was shown
+/// (`close_screen`). A container's menu replaced the player menu: nothing to
+/// close.
+fn silent_close(game: &mut Game<'_>, close_screen: bool) {
+    if game.remote.as_ref().is_none_or(|r| r.menu.is_some()) {
+        return;
+    }
+    match game.screen {
+        Screen::Inventory if close_screen => {
+            game.close_container();
+            game.screen = Screen::Playing;
+            game.capture(true);
+        }
+        Screen::Inventory => {}
+        _ => game.remote_close_container(),
+    }
+}
+
+/// AutoTotem's silent open holds attack, use and block breaking (only on
+/// the window's own game, not the integrated server's).
+pub fn input_held(game: &Game<'_>) -> bool {
+    if game.serving.is_some() || game.options.dedicated.is_some() {
+        return false;
+    }
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    with_client(&client, |r| r.auto_totem_input_held())
+}
 
 // Dispatch on frames so an open inventory menu can advance while the
 // world simulation is paused. Scheduling uses monotonic time in the runtime.
@@ -386,12 +477,21 @@ pub fn dispatch(game: &mut Game<'_>) {
         && with_client(&client, |r| !r.gui.open);
     let snapshot = allowed.then(|| snapshot(game)).flatten();
     let Some(snapshot) = snapshot else {
-        with_client(&client, |r| {
+        let owed = with_client(&client, |r| {
             r.cancel_inventory();
             r.cancel_throws();
+            r.take_silent_close()
         });
+        // A cancelled silent session's server-side close; a screen the user
+        // opened stays.
+        if owed {
+            silent_close(game, false);
+        }
         return;
     };
+    if with_client(&client, |r| r.take_silent_close()) {
+        silent_close(game, false);
+    }
     // Hotbar use sequences (Throwpot, ThrowDebuff, AutoHeal) through the
     // ordinary selected-slot, use and drop paths; only while playing.
     let playing = game.screen == Screen::Playing;
@@ -403,6 +503,9 @@ pub fn dispatch(game: &mut Game<'_>) {
             ThrowEffect::Use => super::vape_macros::use_once(game),
             ThrowEffect::Drop if game.remote.is_some() => game.remote_drop(false),
             ThrowEffect::Drop => game.drop_held(false),
+            ThrowEffect::SilentUse(slot) => {
+                silent_use(game, usize::from(slot), None);
+            }
             _ => {}
         }
     }
@@ -441,6 +544,12 @@ pub fn dispatch(game: &mut Game<'_>) {
                     with_client(&client, |r| r.inventory_rejected());
                 }
             }
+            InventoryEffect::SilentRequest(request) => {
+                if !submit_silent(game, &request) {
+                    with_client(&client, |r| r.inventory_rejected());
+                }
+            }
+            InventoryEffect::SilentClose => silent_close(game, true),
             InventoryEffect::OpenInventory if game.screen == Screen::Playing => {
                 game.screen = Screen::Inventory;
                 game.capture(false);
@@ -452,5 +561,94 @@ pub fn dispatch(game: &mut Game<'_>) {
             }
             _ => {}
         }
+    }
+}
+
+/// AutoHeal Silent's use: `CPacketHeldItemChange(slot)`, `sendUseItem`,
+/// `CPacketHeldItemChange(current)`. The server holds `slot` for this one
+/// `UseItem` (Horizon's own `remote_use_item`, which also starts the local
+/// use it predicts); the client's selection and shown hotbar never change.
+/// `look` is the yaw/pitch the use carries (Potions' looking down). Only a
+/// server keeps its carried slot apart from the shown one: the deprecated
+/// in-frame world gets nothing.
+fn silent_use(game: &mut Game<'_>, slot: usize, look: Option<(f32, f32)>) -> bool {
+    use horizon_client::first_person::Hand;
+    use horizon_protocol::packets::play::{self, Serverbound as S};
+    let held = game.inventory.get(slot).is_some_and(Option::is_some);
+    if slot >= 9 || !held || game.remote.is_none() {
+        return false;
+    }
+    let (selected, view) = (game.selected, (game.yaw, game.pitch));
+    game.send(S::SetCarriedItem(play::SetCarriedItem { slot: slot as i16 }));
+    game.selected = slot;
+    if let Some((yaw, pitch)) = look {
+        (game.yaw, game.pitch) = (yaw, pitch);
+    }
+    game.remote_use_item(Hand::Main);
+    game.selected = selected;
+    (game.yaw, game.pitch) = view;
+    game.send(S::SetCarriedItem(play::SetCarriedItem {
+        slot: selected as i16,
+    }));
+    if let Some(r) = game.remote.as_mut() {
+        r.carried = Some(selected);
+    }
+    true
+}
+
+thread_local! {
+    /// Potions' look for this motion packet, and the managed rotation it
+    /// replaced (restored at PostMotion).
+    static POTION_LOOK: std::cell::Cell<Option<((f32, f32), Option<(f32, f32)>)>> =
+        const { std::cell::Cell::new(None) };
+}
+fn motion_allowed(game: &Game<'_>) -> bool {
+    game.remote.is_some()
+        && game.title.is_none()
+        && game.player.as_ref().is_some_and(|p| p.health.health() > 0.0)
+}
+/// `auto-heal-pre-motion` (HEAD of `remote_send_state`): AutoHeal's
+/// `EventPreMotion`. Replace's window-0 SWAP goes out first (the server's
+/// player menu needs no screen; with a container open the server would
+/// ignore it); an armed potion makes this motion packet look down through
+/// the managed rotation, keeping its yaw.
+pub fn auto_heal_pre_motion(game: &mut Game<'_>) {
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    if !motion_allowed(game) || !with_client(&client, |r| r.auto_heal_potions()) {
+        return;
+    }
+    let Some(snapshot) = snapshot(game) else {
+        return;
+    };
+    let motion = with_client(&client, |r| r.auto_heal_pre_motion(&snapshot));
+    if let Some((from, button)) = motion.swap
+        && game.remote.as_ref().is_some_and(|r| r.menu.is_none())
+    {
+        game.remote_menu_ops(&[(Some(usize::from(from)), i32::from(button), Input::Swap)]);
+    }
+    if let Some(pitch) = motion.pitch {
+        use super::vape_combat_remote as remote;
+        let managed = remote::rotation((f32::INFINITY, 0.0));
+        let previous = managed.0.is_finite().then_some(managed);
+        let yaw = previous.map_or(game.yaw, |(yaw, _)| yaw);
+        remote::set_rotation(Some((yaw, pitch)));
+        POTION_LOOK.with(|l| l.set(Some(((yaw, pitch), previous))));
+    }
+}
+/// `auto-heal-post-motion` (RETURN of `remote_send_state`): AutoHeal's
+/// `EventPostMotion`. The armed potion is used silently with the look the
+/// motion packet sent, and the managed rotation goes back.
+pub fn auto_heal_post_motion(game: &mut Game<'_>) {
+    let look = POTION_LOOK.with(std::cell::Cell::take);
+    if let Some((_, previous)) = look {
+        super::vape_combat_remote::set_rotation(previous);
+    }
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    if !motion_allowed(game) {
+        return;
+    }
+    let now = std::time::Instant::now();
+    if let Some(slot) = with_client(&client, |r| r.auto_heal_post_motion(now)) {
+        silent_use(game, usize::from(slot), look.map(|(look, _)| look));
     }
 }

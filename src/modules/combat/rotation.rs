@@ -217,6 +217,9 @@ pub struct Managed {
     pending_yaw: f32,
     pending_pitch: f32,
     target: Option<(f32, f32)>,
+    /// The released controller's own return speed (AutoTotem's), instead
+    /// of the ticking module's.
+    return_step: Option<Step>,
 }
 impl Managed {
     /// `setController`: starts from the current view.
@@ -232,6 +235,13 @@ impl Managed {
             };
         }
         self.relative = false;
+        self.return_step = None;
+    }
+    /// A speed-0 controller (AutoTotem's silent open): the sent rotation
+    /// stays where it is until released.
+    pub fn hold(&mut self, view: (f32, f32)) {
+        self.start(view);
+        self.target = None;
     }
     pub fn set_target(&mut self, yaw: f32, pitch: f32) {
         self.relative = false;
@@ -241,6 +251,15 @@ impl Managed {
     pub fn release(&mut self) {
         if self.active {
             self.relative = true;
+        }
+        self.return_step = None;
+    }
+    /// `releaseController` after the controller's own speed was set: the
+    /// return to the view moves at `step`.
+    pub fn release_with(&mut self, step: Step) {
+        self.release();
+        if self.active {
+            self.return_step = Some(step);
         }
     }
     pub fn clear(&mut self) {
@@ -318,6 +337,17 @@ impl Managed {
         updates: u32,
         mut speed: impl FnMut() -> Step,
     ) -> bool {
+        self.tick_by(view, sensitivity, updates, |_| speed())
+    }
+    /// `tick` with a speed that reads the managed rotation before each
+    /// update (`getSpeed` sees the controller's current rotation).
+    pub fn tick_by(
+        &mut self,
+        view: (f32, f32),
+        sensitivity: f64,
+        updates: u32,
+        mut speed: impl FnMut(&Self) -> Step,
+    ) -> bool {
         if !self.active {
             return false;
         }
@@ -334,7 +364,11 @@ impl Managed {
         };
         let mut complete = false;
         for _ in 0..updates {
-            complete = self.update(target, degrees, speed());
+            let step = match (self.relative, self.return_step) {
+                (true, Some(step)) => step,
+                _ => speed(self),
+            };
+            complete = self.update(target, degrees, step);
         }
         if self.relative
             && (complete
@@ -368,6 +402,45 @@ mod tests {
         assert!(claim.acquire(Claimant::SilentAura, true, true));
         claim.release(Claimant::SilentAura);
         assert_eq!(claim.owner(), None);
+    }
+
+    #[test]
+    fn held_rotation_stays_then_returns_at_its_own_speed() {
+        let mut managed = Managed::default();
+        managed.hold((10.0, 5.0));
+        let fast = || Step {
+            counts: 400.0,
+            clamp: true,
+            proportional: false,
+            linear: false,
+        };
+        // The view turns; the held rotation does not follow.
+        assert!(!managed.tick((90.0, 5.0), 0.5, UPDATES_PER_TICK, fast));
+        assert_eq!(managed.sent(), Some((10.0, 5.0)));
+        managed.release_with(Step {
+            counts: 0.75,
+            clamp: false,
+            proportional: false,
+            linear: true,
+        });
+        let mut ticks = 0;
+        while !managed.tick((90.0, 5.0), 0.5, UPDATES_PER_TICK, fast) {
+            ticks += 1;
+            assert!(ticks < 200, "returns");
+        }
+        // The 400-count speed would have arrived on the first tick.
+        assert!(ticks > 1, "{ticks}");
+        assert!(!managed.active);
+        // A plain release uses the ticking module's speed again.
+        managed.hold((10.0, 5.0));
+        managed.release_with(Step {
+            counts: 0.75,
+            clamp: false,
+            proportional: false,
+            linear: true,
+        });
+        managed.release();
+        assert!(managed.tick((90.0, 5.0), 0.5, UPDATES_PER_TICK, fast));
     }
 
     #[test]

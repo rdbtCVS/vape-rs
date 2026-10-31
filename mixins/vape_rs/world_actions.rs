@@ -10,6 +10,8 @@ use winit::keyboard::KeyCode;
 thread_local! {
     /// WindCharge's jump for the writer this tick.
     static JUMP: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+    /// AutoTotem's `suppressInput` this tick.
+    static TOTEM_HOLD: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
 
 /// Keys physically held, through the key mapping (`KeyMapping.isDown` of
@@ -45,6 +47,13 @@ pub(crate) fn requests(game: &mut Game<'_>, active: bool, again: bool, view: &Ho
         runtime.no_fall_jump_released(user)
     }) {
         out.push(Request { axis: Axis::Jump, owner: Owner::NoFall, priority: 3, pressed: false });
+    }
+    // AutoTotem's blockMovementKeys (EventPrePlayerTick, HIGHEST): forward,
+    // back, left, right, jump and sprint released; sneak stays.
+    if TOTEM_HOLD.with(|h| h.get()) {
+        for axis in [Axis::Forward, Axis::Back, Axis::Left, Axis::Right, Axis::Jump, Axis::Sprint] {
+            out.push(Request { axis, owner: Owner::AutoTotem, priority: 5, pressed: false });
+        }
     }
     if !again && JUMP.with(|j| j.take()) {
         out.push(Request { axis: Axis::Jump, owner: Owner::WindCharge, priority: 4, pressed: true });
@@ -102,6 +111,10 @@ pub(crate) fn tick(game: &mut Game<'_>) {
         return;
     }
     let client = game.__horizon_mixins_vape_rs_client().clone();
+    // AutoTotem's silent open holds the movement keys (and attack/use) from
+    // the open until one "Silent move delay" after its close.
+    let totem_hold = with_client(&client, |runtime| runtime.auto_totem_tick(std::time::Instant::now()));
+    TOTEM_HOLD.with(|h| h.set(totem_hold));
     // InvWalk.
     let (gui_open, capturing) = with_client(&client, |runtime| (runtime.gui.open, runtime.gui.capturing()));
     let screen = inv_walk_screen(game, gui_open, capturing);
@@ -134,7 +147,7 @@ pub(crate) fn tick(game: &mut Game<'_>) {
         }
     });
     if let Some(player) = game.player.as_ref() {
-        player.vape_rs_set_inv_walk(keys);
+        player.vape_rs_set_inv_walk(keys.filter(|_| !totem_hold));
     }
     wind_charge_tick(game, &client);
 }

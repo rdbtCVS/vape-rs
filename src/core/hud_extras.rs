@@ -195,6 +195,8 @@ impl Runtime {
         match module {
             ModuleId::NoFall | ModuleId::Speed => self.hud_text(&format!("{}.mode", module.id())),
             ModuleId::FakeLag => self.hud_text("world.fake-lag.mode"),
+            ModuleId::HitSelect => self.hud_text(&format!("{}.mode", module.id())),
+            ModuleId::BlockHit => self.hud_text(&format!("{}.mode", module.id())),
             ModuleId::Blink => match self.outbound.chokes() {
                 0 => String::new(),
                 n => n.to_string(),
@@ -226,6 +228,9 @@ impl Runtime {
             ),
             ModuleId::AimAssist => decimal(self.hud_number(&format!("{id}.horizontal-speed")), 1),
             ModuleId::WTap => decimal(self.hud_number(&format!("{id}.release-delay")), 0),
+            ModuleId::HitSelect => self.hit_select_options().suffix(),
+            ModuleId::BlockHit => self.block_hit_suffix(),
+            ModuleId::HitFlick => self.hit_flick_suffix(),
             _ => String::new(),
         }
     }

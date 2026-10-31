@@ -180,14 +180,16 @@ fn select(out: &mut VecDeque<Action>, from: u8, to: u8, scroll: Option<u64>) {
 }
 
 /// The reference's per-item sequence: select, use, (drop), delay; then the
-/// saved slot. Items are taken nearest the saved slot first.
+/// saved slot. Items are taken nearest the saved slot first; equal
+/// distances keep the plan's (scan) order, as the reference's stable sort
+/// with `ItemDataComparator` does.
 pub fn sequence(
     mut uses: Vec<Use>,
     saved: u8,
     mut delay: impl FnMut() -> u64,
     scroll: Option<u64>,
 ) -> VecDeque<Action> {
-    uses.sort_by_key(|u| (u.slot.abs_diff(saved), u.slot));
+    uses.sort_by_key(|u| u.slot.abs_diff(saved));
     let mut out = VecDeque::new();
     let mut current = saved;
     for planned in uses {
@@ -319,5 +321,35 @@ mod tests {
             Some(10),
         );
         assert_eq!(scrolled[0], Action::Select(1));
+    }
+    #[test]
+    fn equal_distances_keep_the_shuffled_scan_order() {
+        let uses = |slots: &[u8]| {
+            slots
+                .iter()
+                .map(|&slot| Use {
+                    slot,
+                    drop_after: false,
+                })
+                .collect::<Vec<_>>()
+        };
+        let selected = |queue: VecDeque<Action>| {
+            queue
+                .into_iter()
+                .filter_map(|a| match a {
+                    Action::Select(slot) => Some(slot),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        // Saved slot 4: 5 and 3 tie at distance 1, 7 is farther.
+        assert_eq!(
+            selected(sequence(uses(&[7, 5, 3]), 4, || 0, None)),
+            vec![5, 3, 7, 4]
+        );
+        assert_eq!(
+            selected(sequence(uses(&[3, 7, 5]), 4, || 0, None)),
+            vec![3, 5, 7, 4]
+        );
     }
 }

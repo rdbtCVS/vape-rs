@@ -1,100 +1,97 @@
 # Current implementation handoff
 
-Updated 2026-10-31 after the re-pin to Horizon main `8f91f89` and a
-six-worker round (inventory, validation, combat, movement, render, HUD/UI),
-all merged into main. Single player is supported and tested on Horizon's
-integrated server thread; LAN host/guest scenarios cover the packet and
-KeepSprint paths. **The full plan is not complete.** AI behavior and the
-online product are excluded; all other retained scope remains open as listed
-below.
+Updated 2026-10-31 on main `97dbaa7`, after the hud-client (round 2),
+clicker-movement-debt (round 3) and hud-modules (round 3) merges and the
+Panic scenario. Single player is tested on Horizon's integrated server
+thread; LAN host/guest scenarios cover the packet, combat and movement paths
+that differ there. **The full plan is not complete.** AI behavior and the
+online product are excluded; all other retained scope is listed below as
+validated, in progress or blocked.
 
-## Connected native implementation
+## Ledger
 
-The runtime registers 83 modules, all with local activation, binds, profile
-persistence and GUI access. † marks modules with no game scenario yet
-(compile, unit tests and host check only).
+docs/features.csv holds 472 rows: **101 validated**, 36 integrated,
+54 implemented-core, 246 not-started, 12 blocked, 13 excluded-approved and
+10 not-applicable-reviewed. 131 of the not-started rows are helper classes
+whose status follows their owning module (target/helper-owners.txt), so they
+move when the owners are validated. `validated` always means a passing
+fresh-home host scenario with evidence in docs/evidence; `integrated` means
+hooked and running in the host without a full scenario
+([decisions](decisions.md) explains the levels).
 
-| GUI category | Modules |
-| --- | --- |
-| Combat | AimAssist (Simple; Adaptive open), AutoClicker, RightClicker, TriggerBot, JumpReset, WTap, SilentAura (PID), Sprint, Reach (blocked on the host server's re-pick) |
-| Other | KillAura, KeepSprint, InvWalk, HitBoxes, Timer, Fly, NoFall, Step, LongJump†(vine/ice factors), AntiFall (partly observable), NoItemRelease, PotionSaver, Regen (effect not observable on this host) |
-| Hidden | AutoHeal (Legit only), NoSlowdown, Speed (Bhop/AntiCheat B) |
-| Utility | Panic, Velocity, KnockbackDelay, Blink, Backtrack, FakeLag (Repel tested), Scaffold (Legit only), WindCharge |
-| World | AutoTool, AutoFish, ChestSteal, FastPlace, SafeWalk, Parkour (experimental), Anti-AFK, MurdererFinder† (callout blocked), PropHunt† |
-| Inventory | AutoArmor, AutoTotem (no silent open), Refill, Throwpot, ThrowDebuff, InventoryFill†, InventoryManager†, InvCleaner†, AutoHotbar†, ArmorSwitch† |
-| Render | Fullbright, Clear Water, Time Changer, Weather, AntiDebuff, ItemESP, NoHurtCam, NoClickDelay, NoJumpDelay, Inventory Blur, NameTags (animals tested; equipment row†), StorageESP (chests tested; fill/ender/open†), ESP†, Tracers†, Trajectories†, Search†, SpawnerFinder†, Health†, Arrows†, Explosions† |
-| HUD | Coords, FPS, Compass, Clock, Keystrokes, Armor Status, Potion Effects, Reach Display, Scoreboard, Target Info, Text GUI (module list) |
+Ledger gap: 37 category-level reference classes have no rows. Most are
+modules the reference's ModManager never registers (LongJump, AntiFall, Step,
+Strafe, Phase, Regen, OmniSprint, PotionSaver, AntiFML, DiscardedBlink,
+KnockbackTest, SelfDestruct, the debug modules); the rest are control-claim
+and macro support classes.
+The port nevertheless ships LongJump, AntiFall and Step (compile-only, see
+progress.md 2026-10-30), which the reference GUI never shows. Before release
+they need a ledger decision: keep them as tracked extras or drop them for
+fidelity.
 
-Client: classic V4 click GUI ([classic-gui-validation.json](evidence/classic-gui-validation.json)),
-ClientSettings search styles (floating/integrated/none, Ctrl+F), toggle
-toasts and the GUI-bind indicator, local profiles, friends/enemies, macros,
-HUD drag/snap/scale editing. Shared owners: `core::movement_input::Writer`
-for synthetic movement keys, the combat rotation claim
-(`modules/combat/rotation.rs`, rotation sent in the movement packet only),
-the inventory click session and the bounded inventory gate. Movement keeps a
-separate small rotation controller for WindCharge/Scaffold
-(`modules/movement/rotation.rs`); unifying it with the combat claim is open.
+Validated in a real game:
+- **Combat:** AutoClicker, RightClicker, TriggerBot, JumpReset, WTap, Sprint, KeepSprint, Velocity, HitBoxes, SilentAura clicker.
+- **Movement:** NoSlowdown, Speed (Bhop, Mineplex), Fly, NoFall, InvWalk, Timer, Scaffold (Legit, with the edge-sneak helper), SafeWalk, NoItemRelease, WindCharge.
+- **World / utility:** Anti-AFK, AutoFish, FastPlace, Backtrack, KnockbackDelay, Panic.
+- **Inventory:** Refill, Throwpot, ThrowDebuff.
+- **Render:** Fullbright, Clear Water, Time Changer, Weather (both modes), AntiDebuff, ItemESP, NoHurtCam, NoClickDelay, NoJumpDelay, Inventory Blur.
+- **HUD:** Armor Status, Potion Status, Coords (both modes), FPS, Compass, Clock, Keystrokes, Reach Display; local toggle notifications; the client GUI and config settings modules.
 
-## Evidence and limits
+Integrated, waiting for a full scenario: AimAssist, KillAura, SilentAura,
+AutoHeal (Legit), AutoArmor, AutoTotem, InventoryFill, ChestSteal, Parkour,
+Blink, FakeLag, Scaffold (parent row), Text GUI, Scoreboard, MurdererFinder,
+PropHunt, and the render group (ESP, Tracers, Trajectories, Search,
+SpawnerFinder, Health, Arrows, Explosions, NameTags, StorageESP); the click
+GUI layout/search/favorites, friends/enemies and local profiles.
 
-- Current tree (main `4390bc3`): fmt and Clippy (`-D warnings`) pass,
-  **194 lib + 3 integration tests** and the payload test pass, stage/audit
-  passes with **43 hooks and 29 support modules** on horizon-mixins
-  `0e9229d`, host check passes (68 warnings, none fatal) and the fast build
-  passes.
-- Ledger: 64 validated, 32 integrated, 66 implemented-core, 6 blocked,
-  13 excluded-approved, 4 not-applicable-reviewed, 287 not-started
-  ([decisions](decisions.md) explains `integrated` vs `validated`).
-- Scenario evidence this round (fresh isolated homes):
-  - Inventory: [inventory-throw.json](evidence/inventory-throw.json), [inventory-recovery.json](evidence/inventory-recovery.json).
-  - Validation debt: validation-movement/combat/pvp (LAN)/legit-render/hold (LAN)/utility/delays-perf `.json` in docs/evidence.
-  - Combat: combat-aura.json 16/16, combat-keep-sprint.json (LAN) 13/13.
-  - Movement: movement-world.json 28/28.
-  - HUD: hud-target-info, hud-readouts, hud-inventory-blur, hud-scoreboard, hud-modes, hud-text-gui, hud-client-settings. These ran on the pre-merge HUD build `ca264f4`; rerun on the merged tree is pending.
-  - Render: **none** — `tools/render_scenario.py` is committed but not run.
-- Bugs found by scenarios and fixed: NoSlowdown hook target, NoItemRelease
-  action id, JumpReset tick order, Time Changer restore, AntiDebuff speed
-  modifier, Refill reopen after close, Step's extra position packets
-  (kicked; dropped).
-- Performance: 12 render/HUD modules raised average CPU/frame 1.75 → 4.11 ms
-  and 1 % lows 5.5 → 40.5 ms (validation-delays-perf.json). Not profiled.
-- Not covered: remote/third-party servers, window focus loss, real keyboard
-  rebinding events, switching between two worlds.
+Implemented core (logic and tests, host path incomplete): AutoTool,
+InventoryManager, InvCleaner, AutoHotbar, ArmorSwitch; binds, macros, typed
+setting editors, HUD drag/snap/scale and the shared claim owners.
+
+## Work in flight
+
+Nine workers are finishing their current items on branches and will be
+merged one at a time with the host gates and their scenarios rerun on main:
+- **combat-a:** BlockHit (Manual/Predict/Auto/Lag, committed), HitSelect, WTap submodes, HitFlick, TargetFilter, SilentAura rows.
+- **combat-b:** HitSwap, AutoMace, ShieldBreaker, CrystalAura, AntiFireball, Reach re-check.
+- **movement-a:** Scaffold Telly/God bridges and the rotation merge, BlockIn, Clutch, MLG, AutoLadder, AutoAnchor.
+- **movement-b:** Freecam (camera hooks), Freelook on the same hooks, AutoPearl, PearlCatch, FakeLag modes, Blink, LongJump, Strafe.
+- **render:** Projectiles, Indicators, BedPlates, Block Overlay, ESP modes, MurdererFinder; re-check of Chams/XRay/MotionBlur.
+- **inventory:** InventoryManager editor UI and planners, AutoHeal Silent/Potions (two movement-packet hooks).
+- **inventory-utility-debt:** Refill/ThrowPot/ThrowDebuff modes, AutoArmor, AutoTool guards (LAN).
+- **client-foundation:** binds, macros, profiles, friends, HUD editor, arbitration, lifecycle, Text GUI settings.
+- **hud-client-debt:** localization, scoreboard text replacement, Target Info, timing.
+
+Unowned after this round: the HUD font (HUD text still uses the host bitmap
+font; the GUI already uses Geist), the HUD editor's transparency and the
+armor bar's glow.
+
+## Blocked on the host
+
+Each names the capability missing at the pin:
+- **Reach:** the integrated/LAN server re-picks guest attacks at 3 blocks (being re-checked).
+- **AutoHeal Silent:** server clicks are only sent with the inventory screen open; no held-item use API (being re-checked).
+- **Chams, XRay:** no mesher or entity-render hooks (being re-checked against the crates mixins can target).
+- **MotionBlur:** no frame-accumulation hook.
+- **Freelook (7 rows):** recorded as needing a camera-rotation hook. movement-b's Freecam hooks on `player_camera_entity` and `turn_player` provide it, so these rows are being implemented rather than staying blocked.
+
+## Evidence on main 97dbaa7
+
+- `gates.sh --host`: fmt, Clippy `-D warnings` (all targets), **431 tests passed / 0 failed**, payload-test, stage/audit with **44 hooks and 29 support modules** on horizon-mixins `0e9229d`, host check and fast build (68 warnings, none fatal).
+- Scenarios rerun on merged main (fresh isolated homes): hud_detail 8/8, weather_modes 13/13, hud_editor 9/9, hud_modes 5/5, hud_readouts 7/7, no_hurt_camera 7/7; panic 12/12; the clicker-movement-debt set (clicker modes, TriggerBot and Sprint/SafeWalk over LAN, Velocity). Results and the evidence folders are listed per merge in [progress.md](progress.md).
+- Online removal (Phase 7): the pack-time capability audit rejects `unsafe`, sockets, processes, FFI, `include_*!`, the host HTTP client, telemetry/friends crates and URL literals in shipped code; no Java/C/C++ or binaries are tracked; the nine online-product and four AI rows are `excluded-approved`.
+- Settings parity: `tools/settings_parity.py` compares every reference setting definition with the port's settings dump; it is rerun after the merges.
+- Performance: `tools/perf_scenario.py` measures per-module frame cost. The last runs were on a machine loaded by the workers and are not attributable; performance stays unvalidated until the idle-machine rerun after this round.
+- Not covered: remote/third-party servers, window focus loss, switching between two worlds.
 - [hooks.md](hooks.md) lists every target and module.
 
-## Open dependencies and next work
+## Release and maintenance (Phase 8)
 
-1. **Validation first:** run `tools/render_scenario.py`; rerun the HUD
-   scenarios on the merged tree; scenarios for the inventory planners,
-   InventoryFill, LongJump factors, NoFall jump release, FakeLag
-   Latency/Dynamic, NameTags players/mobs, Parkour on LAN.
-2. **Combat:** HitSelect (needs a cancellable hook on `remote_start_attack`;
-   decoded constants recorded in progress.md), BlockHit, HitFlick, AntiBot,
-   HitSwap/AutoMace, ShieldBreaker, CrystalAura, BowAimbot, AimAssist
-   Adaptive, Reach Misplace; SilentAura Ring/Box render; rotation for the
-   riding packet and third-person view.
-3. **Movement / world:** Scaffold GodBridge/TellyBridge on the combat
-   rotation claim; merge the two rotation controllers; Strafe, Freecam,
-   AutoPearl, PearlCatch, MLG, Clutch, AutoLadder, BlockIn, AutoAnchor,
-   BedBreaker, FakeLag Dynamic, Blink outgoing-only/fake player; InvWalk key
-   byte and text-field check.
-4. **Render:** Projectiles, Indicators, BedPlates, BlockOverlay
-   ([block-overlay.md](specs/block-overlay.md)); Search per-block tracers,
-   crossbow multishot, enchant glint, Explosions depth; Health's U+2764
-   heart (the interface font lacks the glyph; the HUD worker's vanilla-font
-   fix was dropped at merge).
-5. **Inventory:** InventoryManager editor frames; custom item-name/potion
-   metadata; AutoTotem count display on the Text GUI.
-6. **HUD / UI:** HUD panels hidden while the click GUI is open; Target Info
-   head preview, pot count, enchant-aware comparator; client translations,
-   Windows date conventions; Panic default visibility.
-7. **Blocked on Horizon:** Reach on the integrated/LAN server (server re-pick
-   at 3 blocks), AutoTotem silent/inventory-free, AutoHeal Silent/Potions,
-   ESP skeleton (no bone poses), Xray/Chams (mesher/entity-render hooks),
-   Freelook (camera rotation), MotionBlur (frame accumulation),
-   MurdererFinder callout (chat send).
-8. **Distribution:** an actual installed `horizon-launcher native-build` run,
-   Windows/macOS, a tagged Horizon pin, provenance, release gates, registry.
+- `xtask drift <horizon> [revision] [--compile]` checks an upstream candidate without touching the pin, and `.github/workflows/drift.yml` runs it daily on Horizon main (read-only, never publishes).
+- compatibility-matrix.json maps each mod version to its Horizon, mixin, game and protocol pins and platforms; `tools/bundle.py` writes a per-artifact `.compatibility.json` with its SHA-256 and refuses a stable build whose pins differ from its entry.
+- docs/development.md covers build, install, update, rollback and settings preservation.
+- Re-pin candidate: Horizon main `5062f225` (Minecraft 26.3 / protocol 777 unchanged; all hooks plan, apply and audit; seven changed hook targets reviewed). Its new anticheat runs only on a dedicated server's hub, so integrated and LAN scenarios are unaffected. The re-pin follows the merges and a full scenario rerun.
+- Linux x86-64 is the only platform exercised; Windows and macOS are unvalidated. The installed `horizon-launcher native-build` run is the player's to make; `tools/launcher_build.py` reproduces that route for agents.
 
 ## Reproduction and resources
 
@@ -132,7 +129,7 @@ creative (inventory automation requires survival). Quit the window normally;
 the test instance and game.log are retained. No normal player worlds/settings
 are used. Right Shift opens the GUI, F8/F9 toggle coordinates/FPS and F10 is panic.
 
-Modules with real host evidence are listed under "Evidence" above; treat the
+Modules with real host evidence are listed under "Ledger" above; treat the
 rest (render modules, inventory planners, macros) as experimental until their
 scenarios run. BlockOverlay and the rest of the unfinished plan are not
 available by enabling hidden options.
