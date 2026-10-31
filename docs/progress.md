@@ -883,3 +883,39 @@ Validation worker (branch `worker/validation`, pin 8f91f89 / 0e9229d).
   the pinned `game.rs` no longer calls; it now targets
   `controlled_simulation_tick_with_sprint_window` (off 1.23 / on 6.32 / walk
   6.18 blocks per 30 ticks).
+
+## 2026-10-31: validation — combat scenario, LAN PvP scenario, NoItemRelease and JumpReset fixes
+
+Pinned Horizon 8f91f896a / horizon-mixins 0e9229d, fresh isolated homes.
+
+- `tools/combat_scenario.py` (integrated server, survival): **39/39**
+  (`combat-unwn75pj`). AutoClicker holds at 11.0 server-logged attacks/s
+  for 10-12 CPS, stops on release and on disable; RightClicker 13 snowballs/s
+  and FastPlace 16 (stack of 16 used up) against the host's 5/s repeat, back
+  to 5 after; HitBoxes takes a click 0.25 beside a cow, misses off/after;
+  NoItemRelease: a 14-tick eat finishes server-side (0 / 1 / 0 apples with
+  off / on / after, 44-tick full hold eats 1).
+- `tools/pvp_scenario.py` (LAN host plus a vape-rs guest): **23/23**
+  (`pvp-guest-ht8rynoz`). KnockbackDelay 500 ms: the push lands 503 ms after
+  the hurt (0 ms off); disabling mid-hold released it 41 ms after the tap; a
+  push held over a disconnect never replays after reconnecting. JumpReset:
+  push-arc peak 0.965 off and after, 1.252 on (a jump). WTap: 4 unsprinting
+  ticks after a sprint hit against 1 off.
+- Fixed: NoItemRelease matched `PlayerAction` action 5, which is DROP_ITEM in
+  this protocol; RELEASE_USE_ITEM is 6 (`mixins/vape_rs/packets.rs`).
+- Fixed: JumpReset never jumped. Its landed-motion check ran in
+  `vape_packets::tick` after the same tick's input resolution, so the jump
+  key came a tick later with the player in the air. The packet tick (held
+  packet replay, JumpReset, outbound flush, Regen) now runs first at the
+  client tick HEAD, as packets precede the tick in vanilla
+  (`mixins/vape_rs/adapters/tick.rs`). inbound_hold_scenario to be rerun.
+- Reach: the client pick extends (cow at 3.64 picked with 3.9, none off and
+  after) but the server records no attack. Horizon's integrated/LAN server
+  re-picks a guest attack with its own 3-block reach (`lan_actions`
+  guest_attack -> look_at_entity + attack) instead of attacking the sent id
+  as vanilla handleAttack does. Blocked on Horizon.
+- Regen and PotionSaver: off and on measure the same (health +3 in 1 s; a
+  speed effect 599 -> 519 ticks over 4 s). This server ticks the player once
+  per server tick whatever movement packets arrive, so neither can change
+  its clock here. Host-limited, not validated.
+- Evidence: docs/evidence/validation-combat.json, validation-pvp.json.

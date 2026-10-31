@@ -34,6 +34,9 @@ fn tick(game: &mut crate::game::Game<'_>) {
             eprintln!("[vape-rs] {note}");
         }
     });
+    // Held packets are replayed and JumpReset sees the landed motion before
+    // this tick's inputs are resolved, as packets precede the tick in vanilla.
+    crate::game::remote::vape_packets::tick(game);
     crate::game::vape_inventory::auto_tool(game, false);
     crate::game::vape_fast_place::fast_place(game);
     crate::game::vape_input_delays::input_delays(game);
@@ -42,6 +45,5 @@ fn tick(game: &mut crate::game::Game<'_>) {
     crate::game::vape_combat::velocity_tick(game);
     crate::game::vape_combat::reach_tick(game);
     crate::game::vape_combat::movement_tick(game);
-    crate::game::remote::vape_packets::tick(game);
     crate::game::vape_legit::anti_debuff(game);
 }
