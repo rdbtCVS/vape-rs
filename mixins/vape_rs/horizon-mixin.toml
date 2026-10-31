@@ -665,3 +665,40 @@ bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "self" },
   { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
 ]
+
+# Freecam: the client tick, the render camera taken from the module's
+# camera, the view turns sent to it, and the player's own body drawn in
+# first person (Spawn Fake).
+[[module]]
+id = "freecam"
+file = "crates/horizon-client/src/game.rs"
+name = "vape_freecam"
+source = "freecam.rs"
+
+[[injection]]
+id = "freecam-camera"
+target = "horizon_client::game::perspective::Game<'_>::player_camera_entity"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/freecam_camera.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+
+[[injection]]
+id = "freecam-turn"
+target = "horizon_client::game::perspective::Game<'_>::turn_player"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/freecam_turn.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "xo", ty = "f64", value = "xo" },
+  { name = "yo", ty = "f64", value = "yo" },
+]
+
+[[injection]]
+id = "freecam-body"
+target = "horizon_client::game::perspective::Game<'_>::own_body_in_view"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/freecam_body.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]

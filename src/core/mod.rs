@@ -1,5 +1,6 @@
 pub mod automation;
 pub mod combat_runtime;
+pub mod freecam_runtime;
 mod hud_extras;
 pub mod inventory_extra;
 pub mod inventory_fill;
@@ -79,6 +80,7 @@ pub struct Runtime {
     inventory_extra: inventory_extra::Planners,
     throws: throw_runtime::Throws,
     pearls: pearl_runtime::Pearls,
+    freecam: super::modules::render::freecam::Freecam,
     inventory_fill: inventory_fill::Fill,
     settings: Settings,
     document: Document,
@@ -394,6 +396,7 @@ impl Default for Runtime {
             .chain(throw_runtime::definitions())
             .chain(inventory_fill::definitions())
             .chain(pearl_runtime::definitions())
+            .chain(freecam_runtime::definitions())
         {
             settings
                 .define(definition)
@@ -477,6 +480,7 @@ impl Default for Runtime {
             inventory_extra: Default::default(),
             throws: Default::default(),
             pearls: Default::default(),
+            freecam: Default::default(),
             inventory_fill: Default::default(),
             settings,
             document: Document::default(),
@@ -585,6 +589,7 @@ impl Runtime {
         }
         self.movement_toggled(module, enabled);
         self.pearls_toggled(module, enabled);
+        self.freecam_toggled(module, enabled);
         if !enabled {
             self.combat_disabled(module);
         }
@@ -1877,6 +1882,7 @@ impl Runtime {
         self.reset_auto_tool();
         self.reset_combat();
         self.pearls_session_reset();
+        self.freecam_session_reset(reason);
         self.cancel_inventory();
         self.cancel_auto_fish();
         self.combat_guard.reset();
@@ -2275,6 +2281,7 @@ impl Runtime {
                 | ModuleId::InventoryFill
                 | ModuleId::AutoPearl
                 | ModuleId::PearlCatch
+                | ModuleId::Freecam
                 | ModuleId::FastPlace
                 | ModuleId::Fullbright
                 | ModuleId::ClearWater

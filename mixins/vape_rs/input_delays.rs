@@ -88,6 +88,15 @@ pub(crate) fn movement_again(game: &mut crate::game::Game<'_>) {
 
 fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: bool) {
     let client = game.__horizon_mixins_vape_rs_client().clone();
+    // A socket key's release takes the key out of both key sets directly,
+    // past `mapped_key`: a socket key no longer physically held was let go.
+    with_client(&client, |runtime| {
+        for (axis, key) in KEYS {
+            if runtime.movement().socket_held(axis) && !game.physical_keys.contains(&key) {
+                runtime.movement().socket_released(axis);
+            }
+        }
+    });
     let view = HostView {
         keys: KEYS.map(|(_, key)| game.keys.contains(&key)),
         toggles: [game.toggles.is_down(0), game.toggles.is_down(1)],
@@ -100,7 +109,8 @@ fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: boo
         let tapped = if again { false } else { runtime.replace_parkour_tap(false) };
         (
             active && runtime.enabled(ModuleId::Sprint) && !(cancel_invis && invisible),
-            active && runtime.enabled(ModuleId::Parkour) && !tapped,
+            // Parkour's `onTick` returns while Freecam is on.
+            active && runtime.enabled(ModuleId::Parkour) && !runtime.enabled(ModuleId::Freecam) && !tapped,
             runtime.movement().user(Axis::Forward, &view),
             runtime.movement().user(Axis::Jump, &view),
         )
@@ -190,6 +200,13 @@ fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: boo
     // Scaffold Legit's edge sneak, WindCharge's jump, NoFall's jump release.
     for request in crate::game::remote::vape_world_actions::requests(game, active, again, &view) {
         overrides.request(request);
+    }
+    // Freecam releases the seven movement keys (`onKeyBindingState`) and
+    // walks the player with the arrow keys under Move Fake.
+    if requests {
+        for request in crate::game::vape_freecam::requests(game) {
+            overrides.request(request);
+        }
     }
     let writes = with_client(&client, |runtime| {
         runtime.replace_parkour_tap(tap);

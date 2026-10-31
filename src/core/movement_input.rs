@@ -52,6 +52,7 @@ pub enum Owner {
     Scaffold,
     WindCharge,
     NoFall,
+    Freecam,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -111,6 +112,8 @@ struct Written {
 #[derive(Debug, Default)]
 pub struct Writer {
     written: [Option<Written>; 7],
+    /// Axes whose key the control socket pressed, until its release is seen.
+    socket: [bool; 7],
 }
 impl Writer {
     /// Records a key event the host is about to process for this axis (a
@@ -123,10 +126,23 @@ impl Writer {
     /// Records a key the host inserts directly into its key set, outside the
     /// toggle mappings (control-socket key presses).
     pub fn direct_key(&mut self, axis: Axis) {
+        self.socket[axis.index()] = true;
         if let Some(written) = &mut self.written[axis.index()] {
             written.touched = Some(true);
             written.direct = true;
         }
+    }
+    /// Whether the control socket pressed this axis's key and its release
+    /// has not been seen yet.
+    pub fn socket_held(&self, axis: Axis) -> bool {
+        self.socket[axis.index()]
+    }
+    /// The control socket let go of the key. Its release removes the key
+    /// from the key set directly, past the host's key events, so a key this
+    /// writer overrode would otherwise come back when the override ends.
+    pub fn socket_released(&mut self, axis: Axis) {
+        self.socket[axis.index()] = false;
+        self.host_event(axis, false);
     }
     /// Whether this writer currently overrides the axis.
     pub fn owns(&self, axis: Axis) -> bool {
@@ -358,5 +374,30 @@ mod tests {
             writer.resolve(&Overrides::default(), &view),
             [(Axis::Forward, true)]
         );
+    }
+
+    #[test]
+    fn a_socket_key_released_during_a_suppression_is_not_replayed() {
+        let mut writer = Writer::default();
+        let mut view = HostView::default();
+        // The socket presses S before anything owns the axis.
+        writer.direct_key(Axis::Back);
+        view.keys[Axis::Back.index()] = true;
+        let mut requests = Overrides::default();
+        requests.request(Request {
+            axis: Axis::Back,
+            owner: Owner::Freecam,
+            priority: 3,
+            pressed: false,
+        });
+        step(&mut writer, &requests, &mut view);
+        assert!(!view.key(Axis::Back));
+        // The socket's release bypasses the host's key events.
+        assert!(writer.socket_held(Axis::Back));
+        writer.socket_released(Axis::Back);
+        assert!(!writer.socket_held(Axis::Back));
+        step(&mut writer, &Overrides::default(), &mut view);
+        assert!(!view.key(Axis::Back), "a released key must not come back");
+        assert!(!writer.owns(Axis::Back));
     }
 }

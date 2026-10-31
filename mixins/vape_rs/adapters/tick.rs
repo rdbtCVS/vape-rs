@@ -42,6 +42,7 @@ fn tick(game: &mut crate::game::Game<'_>) {
     crate::game::vape_input_delays::input_delays(game);
     crate::game::remote::vape_world_actions::tick(game);
     crate::game::remote::vape_pearls::tick(game);
+    crate::game::vape_freecam::tick(game);
     crate::game::vape_input_delays::movement(game, true);
     crate::game::vape_combat::trigger_bot(game);
     crate::game::vape_aura::tick(game);

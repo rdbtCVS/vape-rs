@@ -128,6 +128,7 @@ registry! {
     InventoryFill => "inventory.inventory-fill", "InventoryFill", "Inventory", None, [];
     AutoPearl => "utility.auto-pearl", "AutoPearl", "Utility", None, [];
     PearlCatch => "utility.pearl-catch", "PearlCatch", "Utility", None, [];
+    Freecam => "render.freecam", "Freecam", "World", None, [];
 }
 
 impl ModuleId {

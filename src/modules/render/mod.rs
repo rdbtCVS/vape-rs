@@ -6,6 +6,7 @@ pub mod anti_debuff;
 pub mod arrows;
 pub mod esp;
 pub mod explosions;
+pub mod freecam;
 pub mod health;
 pub mod item_esp;
 pub mod murder_finder;

@@ -20,6 +20,11 @@ the server teleports the guest far down the runway, within a fifth of the
 pearl's reach from where the host's pearl landed (the reference's drag-free
 pitch solver lands a little short at long range).
 
+AutoPearl On bind over LAN, the same runway: the bind with no pearl flying
+enables the module, which finds nothing and disables itself; the bind again
+while the host's pearl is in the air throws after it (the guest lands down
+the runway) and the module disables itself after the throw.
+
 Results go to result.json in each session's home.
 """
 import argparse
@@ -144,9 +149,10 @@ def pearl_catch(resources, allow_stale, name, extra_settings, look):
         return ok
 
 
-def auto_pearl(resources, allow_stale):
-    with NativeSession(resources, 'pearl-lan-host-', allow_stale=allow_stale) as host, \
-            NativeSession(resources, 'pearl-lan-guest-', allow_stale=allow_stale) as guest:
+def auto_pearl(resources, allow_stale, mode='aggro'):
+    prefix = 'pearl-lan' if mode == 'aggro' else f'pearl-{mode}-lan'
+    with NativeSession(resources, f'{prefix}-host-', allow_stale=allow_stale) as host, \
+            NativeSession(resources, f'{prefix}-guest-', allow_stale=allow_stale) as guest:
         checks = Checks(guest.root)
         host.seed({'schema': 1, 'modules': {}, 'settings': {}})
         host.launch(creative=False, world='LanHost')
@@ -159,7 +165,7 @@ def auto_pearl(resources, allow_stale):
         checks.check('host opened to LAN', bool(port), opened)
 
         guest.seed({'schema': 1, 'modules': {},
-                    'settings': {f'{AUTO}.binds': [KEYS[AUTO]], f'{AUTO}.mode': 'aggro'}})
+                    'settings': {f'{AUTO}.binds': [KEYS[AUTO]], f'{AUTO}.mode': mode}})
         guest.launch(creative=False, world=None,
                      extra=('--server', f'localhost:{port}', '--name', 'VapeGuest'))
         guest.call('wait-ready', '60')
@@ -174,7 +180,13 @@ def auto_pearl(resources, allow_stale):
                      and s.get('held') is None, {'position': s['player']['position'], 'counts': before,
                                                  'held': s.get('held')})
         toggle(guest, AUTO)
-        checks.check('AutoPearl enabled through its bind', enabled(guest, AUTO))
+        if mode == 'aggro':
+            checks.check('AutoPearl enabled through its bind', enabled(guest, AUTO))
+        else:
+            # On bind looks once at the pearls already flying: none.
+            guest.call('wait', '3')
+            checks.check('AutoPearl On bind with no pearl flying disables itself',
+                         not enabled(guest, AUTO) and state(guest)['selected'] == 1)
         guest.call('wait', '10')
 
         host.call('hotbar', '1')
@@ -186,6 +198,10 @@ def auto_pearl(resources, allow_stale):
         host.call('mouse', 'right', 'down')
         host.call('wait', '1')
         host.call('mouse', 'right', 'up')
+        if mode == 'on-bind':
+            # The bind while the host's pearl is in the air.
+            guest.call('wait', '2')
+            guest.call('key', KEYS[AUTO][3:].lower(), 'tap')
         samples = []
         for _ in range(80):
             s = guest.call('state')
@@ -214,9 +230,12 @@ def auto_pearl(resources, allow_stale):
         checks.check("guest landed near the host's pearl landing", apart < 0.2 * reach,
                      {'host': landed, 'guest': s['player']['position'], 'apart': round(apart, 2),
                       'reach': round(reach, 2)})
-        checks.check('AutoPearl Aggro stays enabled', enabled(guest, AUTO))
+        if mode == 'aggro':
+            checks.check('AutoPearl Aggro stays enabled', enabled(guest, AUTO))
+        else:
+            checks.check('AutoPearl On bind disables itself after its throw', not enabled(guest, AUTO))
         ok = all(r['ok'] for r in checks.results)
-        print('PASS' if ok else 'FAIL', 'auto-pearl', f'{sum(r["ok"] for r in checks.results)}/{len(checks.results)}',
+        print('PASS' if ok else 'FAIL', f'auto-pearl {mode}', f'{sum(r["ok"] for r in checks.results)}/{len(checks.results)}',
               guest.root)
         return ok
 
@@ -229,6 +248,7 @@ def run(resources, allow_stale, only=None):
         'current-aim': lambda: pearl_catch(resources, allow_stale, 'current-aim',
                                            {f'{CATCH}.aim-mode': 'current-aim'}, ('0', '-30')),
         'auto-pearl': lambda: auto_pearl(resources, allow_stale),
+        'auto-pearl-on-bind': lambda: auto_pearl(resources, allow_stale, 'on-bind'),
     }
     results = {name: f() for name, f in variants.items() if not only or name in only}
     print(results)
