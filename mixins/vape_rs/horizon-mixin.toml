@@ -205,6 +205,16 @@ cancellable = true
 helper = "adapters/inventory_blur.rs"
 bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
 
+# ClientSettings "Blur background": the same menu blur behind the click GUI
+# and the HUD editor, or none when it is off.
+[[injection]]
+id = "gui-blur"
+target = "horizon_client::game::Game<'_>::menu_blur"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/gui_blur.rs"
+bindings = [{ name = "game", ty = "&crate::game::Game<'_>", value = "&*self" }]
+
 [[injection]]
 id = "no-hurt-camera"
 target = "horizon_client::game::fov::Game<'_>::bob_matrix"

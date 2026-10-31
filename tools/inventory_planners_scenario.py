@@ -56,7 +56,9 @@ HOTBAR_RULES = [
 
 def run(resources):
     with NativeSession(resources, 'inv-plan-') as session:
-        session.seed({'schema': 1, 'modules': {}, 'settings': {
+        # InvCleaner and AutoHotbar are hidden by default, as in the reference;
+        # a hidden module refuses its bind.
+        session.seed({'schema': 1, 'modules': {IC: {'visible': True}, AH: {'visible': True}}, 'settings': {
             f'{IC}.binds': ['KeyK'],
             f'{IC}.delay': [400, 400],
             f'{IM}.binds': ['KeyJ'],

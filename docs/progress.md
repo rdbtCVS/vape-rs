@@ -1422,6 +1422,94 @@ Seven host scenarios failed on main at 4ff7488, before any round-2 merge. Four w
 
 Tests: fmt, Clippy and the workspace tests are clean (395 passed, 0 failed), and payload-test, stage, host check and host build pass. Host scenarios, each in a fresh isolated home: delays_perf 39/39, inventory, gui, auto_tool, auto_tool_guards, no_hurt_camera and text_editor pass (target/scenario-runs/20261031-181944, -182256 and -182518).
 
+## 2026-10-31: HUD and client foundation (worker round 2)
+
+Branch `t3/363c8469`, built from `9fd0493` against the Horizon pin `8f91f89`.
+
+Added:
+- Per-module visibility (`Mod.visible`, new `src/core/visibility.rs`):
+  - Speed, Fly, Timer, InvCleaner, ThrowDebuff, AntiDebuff, InvWalk and AutoHotbar are hidden by default. Panic stays visible because of its F10 bind (decisions.md).
+  - A frame header's edit button lists every module of the category behind a checkbox strip. `modules.<id>.visible` is saved only when it differs from the default.
+  - A hidden module refuses its bind with a "Hidden Module" warning toast. Hidden enabled modules are switched off after a profile load.
+  - Bind-only modules (the `UtilityMod` subclasses) refuse GUI clicks, and the row shows "MUST BE BOUND" or "USE VIA BIND".
+- ClientSettings "Blur background" (default on): new cancellable HEAD hook `gui-blur` on `Game::menu_blur` (`mixins/vape_rs/adapters/gui_blur.rs`). It reuses the host menu blur, the same path as Inventory Blur, while the click GUI or the HUD editor is open.
+- ClientSettings "Rainbow speed" (0.1..10, default 1, step 0.1) and the per-colour rainbow (new `src/core/rainbow.rs`):
+  - Every colour setting has a hidden `<id>.rainbow` toggle, shown as a fifth Rainbow row in the colour popup.
+  - While the toggle is on, the hue advances by Rainbow speed every 50 ms, using Java's HSB conversion. The cycled colour is written back without dirtying the profile.
+- TextGuiSettings: Scale is now 0.1..2.0 in tenths, Rescale (default on) is stored, and the "None" suffix mode has a capture.
+- A cleared GUI bind falls back to Right Shift (`ClientSettingsGuiBindBendable.setBoundInputs`).
+- Scenario updates for the new defaults: movement, world_movement, legit_render and throw seed `visible: true` for the default-hidden modules they drive. gui_scenario.py has the new Fullbright row (AntiDebuff hidden) and the shifted multi-bind row (Blur background added).
+
+Audits (no code):
+- client.timing: `src/core/rng.rs` (xorshift), the Normal and Extra modes in `src/modules/combat/click_timing.rs`, and ExtraPlus in the clicker. The host measured 11 CPS at a 10–12 setting. A per-mode host distribution check is still open.
+- client.localization: the reference ships English, Chinese, French, Portuguese and Spanish `.properties` tables, `FontOption.s()` translation, `NotoFontOption` and an `exportFramesConfig` template. None is ported. It stays not-started.
+- client.performance: the reference has debug classes only, so it needs a scope decision and stays not-started.
+- client.target-info: see the Target Info gaps below. It stays integrated.
+
+Tests:
+- fmt --check and Clippy -D warnings are clean. Workspace tests pass 204 + 3, and payload-test passes 204. New tests cover visibility (4), rainbow (3), the popup Rainbow switch, and the GUI bind fallback.
+- Stage/audit: 44 hooks and 29 support modules, with the original AST restored. The fast host build passed with 68 warnings and 0 errors.
+- Host scenarios, each in a fresh isolated home:
+  - gui_blur_rainbow 6/6. The rainbow Text GUI colour cycles and is not saved by itself, and the popup switch stores and clears `<id>.rainbow`. With Blur on, the GUI capture fits a radius-4 blurred play capture 4× better than the sharp one. With Blur off, it fits the sharp one 11× better. Both comparisons first apply a linear fit, which absorbs the GUI's dim.
+  - module_visibility 7/7
+  - text_gui 11/11
+  - client_settings 11/11
+  - gui 11/11
+  - hud_modes 5/5
+  - target_info 8/8
+  - movement 52/52
+  - world_movement 28/28
+  - legit_render 40/40
+  - throw 4/4
+- An earlier gui_blur_rainbow check compared absolute edge energy across two launches. That was unsound, because each launch shows a different scene and the GUI dims the world, so the check now compares within a session.
+- main's `tools/settings_parity.py` (from `4ff7488`, reading the reference as text) was run on this tree:
+  - ClientSettings has no missing, default or range difference.
+  - TextGuiSettings misses only Click disable.
+  - Scoreboard misses only "Replace scoreboard text".
+- Evidence: docs/evidence/hud-client-r2-{blur-rainbow,visibility,text-gui,client-settings,gui,modes,target-info,settings-parity}/.
+
+Ledger update: target/ledger-updates/hud-client.json (41 rows).
+
+Open:
+- Text GUI: Click disable (needs the HUD under the open GUI), rounded corners, the logo watermark (no redistributable asset), the per-module states, and right-edge anchoring while the list shrinks. "Match GUI color" uses the fixed accent.
+- The colour popup edits ARGB channels instead of the reference's HSB picker.
+- Not done yet:
+  - the HUD and toasts under the click GUI;
+  - hover tooltips;
+  - the legit-mode button;
+  - friend notifications;
+  - Windows date conventions for Clock;
+  - Scoreboard "Replace scoreboard text".
+- Target Info: head preview, pot count, enchant-aware damage comparator.
+- Freelook modes stay blocked (no camera-rotation hook).
+- module.blockhitmode belongs to combat-a and was not touched.
+
+## 2026-10-31: hud-client (round 2) merged
+
+I merged t3/363c8469 (f26e51d) into main on top of the baseline fixes. Conflicts:
+- `tools/gui_scenario.py`: Fullbright's row stays computed by `gui_layout.py`, which now leaves out default-hidden modules, and the multi-bind click is at y=113, below Blur background.
+- docs: both sides kept.
+
+I applied target/ledger-updates/hud-client.json (41 rows: 24 validated, 4 integrated, 6 blocked on the Freelook camera-rotation hook, 5 not-applicable-reviewed, 2 not-started). The evidence is in docs/evidence/hud-client-r2-*.
+
+Tests on the merged tree: fmt, Clippy and the workspace tests are clean (415 passed, 0 failed), and payload-test, stage, host check and host build pass. Host scenarios, each in a fresh isolated home, all pass (target/scenario-runs/20261031-184300):
+
+| Scenario | Result |
+|---|---|
+| gui_blur_rainbow | pass |
+| module_visibility | pass |
+| text_gui | pass |
+| client_settings | pass |
+| gui | 11/11 |
+| hud_modes | 5/5 |
+| target_info | 8/8 |
+| throw | pass |
+| legit_render | 40/40 |
+| auto_tool | pass |
+| no_hurt_camera | pass |
+| movement | 52/52 |
+| world_movement | 28/28 |
+
 ## 2026-10-31: inventory (worker round 2)
 
 Fixed or ported:
