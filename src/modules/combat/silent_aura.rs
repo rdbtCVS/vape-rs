@@ -1,9 +1,11 @@
 // SilentAura (reference `SilentAura`, `SilentAuraRotationController`,
 // `SilentAuraAimJitter`, `SilentAuraEntityIdComparator` and the hidden
 // `SilentAuraClicker`): claims the shared rotation, steers the silent managed
-// rotation onto the target with the reference's PID mode, and clicks at the
-// aura's rate once the managed rotation is on target. The AI rotation mode
-// and its models are excluded from the port.
+// rotation onto the target with the reference's PID or Kiss mode, and clicks at the
+// aura's rate once the managed rotation is on target. Break blocks hands the
+// attack key to mining while the crosshair is on a block; Show target draws
+// a ring or box (`aura_render`). The AI rotation mode and its models are
+// excluded from the port.
 use super::super::super::core::settings::{Definition, Kind, Settings};
 use super::super::super::inventory::item_limit::{self, HeldItem};
 use super::super::super::targeting::SortMode;
@@ -13,6 +15,7 @@ use super::super::super::targeting::entities::{
 use super::super::super::targeting::filter::{self, People, TargetFilter};
 use super::click_timing::Timing;
 use super::kill_aura::{self, KillAura, SORT_MODES};
+use super::kiss_rotation::{self, Kiss};
 use super::rotation::{self, Claim, Claimant, Managed, Step};
 use serde_json::{Value, json};
 
@@ -23,10 +26,24 @@ pub const BASE_RANGE: f64 = 3.0;
 
 pub fn definitions() -> Vec<Definition> {
     let key = |k: &str| format!("{ID}.{k}");
-    let mut out = filter::definitions(ID);
+    let pid = || json!("PID");
+    let kiss = || json!("Kiss");
+    // The reference moves Rotation Mode to the top of the list; its AI mode
+    // is out of scope.
+    let mut out = vec![Definition::choice(
+        &key("rotation-mode"),
+        "Rotation Mode",
+        &["PID", "Kiss"],
+        "PID",
+    )];
+    out.extend(filter::definitions(ID));
     out.extend([
-        Definition::choice(&key("rotation-mode"), "Rotation Mode", &["PID"], "PID"),
-        Definition::number(&key("aim-speed"), "Aim speed", 1.0, 7.0, 10.0, 0.1),
+        Definition::number(&key("kiss-speed"), "Kiss speed", 5.0, 30.0, 90.0, 0.5)
+            .when(&key("rotation-mode"), kiss()),
+        Definition::number(&key("kiss-jitter"), "Kiss jitter", 0.0, 0.15, 1.0, 0.01)
+            .when(&key("rotation-mode"), kiss()),
+        Definition::number(&key("aim-speed"), "Aim speed", 1.0, 7.0, 10.0, 0.1)
+            .when(&key("rotation-mode"), pid()),
         kill_aura::aps_definition(&key("aps")),
         Definition::number(
             &key("extra-swing"),
@@ -43,10 +60,53 @@ pub fn definitions() -> Vec<Definition> {
             "Target area",
             &["Center", "Closest"],
             "Center",
-        ),
+        )
+        .when(&key("rotation-mode"), pid()),
         Definition::boolean(&key("shield-check"), "Shield check", false),
         Definition::boolean(&key("disable-on-death"), "Disable on death", false),
+        Definition::boolean(&key("break-blocks"), "Break blocks", false),
+        Definition::new(
+            &key("break-delay"),
+            "Break blocks delay",
+            Kind::Range {
+                min: 0.0,
+                max: 2000.0,
+                step: 1.0,
+            },
+            json!([0.0, 10.0]),
+        )
+        .when(&key("break-blocks"), json!(true)),
+        Definition::boolean(&key("break-whitelist"), "Break blocks whitelist", false)
+            .when(&key("break-blocks"), json!(true)),
+        Definition::new(
+            &key("break-items"),
+            "Block breaking items",
+            Kind::StringList {
+                max_entries: 64,
+                max_chars: 64,
+            },
+            json!(["pickaxes", "shovels"]),
+        )
+        .when(&key("break-blocks"), json!(true))
+        .when(&key("break-whitelist"), json!(true)),
         Definition::boolean(&key("require-mouse"), "Require mouse down", false),
+        Definition::boolean(&key("show-target"), "Show target", false),
+        Definition::new(
+            &key("target-color"),
+            "Target color",
+            Kind::Color,
+            json!(kill_aura::TARGET_COLOR),
+        )
+        .when(&key("show-target"), json!(true)),
+        Definition::new(
+            &key("attack-color"),
+            "Attack color",
+            Kind::Color,
+            json!(kill_aura::ATTACK_COLOR),
+        )
+        .when(&key("show-target"), json!(true)),
+        Definition::choice(&key("render-type"), "Render type", &["Ring", "Box"], "Ring")
+            .when(&key("show-target"), json!(true)),
         Definition::boolean(&key("limit-items"), "Limit to items", false),
         Definition::new(
             &key("allowed-items"),
@@ -72,6 +132,10 @@ pub fn definitions() -> Vec<Definition> {
 #[derive(Clone, Debug)]
 pub struct Options {
     pub filter: TargetFilter,
+    /// Rotation Mode Kiss (else PID).
+    pub kiss: bool,
+    pub kiss_speed: f64,
+    pub kiss_jitter: f64,
     pub aim_speed: f64,
     pub aps: (f64, f64),
     pub range: f64,
@@ -80,7 +144,16 @@ pub struct Options {
     pub closest: bool,
     pub shield_check: bool,
     pub disable_on_death: bool,
+    pub break_blocks: bool,
+    pub break_delay: (f64, f64),
+    pub break_whitelist: bool,
+    pub break_items: Vec<String>,
     pub require_mouse: bool,
+    pub show_target: bool,
+    pub target_color: u32,
+    pub attack_color: u32,
+    /// Render type Ring (else Box).
+    pub ring: bool,
     pub limit_items: bool,
     pub allowed_items: Vec<String>,
     pub perfect_swing: bool,
@@ -96,6 +169,9 @@ impl Options {
         let number = |k: &str, d: f64| get(k).and_then(Value::as_f64).unwrap_or(d);
         Self {
             filter: TargetFilter::read(settings, ID),
+            kiss: get("rotation-mode").and_then(Value::as_str) == Some("Kiss"),
+            kiss_speed: number("kiss-speed", 30.0),
+            kiss_jitter: number("kiss-jitter", 0.15),
             aim_speed: number("aim-speed", 7.0),
             aps: kill_aura::range(settings, &format!("{ID}.aps"), (6.0, 13.0)),
             range: BASE_RANGE + number("extra-swing", 1.0),
@@ -108,7 +184,16 @@ impl Options {
             closest: get("target-area").and_then(Value::as_str) == Some("Closest"),
             shield_check: boolean("shield-check"),
             disable_on_death: boolean("disable-on-death"),
+            // `getEffectiveValue`: the dependants of an off parent read off.
+            break_blocks: boolean("break-blocks"),
+            break_delay: kill_aura::range(settings, &format!("{ID}.break-delay"), (0.0, 10.0)),
+            break_whitelist: boolean("break-blocks") && boolean("break-whitelist"),
+            break_items: kill_aura::strings(settings, &format!("{ID}.break-items")),
             require_mouse: boolean("require-mouse"),
+            show_target: boolean("show-target"),
+            target_color: kill_aura::color(get("target-color"), kill_aura::TARGET_COLOR),
+            attack_color: kill_aura::color(get("attack-color"), kill_aura::ATTACK_COLOR),
+            ring: get("render-type").and_then(Value::as_str) != Some("Box"),
             limit_items: boolean("limit-items"),
             allowed_items: kill_aura::strings(settings, &format!("{ID}.allowed-items")),
             perfect_swing: boolean("perfect-swing"),
@@ -141,6 +226,11 @@ pub struct Tick {
     /// The shield check is bypassed (ShieldBreaker axe, HitSwap axe or
     /// AutoMace mace available).
     pub shield_bypass: bool,
+    /// Break blocks' `RayTraceUtil.o()`: the view's 3-block ray hits a
+    /// block before any entity.
+    pub block_hit: bool,
+    /// A container screen is open (`GuiContainer`).
+    pub container_open: bool,
 }
 
 /// What the host does this tick.
@@ -158,6 +248,9 @@ pub enum Click {
 pub struct Effects {
     pub click: Click,
     pub disable: bool,
+    /// Break blocks: hold the attack key down for mining
+    /// (`KeyBindingHelper.updateKeyBinding(attack, true)`).
+    pub hold_attack: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -221,7 +314,14 @@ pub struct SilentAura {
     integrals: [f64; 2],
     jitter: Jitter,
     random_aim: RandomAim,
+    kiss: Kiss,
     controlling: bool,
+    /// `isLookingAtTarget` after the last rotation update (Show target's
+    /// attack colour).
+    looking: bool,
+    /// `breakBlocksTimer` and `nextBreakBlockTime`.
+    break_reset_ms: u64,
+    break_delay_ms: u64,
 }
 impl Default for SilentAura {
     fn default() -> Self {
@@ -240,7 +340,11 @@ impl SilentAura {
             integrals: [0.0; 2],
             jitter: Jitter::default(),
             random_aim: RandomAim::default(),
+            kiss: Kiss::new(seed ^ 0x6b15),
             controlling: false,
+            looking: false,
+            break_reset_ms: 0,
+            break_delay_ms: 0,
         }
     }
     /// SilentAura's controller drives the managed rotation.
@@ -263,6 +367,7 @@ impl SilentAura {
         self.integrals = [0.0; 2];
         self.target = None;
         self.ready = false;
+        self.looking = false;
         self.preempted(claim);
         if self.controlling {
             managed.release();
@@ -392,7 +497,8 @@ impl SilentAura {
         self.ready = (yaw * yaw + pitch * pitch).sqrt() < 3.0 && t.player.distance(aim) <= o.range;
     }
 
-    /// `updateAim` (PID mode): the next managed-rotation target.
+    /// `updateAim`: the next managed-rotation target (PID) or this tick's
+    /// step (Kiss).
     fn update_aim(&mut self, o: &Options, t: &Tick, claim: &Claim, managed: &mut Managed) {
         let Some(target) = self
             .target
@@ -442,6 +548,25 @@ impl SilentAura {
         let eye = [t.player.tick_position[0], eye_y, t.player.tick_position[2]];
         let desired = rotation::look_at(eye, [jx, jy, jz]);
         let target_pitch = rotation::look_at(eye, [aim[0], jy, aim[2]]).1;
+        let distance = t.player.distance(aim);
+        managed.clear_delta();
+        if o.kiss {
+            // `updateAimKiss`: only the per-tick step; the managed rotation
+            // keeps the absolute angles.
+            self.kiss.set_target(self.target);
+            self.kiss.set_jitter_scale(o.kiss_jitter as f32);
+            let (yaw, pitch) = self.kiss.compute(
+                (desired.0, target_pitch),
+                (managed.yaw, managed.pitch),
+                o.kiss_speed as f32,
+                true,
+                distance,
+                kiss_rotation::JITTER_RANGE,
+                t.sensitivity,
+            );
+            managed.apply_delta(yaw, pitch, t.sensitivity);
+            return;
+        }
         let mut yaw_err = f64::from(rotation::wrap(desired.0 - managed.yaw));
         let mut pitch_err = f64::from(rotation::wrap(target_pitch - managed.pitch));
         let prev_pitch_step = f64::from(managed.pitch - managed.previous_pitch);
@@ -461,7 +586,6 @@ impl SilentAura {
             let speed = (t.motion[0].powi(2) + t.motion[2].powi(2)).sqrt();
             prev_yaw_step *= 1.0 + (h_motion + speed).min(0.25);
         }
-        let distance = t.player.distance(aim);
         if distance < 0.8 {
             let f = distance / 0.8;
             pitch_err *= f * f;
@@ -517,6 +641,11 @@ impl SilentAura {
         managed: &mut Managed,
     ) -> Effects {
         let mut effects = Effects::default();
+        if self.breaking(o, t) {
+            self.reset(claim, managed);
+            effects.hold_attack = true;
+            return effects;
+        }
         if !t.alive {
             self.reset(claim, managed);
             effects.disable = o.disable_on_death;
@@ -529,6 +658,67 @@ impl SilentAura {
         self.update_target(o, t, people, claim, managed);
         self.update_aim(o, t, claim, managed);
         effects
+    }
+
+    /// `handleBreakBlocks`: once the rolled delay has passed, a held attack
+    /// on a block (with an allowed item under the whitelist, and no
+    /// container open) mines instead of aiming. Otherwise the delay is
+    /// rolled again.
+    fn breaking(&mut self, o: &Options, t: &Tick) -> bool {
+        if !o.break_blocks || t.now_ms.saturating_sub(self.break_reset_ms) < self.break_delay_ms {
+            return false;
+        }
+        if o.break_whitelist && !item_limit::matches(&o.break_items, &t.held) {
+            return false;
+        }
+        if t.container_open {
+            return false;
+        }
+        if t.block_hit && t.attack_down {
+            return true;
+        }
+        let (lo, hi) = o.break_delay;
+        self.break_delay_ms = self.rng.range(lo, hi.max(lo)) as u64;
+        self.break_reset_ms = t.now_ms;
+        false
+    }
+
+    /// The first living entity the managed rotation's ray hits.
+    fn ray_hit(t: &Tick, managed: &Managed, reach: f64) -> Option<i32> {
+        let (yaw, pitch) = managed.sent()?;
+        let eye = [
+            t.player.tick_position[0],
+            t.player.tick_position[1] + t.eye_height,
+            t.player.tick_position[2],
+        ];
+        let dir = rotation::direction(yaw, pitch);
+        t.entities
+            .iter()
+            .filter(|e| e.alive() && !e.vehicle)
+            .filter_map(|e| {
+                rotation::ray_box(eye, dir, reach, e.bounds.min, e.bounds.max)
+                    .map(|d| (e.handle.id, d))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(id, _)| id)
+    }
+
+    /// `isLookingAtTarget`, after the rotation advanced: the aura controls
+    /// the rotation, its target is in range, and the managed rotation's
+    /// extended-reach ray hits it first.
+    pub fn update_looking(&mut self, o: &Options, t: &Tick, managed: &Managed, reach: f64) {
+        self.looking = self.controlling
+            && self.target.is_some_and(|id| {
+                t.entities.iter().any(|e| {
+                    e.handle.id == id && {
+                        let (aim, _) = Self::aim_coords(o, t, e, Self::previous(t, e));
+                        t.player.distance(aim) <= o.range
+                    }
+                }) && Self::ray_hit(t, managed, reach) == Some(id)
+            });
+    }
+    pub fn looking(&self) -> bool {
+        self.looking
     }
 
     /// `SilentAuraClicker` after the rotation advanced: a click when the
@@ -552,26 +742,11 @@ impl SilentAura {
             return Click::None;
         }
         self.last_click_ms = Some(t.now_ms);
-        let Some((yaw, pitch)) = managed.sent() else {
+        if managed.sent().is_none() {
             return Click::None;
-        };
-        let eye = [
-            t.player.tick_position[0],
-            t.player.tick_position[1] + t.eye_height,
-            t.player.tick_position[2],
-        ];
-        let dir = rotation::direction(yaw, pitch);
-        let hit = t
-            .entities
-            .iter()
-            .filter(|e| e.alive() && !e.vehicle)
-            .filter_map(|e| {
-                rotation::ray_box(eye, dir, reach, e.bounds.min, e.bounds.max)
-                    .map(|d| (e.handle.id, d))
-            })
-            .min_by(|a, b| a.1.total_cmp(&b.1));
-        match hit {
-            Some((id, _)) => Click::Attack(id),
+        }
+        match Self::ray_hit(t, managed, reach) {
+            Some(id) => Click::Attack(id),
             None => Click::Miss,
         }
     }
@@ -730,5 +905,203 @@ mod tests {
         let t = tick(1050, 0.0, vec![zombie(9, [0.0, 0.0, 1.5]), blocker]);
         aura.tick(&o, &t, &NameLists::default(), &mut claim, &mut managed);
         assert_eq!(aura.target(), Some(9));
+    }
+
+    fn settings() -> Settings {
+        let mut settings = Settings::default();
+        for d in definitions() {
+            settings.define(d).unwrap();
+        }
+        settings
+            .set(&format!("{ID}.targets.mobs"), json!(true))
+            .unwrap();
+        settings
+    }
+
+    #[test]
+    fn break_blocks_mines_a_held_block_instead_of_aiming() {
+        let mut s = settings();
+        s.set(&format!("{ID}.break-blocks"), json!(true)).unwrap();
+        s.set(&format!("{ID}.break-whitelist"), json!(true))
+            .unwrap();
+        let o = Options::read(&s);
+        assert_eq!(o.break_items, ["pickaxes", "shovels"]);
+        assert_eq!(o.break_delay, (0.0, 10.0));
+        let mut aura = SilentAura::new(5);
+        let (mut claim, mut managed) = (Claim::default(), Managed::default());
+        let pickaxe = HeldItem {
+            id: Some("diamond_pickaxe".into()),
+            ..HeldItem::default()
+        };
+        let mining = Tick {
+            attack_down: true,
+            block_hit: true,
+            held: pickaxe.clone(),
+            ..tick(1000, 0.0, vec![zombie(5, [0.0, 0.0, 2.0])])
+        };
+        let e = aura.tick(&o, &mining, &NameLists::default(), &mut claim, &mut managed);
+        assert!(e.hold_attack);
+        assert!(aura.target().is_none() && !managed.active);
+        // A sword is not on the whitelist: the aura aims as usual.
+        let sword = Tick {
+            held: HeldItem {
+                id: Some("iron_sword".into()),
+                ..HeldItem::default()
+            },
+            now_ms: 2000,
+            ..mining.clone()
+        };
+        let e = aura.tick(&o, &sword, &NameLists::default(), &mut claim, &mut managed);
+        assert!(!e.hold_attack && aura.target() == Some(5));
+        // An open container never mines.
+        let container = Tick {
+            container_open: true,
+            now_ms: 3000,
+            ..mining.clone()
+        };
+        let e = aura.tick(
+            &o,
+            &container,
+            &NameLists::default(),
+            &mut claim,
+            &mut managed,
+        );
+        assert!(!e.hold_attack);
+        // Without a block under the crosshair the delay is rolled again
+        // (within 0..=10 ms) and the aura targets.
+        let open = Tick {
+            block_hit: false,
+            now_ms: 4000,
+            ..mining.clone()
+        };
+        let e = aura.tick(&o, &open, &NameLists::default(), &mut claim, &mut managed);
+        assert!(!e.hold_attack && aura.break_delay_ms <= 10);
+        let again = Tick {
+            now_ms: 4011,
+            ..mining
+        };
+        assert!(
+            aura.tick(&o, &again, &NameLists::default(), &mut claim, &mut managed)
+                .hold_attack
+        );
+    }
+
+    #[test]
+    fn show_target_settings_follow_the_reference() {
+        let mut s = settings();
+        let defs = definitions();
+        let def = |k: &str| {
+            defs.iter()
+                .find(|d| d.id == format!("{ID}.{k}"))
+                .unwrap_or_else(|| panic!("{k}"))
+        };
+        assert_eq!(def("target-color").default, json!(kill_aura::TARGET_COLOR));
+        assert_eq!(def("attack-color").default, json!(kill_aura::ATTACK_COLOR));
+        assert_eq!(def("render-type").default, json!("Ring"));
+        let o = Options::read(&s);
+        assert!(!o.show_target && o.ring && !o.break_blocks && !o.break_whitelist);
+        s.set(&format!("{ID}.render-type"), json!("Box")).unwrap();
+        s.set(&format!("{ID}.show-target"), json!(true)).unwrap();
+        let o = Options::read(&s);
+        assert!(o.show_target && !o.ring);
+        assert_eq!((o.target_color, o.attack_color), (0x32ff_c870, 0x64ff_0000));
+    }
+
+    #[test]
+    fn looking_needs_control_range_and_the_managed_ray_on_the_target() {
+        let o = options();
+        let mut aura = SilentAura::new(11);
+        let (mut claim, mut managed) = (Claim::default(), Managed::default());
+        let entities = vec![zombie(5, [0.0, 0.0, 2.5])];
+        let t = tick(1000, 0.0, entities.clone());
+        aura.tick(&o, &t, &NameLists::default(), &mut claim, &mut managed);
+        aura.update_looking(&o, &t, &managed, BASE_RANGE);
+        let mut looked = aura.looking();
+        for i in 1..20u64 {
+            let t = tick(1000 + i * 50, 0.0, entities.clone());
+            aura.tick(&o, &t, &NameLists::default(), &mut claim, &mut managed);
+            let d = aura.distance_to_target(&t);
+            managed.tick((0.0, 0.0), t.sensitivity, UPDATES_PER_TICK, || {
+                aura.step(&o, d)
+            });
+            aura.update_looking(&o, &t, &managed, BASE_RANGE);
+            looked |= aura.looking();
+        }
+        assert!(looked, "the managed ray reaches the target straight ahead");
+        // Out of the aura's range by aim coordinates: not looking.
+        let far = tick(3000, 0.0, vec![zombie(5, [0.0, 0.0, 5.5])]);
+        aura.update_looking(&o, &far, &managed, BASE_RANGE);
+        assert!(!aura.looking());
+        aura.reset(&mut claim, &mut managed);
+        assert!(!aura.looking());
+    }
+
+    #[test]
+    fn kiss_mode_turns_by_its_linear_steps_and_settings_follow_the_mode() {
+        let defs = definitions();
+        assert_eq!(defs[0].id, format!("{ID}.rotation-mode"));
+        let def = |k: &str| {
+            defs.iter()
+                .find(|d| d.id == format!("{ID}.{k}"))
+                .unwrap_or_else(|| panic!("{k}"))
+        };
+        for (k, mode) in [
+            ("kiss-speed", "Kiss"),
+            ("kiss-jitter", "Kiss"),
+            ("aim-speed", "PID"),
+            ("target-area", "PID"),
+        ] {
+            let when = &def(k).visible_if;
+            assert_eq!(when.len(), 1, "{k}");
+            assert_eq!(when[0].setting, format!("{ID}.rotation-mode"));
+            assert_eq!(when[0].expected, json!(mode), "{k}");
+        }
+        assert_eq!(def("kiss-speed").default, json!(30.0));
+        assert_eq!(def("kiss-jitter").default, json!(0.15));
+        let mut s = settings();
+        s.set(&format!("{ID}.rotation-mode"), json!("Kiss"))
+            .unwrap();
+        s.set(&format!("{ID}.kiss-jitter"), json!(0.0)).unwrap();
+        let o = Options::read(&s);
+        assert!(o.kiss && o.kiss_speed == 30.0 && o.kiss_jitter == 0.0);
+        let mut aura = SilentAura::new(11);
+        let (mut claim, mut managed) = (Claim::default(), Managed::default());
+        // 90 degrees to the left: 30 degrees a tick until within 45, then
+        // `|delta| * 0.5 + 4`, each tick's step whole mouse counts.
+        let at = [-2.5, 0.0, 0.0];
+        let gcd = rotation::degrees_per_count(0.5);
+        let mut yaws = vec![0.0f32];
+        for i in 0..12u64 {
+            let t = tick(1000 + i * 50, 0.0, vec![zombie(5, at)]);
+            aura.tick(&o, &t, &NameLists::default(), &mut claim, &mut managed);
+            let d = aura.distance_to_target(&t);
+            managed.tick((0.0, 0.0), t.sensitivity, UPDATES_PER_TICK, || {
+                aura.step(&o, d)
+            });
+            assert!(!managed.complete(), "Kiss never completes");
+            yaws.push(managed.yaw);
+        }
+        // The aim is about 90 degrees left (the aim jitter moves it a
+        // little): full speed twice, then slowing inside 45 degrees.
+        let steps: Vec<f32> = yaws.windows(2).map(|w| w[1] - w[0]).collect();
+        assert!((steps[0] - 30.0).abs() <= gcd, "{steps:?}");
+        assert!((steps[1] - 30.0).abs() <= gcd, "{steps:?}");
+        assert!(steps[2] > 4.0 && steps[2] < 30.0 - gcd, "{steps:?}");
+        assert!(steps[3] < steps[2] && steps[4] < steps[3], "{steps:?}");
+        assert!((managed.yaw - 90.0).abs() < 5.0, "{}", managed.yaw);
+        for step in &steps {
+            let counts = step / gcd;
+            assert!((counts - counts.round()).abs() < 1e-2, "{step}");
+        }
+        // Back to PID: the delta is cleared and the target drives it again.
+        let pid = options();
+        let t = tick(2000, 0.0, vec![zombie(5, [0.0, 0.0, 2.5])]);
+        aura.tick(&pid, &t, &NameLists::default(), &mut claim, &mut managed);
+        let before = managed.yaw;
+        let d = aura.distance_to_target(&t);
+        managed.tick((0.0, 0.0), t.sensitivity, UPDATES_PER_TICK, || {
+            aura.step(&pid, d)
+        });
+        assert!(managed.yaw < before, "PID turns back toward the target");
     }
 }

@@ -344,6 +344,9 @@ pub struct Managed {
     /// A pitch-pinned point target (`AutoPearlRotationController`),
     /// resolved to a rotation from the eye at the next update.
     point: Option<([f64; 3], f32)>,
+    /// `applyAiRotationDelta` (SilentAura's Kiss mode): this tick's step
+    /// was queued as mouse counts with no target, and never completes.
+    delta: bool,
 }
 impl Managed {
     /// `setController`: starts from the current view.
@@ -365,6 +368,7 @@ impl Managed {
         self.cubic = false;
         self.jitter = None;
         self.point = None;
+        self.delta = false;
     }
     /// A speed-0 controller (AutoTotem's silent open): the sent rotation
     /// stays where it is until released.
@@ -415,8 +419,29 @@ impl Managed {
     pub fn complete(&self) -> bool {
         self.complete
     }
+    /// `applyAiRotationDelta`: the step in degrees replaces the pending
+    /// counts and drops the target; the next update applies its whole
+    /// counts.
+    pub fn apply_delta(&mut self, yaw: f32, pitch: f32, sensitivity: f64) {
+        let conversion = 1.0 / degrees_per_count(sensitivity).max(1e-4);
+        self.delta = true;
+        self.target = None;
+        self.point = None;
+        self.pending_yaw = yaw * conversion;
+        self.pending_pitch = pitch * conversion;
+        self.complete = false;
+    }
+    /// `clearAiRotationMode`.
+    pub fn clear_delta(&mut self) {
+        self.delta = false;
+        self.pending_yaw = 0.0;
+        self.pending_pitch = 0.0;
+    }
     /// `releaseController`: return to the view, then hand rotation back.
     pub fn release(&mut self) {
+        if self.delta {
+            self.clear_delta();
+        }
         if self.active {
             self.relative = true;
         }
@@ -482,7 +507,8 @@ impl Managed {
         if !pitch_done {
             self.pending_pitch = self.axis(1, pitch_error, yaw_error, degrees, step);
         }
-        let complete = yaw_done
+        let complete = !self.delta
+            && yaw_done
             && pitch_done
             && self.pending_yaw.abs() < 1.0
             && self.pending_pitch.abs() < 1.0;
@@ -527,6 +553,10 @@ impl Managed {
         let degrees = degrees_per_count(sensitivity).max(1e-4);
         let target = if self.relative {
             Some(view)
+        } else if self.delta {
+            // `updateYaw`/`updatePitch` step nothing; only the queued
+            // counts move.
+            Some((UNSET, UNSET))
         } else {
             self.target
         };
@@ -1036,5 +1066,42 @@ mod tests {
         assert!(ray_box([0.0, 1.0, 0.0], direction(0.0, 0.0), 3.0, min, max).is_some());
         assert!(ray_box([0.0, 1.0, 0.0], direction(90.0, 0.0), 3.0, min, max).is_none());
         assert!(ray_box([0.0, 1.0, 0.0], direction(0.0, 0.0), 1.5, min, max).is_none());
+    }
+
+    #[test]
+    fn an_applied_delta_moves_whole_counts_once_and_never_completes() {
+        let mut managed = Managed::default();
+        managed.start((10.0, 0.0));
+        managed.set_target(50.0, 0.0);
+        let gcd = degrees_per_count(0.5);
+        managed.apply_delta(5.0, -2.0, 0.5);
+        let step = Step {
+            counts: 10.0,
+            clamp: true,
+            proportional: false,
+            linear: false,
+        };
+        assert!(!managed.tick((10.0, 0.0), 0.5, UPDATES_PER_TICK, || step));
+        assert!(!managed.complete());
+        let yaw_counts = (5.0 / gcd) as i32;
+        let pitch_counts = (-2.0 / gcd) as i32;
+        assert!((managed.yaw - (10.0 + yaw_counts as f32 * gcd)).abs() < 1e-4);
+        assert!((managed.pitch - pitch_counts as f32 * gcd).abs() < 1e-4);
+        // The old target is gone: another tick without a new delta holds.
+        let (yaw, pitch) = (managed.yaw, managed.pitch);
+        managed.tick((10.0, 0.0), 0.5, UPDATES_PER_TICK, || step);
+        assert_eq!((managed.yaw, managed.pitch), (yaw, pitch));
+        // Cleared, the controller has no target until the next one.
+        managed.clear_delta();
+        assert!(!managed.tick((10.0, 0.0), 0.5, UPDATES_PER_TICK, || step));
+        assert_eq!(managed.yaw, yaw);
+        // Release returns to the view as usual.
+        managed.apply_delta(1.0, 0.0, 0.5);
+        managed.release();
+        let mut returned = false;
+        for _ in 0..20 {
+            returned |= managed.tick((10.0, 0.0), 0.5, UPDATES_PER_TICK, || step);
+        }
+        assert!(returned && !managed.active);
     }
 }

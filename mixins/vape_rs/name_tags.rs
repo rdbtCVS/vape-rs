@@ -169,7 +169,7 @@ fn item_labels(game: &Game<'_>, client: &crate::game::vape_rs::core::Client, alp
 }
 
 /// The HUD atlas's white texel, which tints to any colour.
-fn white_uv(game: &Game<'_>) -> Option<[f32; 2]> {
+pub(crate) fn white_uv(game: &Game<'_>) -> Option<[f32; 2]> {
     let mut white = horizon_client::hud::HudBatch::new([1, 1]);
     white.fill(&game.gui.atlas, 0.0, 0.0, 1.0, 1.0, 0);
     white.vertices.first().map(|v| v.uv)
@@ -177,7 +177,7 @@ fn white_uv(game: &Game<'_>) -> Option<[f32; 2]> {
 
 /// World quads as vertices relative to `camera`, unlit and tinted, on
 /// `layer` with `light`.
-fn push_quads(
+pub(crate) fn push_quads(
     quads: Vec<crate::game::vape_rs::modules::render::world::Quad>,
     uv: [f32; 2],
     camera: glam::DVec3,
@@ -259,6 +259,7 @@ pub(crate) fn geometry(
     if explosions_on || overlay_on {
         depth_quads(game, &client, camera, alpha, explosions_on, overlay_on, out);
     }
+    crate::game::vape_aura::render(game, &client, camera, alpha, out, see_through);
     let (tags_on, items_on, replace) = with_client(&client, |runtime| {
         let (t, i) = runtime.world_tag_sources();
         (t, i, runtime.name_tags_replace_players())
