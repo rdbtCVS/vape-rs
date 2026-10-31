@@ -100,12 +100,20 @@ fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: boo
     let active = requests && playing(game);
     let invisible = game.potions.effects.list.iter().any(|effect| effect.id == "invisibility");
     let (sprint, parkour, forward, jump) = with_client(&client, |runtime| {
-        let cancel_invis = runtime.settings().get("combat.sprint.cancel-invis")
-            .and_then(serde_json::Value::as_bool).unwrap_or(false);
         let tapped = if again { false } else { runtime.replace_parkour_tap(false) };
+        // Sprint's latched press (reference onPreEntityUpdate). Scaffold's
+        // GodBridge and TellyBridge modes hold the movement-input claim.
+        let tick = crate::game::vape_rs::modules::combat::sprint::Tick {
+            playing: active,
+            user_down: runtime.movement().user(Axis::Sprint, &view),
+            sprinting: game.player.as_ref().is_some_and(|p| p.sprinting),
+            collided_horizontally: game.player.as_ref().is_some_and(|p| p.collision.horizontal),
+            invisible,
+            may_fly: game.player.as_ref().is_some_and(|p| p.may_fly),
+            movement_locked: runtime.movement_input_locked(),
+        };
         (
-            // Sprint.java: nothing while the movement input is locked.
-            active && runtime.enabled(ModuleId::Sprint) && !(cancel_invis && invisible) && !runtime.movement_input_locked(),
+            runtime.sprint_press(&tick, again),
             active && runtime.enabled(ModuleId::Parkour) && !tapped,
             runtime.movement().user(Axis::Forward, &view),
             runtime.movement().user(Axis::Jump, &view),
