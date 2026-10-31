@@ -1510,6 +1510,208 @@ Tests on the merged tree: fmt, Clippy and the workspace tests are clean (415 pas
 | movement | 52/52 |
 | world_movement | 28/28 |
 
+## 2026-10-31: clicker and movement debt (worker round 3)
+
+Worker clicker-movement-debt, branch t3/63456628 from main 4ff7488. This round closes the scenario debt on LeftClicker modes, TriggerBot, Sprint, Velocity and SafeWalk, with LAN runs on two owned local processes. It also ports Sprint's reference latch.
+
+Changed files:
+- src/modules/combat/sprint.rs (new): the reference `Sprint.onPreEntityUpdate` latch, with 4 unit tests. The press is made only while the key is up, the player is not sprinting and not collided horizontally. It stays down until disable, a screen, or the user's own key release. Cancel Invis is gated on `allowFlying` (may fly). Cancel Invis and the movement-input claim only skip new presses.
+- src/core/mod.rs: the `sprint` state, its reset on disable, and `Runtime::sprint_press` (append-only). src/modules/combat/mod.rs: `pub mod sprint;`.
+- mixins/vape_rs/input_delays.rs: `resolve_movement` builds the Sprint tick from host state (sprinting, horizontal collision, invisibility, may fly). Before, it pressed every active tick.
+- mixins/vape_rs/combat.rs: the LAN host's snapshot of each guest takes `blocking` from the server's model of the guest, so Shield check works against guests. It used to be always false.
+- src/modules/combat/click_timing.rs: Normal stores its 1000/CPS delay as the last delay (reference).
+- New scenarios:
+  - tools/clicker_modes_scenario.py
+  - tools/trigger_bot_options_scenario.py
+  - tools/trigger_bot_lan_scenario.py
+  - tools/velocity_lan_scenario.py
+  - tools/sprint_safe_walk_lan_scenario.py
+
+Scenarios (fresh isolated homes through native_session.py, HORIZON_SERVER_THREAD=1). Every run used one build: bundle 792ed691e319, built after the last source edit from 4ff7488 plus these changes, Horizon 8f91f89, mixins 0e9229d, fast profile.
+
+- **clicker_modes: 18/18.** Integrated server, 10 CPS on a NoAI, Invulnerable cow for 30 s each, server TPS 20.
+  - Normal: 9.79 CPS, gaps {1:2, 2:284, 3:15} ticks.
+  - Extra: 9.45 CPS, 31 long gaps against Normal's 15.
+  - Extra+: 10.73 CPS, with 112 under-interval gaps.
+- **trigger_bot_options: 19/19.**
+  - Defaults hit at full strength with no air attack.
+  - Miss chance 100 gives one air attack per click. Early chance 100 hits at scale 0.92.
+  - Limit to items (swords): no hit with dirt.
+  - Select first hit: 0 hits while waiting, 4 after being hurt, 0 after a second looking away.
+- **trigger_bot_lan: 34/34.** Host world opened to LAN plus a guest client; both players have shields.
+  - Host TriggerBot: 12 hits on the open guest. While the server sees the guest's shield in use: 0 hits and 0 swings, and a physical click is fully blocked. 12 hits once the shield is lowered.
+  - Guest TriggerBot, Shield check off: 12 hits on the raised shield, each blocked.
+  - Guest TriggerBot, Shield check on: 0 hits and 0 swings behind the shield, 12 once lowered.
+  - Select first hit: no hit until the host's click, then 8 hits back, none after looking away.
+- **velocity_lan: 26/26.** Guest Velocity against the remote server's SetEntityMotion and the Explode knockback.
+  - Off: pushes of 0.99 and 2.38 blocks. On: both cancelled.
+  - Only when targeting: follows the reference, including the `applyBridgeVelocity` explosion quirk.
+  - Kite 200%: 1.99 and 4.77 blocks. Always Kite: doubled while facing.
+- **sprint_safe_walk_lan: 42/42.**
+  - Sprint on host and guest: 5.51 b/s against a 4.32 b/s walk. A pause menu releases the key, and it is pressed again after resuming. Disable releases it. Cancel Invis blocks sprinting in invisible survival but allows it in invisible creative.
+  - Guest SafeWalk: held at both edges without sneaking, Direction Check lets a forward walk off, and after a rejoin with it off a forward walk is held.
+
+Feature ids (ledger update target/ledger-updates/clicker-movement-debt.json; evidence docs/evidence/clicker-movement-debt-r3-*):
+- module.leftclicker.mode.normal and .extra: implemented-core → validated.
+- module.triggerbot, module.sprint, module.velocity, module.safewalk: integrated → validated.
+- module.backtrackpacketstate, module.backtrackpacketreplaystate, module.backtrackpacketqueueentry: not-started → validated. These helpers follow module.backtrack (docs/evidence/validation-hold.json); see decisions.md.
+- module.autoclickerentitypositionstate: stays not-started. Only Reach's Misplace uses it, and Misplace is unported (Reach is blocked and in combat-b's scope).
+
+Gates:
+- `cargo fmt --all --check`: clean.
+- Clippy `-D warnings` (workspace, all targets): clean.
+- `cargo test --workspace`: 198 lib, 1 settings_dump, 4 xtask and 0 doc tests, all passing.
+- `xtask payload-test`: 198/198.
+- `xtask stage`: the audit restored the original AST after removing exactly 43 hooks and 29 support modules.
+- `xtask check` on the pin, under the shared lock: the same 43 hooks and 29 support modules, 68 warnings, 0 errors.
+- `xtask build` (fast): 68 warnings, 0 errors, bundle 792ed691e319. That is the bundle every scenario above ran on.
+- `settings_parity.py`: no entries for these rows.
+- No new hooks.
+
+Failures on the way, all fixed in the scenarios:
+- Velocity needs `mob_attack` damage, because `generic` gives no knockback. The players must stand off-axis because of the reference's yaw-to quirk.
+- The SUN_LEN socket path limit needs short session prefixes.
+- `looking_at` lists mobs only.
+- The host's hurt-log entry carries its profile name, not "host".
+
+Limits and next steps:
+- TriggerBot's ShieldBreaker, HitSwap and AutoMace bypasses need those combat-b modules.
+- Sprint's movement-input lock needs Scaffold Blatant/Telly.
+- AutoClickerEntityPositionState follows Reach Misplace.
+
+## 2026-10-31: clicker-movement-debt (round 3) merged
+
+Merged t3/63456628 (head c28cff8) into main on top of hud-client's round 2 (608c800). The progress.md and decisions.md conflicts were append-only; both sides are kept.
+
+Gates on the merged tree (`target/agent-tools/gates.sh --host`):
+- `cargo fmt --check`: clean.
+- Clippy `-D warnings`: clean.
+- 423 tests passed, 0 failed.
+- `xtask payload-test`: passed.
+- `xtask stage`: passed.
+- `xtask build` on the pin: passed.
+
+Scenarios on the merged build, each in a fresh isolated home:
+- velocity_lan: 26/26.
+- combat: 39/39.
+- gui: passed.
+- clicker_modes: 18/18 (run 20261031-190725).
+- trigger_bot_options: 19/19 (run 20261031-190725).
+- trigger_bot_lan: 34/34 (run 20261031-190725).
+- sprint_safe_walk_lan: 42/42 (run 20261031-190725).
+
+The first merged run (20261031-185834) was made at a load average of about 15, with other workers' builds running. It failed four scenarios:
+- **clicker_modes:** the control socket timed out at launch. It passed in the quiet rerun.
+- **trigger_bot_options:** the launch timed out. It passed in the quiet rerun.
+- **sprint_safe_walk_lan:** the host died before its first walk.
+  - Cause: the scenario teleported the survival host to y=89 before the catch floor at y=88 was built. A slow world load let the host fall onto terrain without Resistance.
+  - Fix: it now builds the floor, then teleports.
+- **trigger_bot_lan:** 33/34. "A physical click is blocked by the guest's shield" saw no hurt.
+  - Cause: the click was made before `hurts()` cleared the server's hurt log, so a quick server logged the blocked hit and the reset wiped it.
+  - Fix: the click now runs inside the window, as the later Select-first-hit check already did.
+
+Both fixes change only scenario timing; the checks themselves are unchanged.
+
+Ledger: target/ledger-updates/clicker-movement-debt.json is applied. Every check in the five evidence results passed (18, 42, 34, 19 and 26). The ledger now has:
+- validated: 90
+- implemented-core: 64
+- integrated: 37
+- not-started: 246
+- excluded-approved: 13
+- blocked: 12
+- not-applicable-reviewed: 10
+
+## 2026-10-31: Panic validated (tools/panic_scenario.py)
+
+New scenario tools/panic_scenario.py: a fresh isolated home on main 8987b8d (bundle c8e2ef58a77d, the merged build). It passed 12/12; evidence is in docs/evidence/coordinator-panic.
+
+Fullbright, Sprint and NoHurtCam start enabled, each with its own bind.
+- **Re-enable off (default):** the default F10 bind disables all three, and a second F10 restores nothing. Panic itself never stays enabled.
+- **After a relaunch with Re-enable on:** F10 disables the set, and a second F10 restores exactly that set.
+- **The reference `U(mod)` reset:** after a Panic, enabling Fullbright through its bind forgets the saved set. The next F10 disables Fullbright, and the one after it restores only Fullbright.
+
+module.panic: integrated → validated (target/ledger-updates/coordinator-panic.json). The visible-by-default, F10-bound deviation stays as recorded in decisions.md.
+
+## 2026-10-31: Workers resumed after an API 403; Freelook unblocked; re-pin anticheat note
+
+All ten round-3/4 workers stopped at about 19:55 on a transient "API Error: 403 Not authorized". Their worktrees kept their commits and uncommitted edits, and each was resumed in its own thread with that state. The merged clicker-movement-debt and hud-client worktrees were removed: 0 commits ahead of main, clean.
+
+Freelook (module.freelookhudmodule and six modes) was `blocked` as "needs a Horizon camera-rotation hook". That was wrong. movement-b's Freecam adds cancellable HEAD hooks on `perspective::Game::player_camera_entity` (a replacement camera entity) and `turn_player` (mouse turns), which is that capability. Freelook moves to movement-b and shares those hooks through one dispatcher each. The reference never passes Freelook's `perspectiveMode` to `addValue`, so Perspective is not a user setting and stays at 3rd Person.
+
+The scope-coverage check (target/agent-tools/coverage.py over target/worker-briefs/round2-scope.txt, with the round-3/4 scopes added) leaves no open row unowned. The one exception is the helper `abstractblockinmovementcontroller`, whose status follows its owners.
+
+Re-pin to `5062f225`: upstream's acting combat check (fdfa4fbfa: more attacks than swings in a client tick, or two targets in one tick) runs only on a dedicated server's hub. `dedicated.rs:873` is the only `set_anticheat` call outside tests, and `lan/anticheat.rs` says the hub holds none of it for a LAN world. The integrated-server and LAN scenarios therefore run without it. A dedicated-server run would see blatant modules flagged as designed, which is not a regression.
+
+## 2026-10-31: HUD modules (worker round 3)
+
+Worker hud-modules, branch t3/fdf14b2d from main 4ff7488, Horizon pin 8f91f896a (mixins 0e9229d). Armor Status, Potion Status, Coords, FPS and Compass now draw the reference HUD frames. NoHurtCam and both Weather modes are proven from host frames.
+
+Changed files:
+- `src/ui/hud.rs`: the reference layouts.
+  - ArmorStatusHudFrame / ArmorStatusItemComponent: 20-tall detailed rows, and 22-tall compact rows 2 apart. The `getDurabilityPercent` edges are none / 1 / 100. Durability is coloured red → yellow → theme green. Low and no-durability rows get a warning fill; a broken piece shows the shield and broken bar for 4 s.
+  - PotionEffectsHudFrame: 30-tall rows. A countdown ring empties anticlockwise from the top, going green, then orange (half left), then red (a quarter). Names and MM:SS durations sit at the reference positions.
+  - CoordinatesHudFrame: Math.round positions and truncated text x. Has the `drawDirectionArrow` X/Z arrows, and the frame ends 12 past the Z arrow.
+  - CompassStripComponent: 1400 tenth-degree steps from 70° left of the heading (wrapped yaw + 180), with a tick every fifth degree. Big and small points get an unbackgrounded shadow copy. `compassarrow` is drawn at half scale, tinted by the foreground.
+  - Uses the reference theme colours. The foreground colour only tints what the reference draws in the editor foreground.
+  - New tests: `armor_percent_follows_the_reference_edges`, `armor_rows_draw_detailed_and_compact_reference_layouts`, `potion_rows_count_down_with_reference_colours`, `compass_ticks_follow_the_tenth_degree_strip`.
+- `src/ui/hud_state.rs`: a piece with no durability counts as low, as the reference's -1 does, so removing it also shows it broken.
+- `src/core/registry.rs`: display name "Potion Status". `src/core/mod.rs`: the armor frame height uses ArmorStatusHudFrame's margin (4, or 2 when compact).
+- `tools/hud_detail_scenario.py`: new `--part layouts` (the default `all` still runs the old details part first).
+  - Live armor and effects on the player, captured at GUI scale 2 and 1 in two seeded setting sets: the defaults, then compact armor, background off, vertical coordinates, negative effects only and a cyan foreground.
+  - Then the effects counting down, legs removed (broken, then gone), and every module off and back on through its bind.
+- `tools/no_hurt_camera_scenario.py`: a real `damage` hit while facing a brick wall, frames over the hurt tilt compared with the still frame before the hit, for on / off / on again.
+  - Command feedback is off, because the feedback lines scrolled the chat and polluted the diff.
+  - The GUI toggle finds the Render frame and the NoHurtCam row through main's `tools/gui_layout.py` (resolved in the merge). The old fixed clicks toggled Reach Display after NoHurtCam moved frames in 1336a94.
+- `tools/weather_modes_scenario.py` (new): Raining under a clear server sky and Clear under a raining one (seeded through a restart). Each captures off / on / off frames, plus a frame of the server weather the mode should look like.
+- `tools/settings_parity.py`: `VAPE_RS_REFERENCE` names the reference from a worktree.
+- `docs/decisions.md`: infinite effects, geometry icons, the Vape GUI scale factor, and foreground tinting.
+
+Feature ids (ledger update target/ledger-updates/hud-modules.json, all `validated`):
+- module.armorstatushudmodule
+- module.potioneffectshudmodule
+- module.coordinateshudmodule, plus .mode.horizontal and .mode.vertical
+- module.fpsdisplayhudmodule
+- module.compasshudmodule
+- module.nohurtcamerahudmodule
+- module.weatherchangerhudmodule.mode.clear and .mode.raining
+
+The validated parent module.weatherchangerhudmodule gains the mode evidence and hook `client-frame`. module.hudmodule stays with hud-client (not-applicable-reviewed).
+
+Scenarios, each in a fresh isolated home. Evidence is in docs/evidence/hud-modules-*. The final runs are on head 74a9aa4 (main 7e48db7 merged); the pre-merge runs are on base 4ff7488. The same three scenarios also passed after the first merge (608c800): `hud-layouts-8rz4urv1` 8/8, `no-hurt-camera-gxtq2c3t` 7/7, `weather-modes-6ww1o5th` 13/13.
+- `hud_detail_scenario.py --part layouts`: 8/8 final (`hud-layouts-hxgrbp9r`, hud-modules-final-layouts) and 8/8 pre-merge (`hud-layouts-pokp7tue`, hud-modules-layouts).
+  - 12 captures each, inspected. Every element sits where the reference draws it at both scales, the settings change it, and with every module off the host view is unchanged.
+- `no_hurt_camera_scenario.py`: 7/7 final (`no-hurt-camera-jhph_tam`) and 7/7 pre-merge (`no-hurt-camera-hyms7sjv`).
+  - Largest frame diff over the hurt tilt: 0.62 on, 20.88 off, 0.15 on again (pre-merge 0.51 / 21.27 / 0.10). Frames are level when on and tilted when off.
+  - The bind, the GUI toggle, restart persistence and Panic all pass.
+- `weather_modes_scenario.py`: 13/13 final (`weather-modes-ywj9gvqr`) and 13/13 pre-merge (`weather-modes-sm833i4s`).
+  - Raining: sky luma off 191.2, on 93.9 (server rain 92.5), after 191.2. The server stays clear.
+  - Clear: off 93.2, on 190.1 (server clear 192.5), after 93.5. The server keeps raining.
+- Pre-merge regressions: `hud_detail_scenario.py --part details` 7/7 (`hud-details-1h6yuls5`), `hud_editor_scenario.py` 9/9 (`hud-editor-jg3sp6nx`), `hud_modes_scenario.py` 5/5 (`hud-modes-cpxfkdi3`), `hud_readouts_scenario.py` 7/7 (`hud-readouts-b2j7ahsx`).
+- Settings parity: 645 definitions, no entries for these rows. Armor 1/1, Coordinates 1/1, Potions 2/2 and Weather 1/1 match; Compass, FPS and NoHurtCam declare no settings of their own.
+
+Failures fixed along the way:
+- Chat and the tutorial toast covered the panels; the layouts part hides them.
+- Compass clamping and expired effects.
+- The no-hurt-camera on-again pass measured 4.45 until command feedback was turned off.
+
+Gates, final on 74a9aa4:
+- `cargo fmt --all --check`: ok.
+- clippy `-D warnings`: ok.
+- `cargo test --workspace`: 213 + 1 + 4 + 0 passed, 0 failed (198 + 1 + 4 + 0 before the merges).
+- payload-test: 213 passed.
+- stage + audit: 44 hooks and 29 support modules, original AST restored. Main's `gui-blur` is the 44th; this branch adds none.
+- host check: exit 0, 68 warnings, the same count as main.
+- host build: exit 0.
+
+Limits and open items:
+- HUD text still uses the host bitmap game font and its shadow, not the reference TTF; Geist serves the GUI only. A HUD font switch is global styling across hud-client panels.
+- At GUI scale 1 the 0.7× bitmap glyphs sample unevenly.
+- Not ported: localization, the HUD editor alpha, and the armor bar glow and rounding.
+- Not ported: the reference resets a hidden effect's ring maximum.
+- The textures (armor, bar-1, compass*) are drawn as geometry and not shipped.
+
+Next: a reference-font decision for the HUD and editor alpha, coordinated with hud-client.
+
 ## 2026-10-31: inventory (worker round 2)
 
 Fixed or ported:
