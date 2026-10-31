@@ -4,3 +4,4 @@ __pycache__/
 /docs/features.csv
 /docs/discovery.json
 /docs/evidence/
+/.claude/
