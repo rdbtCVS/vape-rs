@@ -1712,6 +1712,16 @@ Limits and open items:
 
 Next: a reference-font decision for the HUD and editor alpha, coordinated with hud-client.
 
+## 2026-10-31: hud-modules (round 3) merged into main
+
+Merged `t3/fdf14b2d` (head dc943ce) as 10bd7ad. The worker ported the reference HUD frames and validated ArmorStatus, PotionEffects, Coordinates (both modes), FPS, Compass, NoHurtCam and both Weather modes; 11 ledger entries, 10 of them implemented-core → validated (validated 91 → 101).
+
+Gates on merged main (`gates.sh --host`): fmt, Clippy `-D warnings`, tests 431 passed / 0 failed, payload-test, stage/audit, host check and build.
+
+Scenarios on merged main, each in a fresh isolated home: hud_detail 8/8, weather_modes 13/13, hud_editor 9/9, hud_modes 5/5, hud_readouts 7/7 and no_hurt_camera 7/7. The first no_hurt_camera run failed 5/7 at load average 10–12: with the module off, the first capture after the hit already fell past the ten-tick tilt (frame differences 1.49, 0.18, 0.22, 0.29, 0.33, against 21.15, 20.89, 15.09, 6.13, 1.67 on an immediate rerun). The scenario now measures the module-off pass up to three times when it misses the window. Every attempt stays in measurements.json, and the module-on passes are still checked once against the module-off peak. It passed 7/7 on the next run. Post-merge evidence: docs/evidence/main-hud-modules-{layouts,weather-modes,no-hurt-camera}.
+
+Open, from the worker: HUD text still uses the host bitmap font (a cross-HUD decision shared with hud-client); localization, the HUD editor's transparency and the armor bar's glow are not ported.
+
 ## 2026-10-31: inventory (worker round 2)
 
 Fixed or ported:
