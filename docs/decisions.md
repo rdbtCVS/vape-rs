@@ -163,3 +163,10 @@
   - The bundle unpacking needs no port: the pinned client ignores `BundleDelimiter` (net.rs:625), so each sub-packet reaches `tracked()` on its own, and the delimiter is never held.
   - These rows follow module.backtrack.
 - **AutoClickerEntityPositionState stays with Reach Misplace.** Only Misplace uses it. Misplace is unported, and Reach is blocked and in combat-b's scope, so the row stays not-started. No placeholder.
+
+## 2026-10-31: HUD modules (worker round 3)
+
+- **Infinite effects in Potion Status show "∞" with a full green ring.** The reference predates infinite effects: it divides by the duration and prints "00:00" in red. That is a modernization; finite effects follow the reference ring, colours and countdown.
+- **HUD icons are geometry, not the reference textures.** Armor Status's shield and broken bar and the compass arrow are drawn from the reference textures' shapes (rects, triangles and a fan), because Vape's PNGs are not shipped. Piece and effect icons are the host's own item and effect sprites.
+- **The Vape GUI-scale factor is 1.** Panel sizes come only from each module's Scale setting, in the host's GUI units, so they follow the host's GUI scale like the vanilla HUD.
+- **The foreground colour tints what the reference tints.** It applies to the text the reference draws in the editor foreground colour and to the compass arrow; tick marks, divider lines and the biome and durability colours keep the reference's fixed colours.
