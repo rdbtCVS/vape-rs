@@ -9,10 +9,12 @@ pub mod macro_runtime;
 pub mod movement_input;
 pub mod movement_runtime;
 pub mod profiles;
+mod rainbow;
 mod registry;
 pub mod render_runtime;
 pub mod settings;
 pub mod throw_runtime;
+mod visibility;
 
 pub use registry::ModuleId;
 
@@ -106,6 +108,7 @@ pub struct Runtime {
     outbound: super::modules::blatant::outbound::Outbound,
     no_slowdown: super::modules::blatant::no_slowdown::NoSlowdown,
     wtap: super::modules::combat::wtap::WTap,
+    sprint: super::modules::combat::sprint::Sprint,
     anti_afk: super::modules::world::anti_afk::AntiAfk,
     speed: super::modules::blatant::speed::State,
     long_jump: super::modules::blatant::long_jump::State,
@@ -120,6 +123,7 @@ pub struct Runtime {
     text_gui_clock: Option<std::time::Instant>,
     toasts: super::ui::notifications::Toasts,
     toast_clock: Option<std::time::Instant>,
+    rainbows: rainbow::Rainbows,
     target_info: super::ui::target_info::Tracker,
     target_info_clock: Option<std::time::Instant>,
     /// Reach Display: the last attack distance and when it landed.
@@ -179,7 +183,12 @@ impl Default for Runtime {
                     8192.0,
                     1.0,
                 ),
-                Definition::number(&format!("{prefix}.scale"), "Scale", 0.5, 1.0, 4.0, 0.05),
+                // TextGuiSettings "Scale" is 0.1..2.0 in tenths.
+                if module == ModuleId::TextGui {
+                    Definition::number(&format!("{prefix}.scale"), "Scale", 0.1, 1.0, 2.0, 0.1)
+                } else {
+                    Definition::number(&format!("{prefix}.scale"), "Scale", 0.5, 1.0, 4.0, 0.05)
+                },
                 Definition::new(
                     &format!("{prefix}.color"),
                     "Color",
@@ -504,6 +513,7 @@ impl Default for Runtime {
             outbound: Default::default(),
             no_slowdown: Default::default(),
             wtap: Default::default(),
+            sprint: Default::default(),
             anti_afk: Default::default(),
             speed: Default::default(),
             long_jump: Default::default(),
@@ -516,6 +526,7 @@ impl Default for Runtime {
             text_gui_rows: Default::default(),
             text_gui_clock: None,
             toasts: Default::default(),
+            rainbows: Default::default(),
             toast_clock: None,
             target_info: Default::default(),
             target_info_clock: None,
@@ -605,6 +616,7 @@ impl Runtime {
                 ModuleId::NoFall => self.no_fall.reset(),
                 ModuleId::NoSlowdown => self.no_slowdown.reset(),
                 ModuleId::WTap => self.wtap.reset(),
+                ModuleId::Sprint => self.sprint.reset(),
                 ModuleId::AntiAfk => self.anti_afk.reset(),
                 ModuleId::Speed => self.speed.reset(),
                 ModuleId::LongJump => self.long_jump.reset(),
@@ -632,7 +644,12 @@ impl Runtime {
         self.initialized
     }
     pub fn set_setting(&mut self, id: &str, value: Value) -> Result<(), String> {
-        let next = self.settings.validate_value(id, &value)?;
+        let mut next = self.settings.validate_value(id, &value)?;
+        // `ClientSettingsGuiBindBendable.setBoundInputs`: a cleared GUI bind
+        // falls back to its default so the GUI stays reachable.
+        if id == "client.gui.binds" && next.as_array().is_some_and(Vec::is_empty) {
+            next = json!(["ShiftRight"]);
+        }
         if self.settings.get(id) == Some(&next) {
             return Ok(());
         }
@@ -715,7 +732,9 @@ impl Runtime {
             .expect("registered module")
             .binding;
         if let Some(next) = bind.apply(key, action, mode, enabled, accepts_input, required) {
-            self.set_enabled(module, next);
+            if !self.refuse_hidden(module, next) {
+                self.set_enabled(module, next);
+            }
             return true;
         }
         accepts_input && action != KeyAction::Release && bind.complete(required)
@@ -768,7 +787,8 @@ impl Runtime {
                 .is_some_and(|keys| keys.iter().any(|v| v.as_str() == Some(key)))
         {
             self.suppress_game_input = self.key_named(ModuleId::Panic, key, action, true);
-            if action == KeyAction::Press {
+            // A hidden Panic refuses with its warning and leaves the GUI open.
+            if action == KeyAction::Press && self.visible(ModuleId::Panic) {
                 self.gui.close();
             }
         } else if was_open {
@@ -808,7 +828,15 @@ impl Runtime {
             let result: Result<(), String> = match action {
                 Action::Toggle(id) => {
                     if let Some(module) = ModuleId::ALL.into_iter().find(|m| m.id() == id) {
-                        self.set_enabled(module, !self.enabled(module));
+                        self.gui_toggle(module);
+                        Ok(())
+                    } else {
+                        Err("Unknown module".into())
+                    }
+                }
+                Action::Visibility(id) => {
+                    if let Some(module) = ModuleId::ALL.into_iter().find(|m| m.id() == id) {
+                        self.flip_visibility(module);
                         Ok(())
                     } else {
                         Err("Unknown module".into())
@@ -991,12 +1019,16 @@ impl Runtime {
                     favorite: self.document.0["modules"][m.id()]["favorite"]
                         .as_bool()
                         .unwrap_or(false),
+                    visible: self.visible(m),
                 })
                 .collect(),
             definitions: self
                 .settings
                 .definitions()
-                .filter(|d| self.settings.visible(&d.id))
+                // A colour's rainbow toggle lives in its colour popup.
+                .filter(|d| {
+                    self.settings.visible(&d.id) && self.settings.rainbow_of(&d.id).is_none()
+                })
                 .cloned()
                 .collect(),
             values: self.settings.known_values(),
@@ -1026,6 +1058,16 @@ impl Runtime {
                 .unwrap_or(1.0) as f32;
         }
         Some(self.gui.frame(&self.gui_view(), viewport))
+    }
+    /// ClientSettings "Blur background" while the click GUI or the HUD editor
+    /// is open (`renderGui`); `None` while both are closed.
+    pub fn gui_blur(&self) -> Option<bool> {
+        self.gui.open.then(|| {
+            self.settings
+                .effective("client.blur-background")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true)
+        })
     }
     pub fn gui_pointer(&mut self, cursor: (f32, f32)) {
         let actions = self.gui.pointer(cursor);
@@ -1391,6 +1433,28 @@ impl Runtime {
         let now = self.now_ms();
         self.wtap
             .tick(&options, now, screen || !self.session.interactive())
+    }
+    /// Sprint's pre-entity update: whether the latched sprint press is held.
+    /// `again` (the writer re-run after an attack in the same tick) reuses
+    /// this tick's decision.
+    pub fn sprint_press(
+        &mut self,
+        tick: &super::modules::combat::sprint::Tick,
+        again: bool,
+    ) -> bool {
+        if !self.enabled(ModuleId::Sprint) {
+            self.sprint.reset();
+            return false;
+        }
+        if again {
+            return self.sprint.latched();
+        }
+        let cancel_invis = self
+            .settings
+            .get("combat.sprint.cancel-invis")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        self.sprint.tick(cancel_invis, tick)
     }
     pub fn anti_afk_tick(
         &mut self,
@@ -1942,7 +2006,8 @@ impl Runtime {
             let enabled = document.0["modules"][module.id()]["enabled"]
                 .as_bool()
                 .unwrap_or(false);
-            if module != ModuleId::Panic {
+            // `applyProfileModuleStates` leaves hidden modules as they are.
+            if module != ModuleId::Panic && visibility::visible_in(&document.0, module) {
                 self.set_enabled(module, enabled && self.mode(module) != BindingMode::Hold);
             }
         }
@@ -1955,6 +2020,7 @@ impl Runtime {
         self.gui.restore_layout(&document.0["ui"]);
         self.document = document;
         self.dirty = true;
+        self.disable_hidden_modules();
     }
     pub fn snapshot(&self) -> Document {
         let mut document = self.document.clone();
@@ -2009,6 +2075,7 @@ impl Runtime {
             .list()
     }
     pub fn frame(&mut self) {
+        self.advance_rainbows(std::time::Instant::now());
         if self.dirty
             && !self.persistence_blocked
             && let Err(error) = self.flush()
@@ -2630,6 +2697,20 @@ mod tests {
         assert!(!runtime.gui.open);
         assert!(!runtime.enabled(ModuleId::Fps));
         assert!(runtime.suppress_game_input());
+    }
+    #[test]
+    fn a_cleared_gui_bind_falls_back_to_right_shift() {
+        let mut runtime = Runtime::default();
+        runtime
+            .set_setting("client.gui.binds", json!(["KeyK"]))
+            .unwrap();
+        runtime.set_setting("client.gui.binds", json!([])).unwrap();
+        assert_eq!(
+            runtime.settings.get("client.gui.binds"),
+            Some(&json!(["ShiftRight"]))
+        );
+        runtime.input("ShiftRight", KeyAction::Press, true);
+        assert!(runtime.gui.open);
     }
     #[test]
     fn local_people_edits_deduplicate_by_name_and_preserve_extensions() {

@@ -294,14 +294,19 @@ impl Gui {
             let name = name.clone();
             self.raise(&name);
         }
-        if !matches!(
-            hit,
-            Hit::Choice(..)
-                | Hit::ChoiceValue(..)
-                | Hit::Color(..)
-                | Hit::ColorChannel(..)
-                | Hit::Popup
-        ) {
+        // The colour popup's own Rainbow switch keeps it open.
+        let rainbow_switch = matches!(&hit, Hit::Cycle(id, _)
+            if self.open_color.as_ref().is_some_and(|c| id.strip_suffix(".rainbow") == Some(c)));
+        if !rainbow_switch
+            && !matches!(
+                hit,
+                Hit::Choice(..)
+                    | Hit::ChoiceValue(..)
+                    | Hit::Color(..)
+                    | Hit::ColorChannel(..)
+                    | Hit::Popup
+            )
+        {
             self.open_choice = None;
             self.open_color = None;
         }
@@ -318,6 +323,8 @@ impl Gui {
                 self.dragging = Some((name, local.0 - x, local.1 - y));
             }
             Hit::Collapse(name) => {
+                // `ModuleCategoryFrameHeader.h`: collapsing leaves the edit mode.
+                self.edit_hidden = false;
                 let panel = self.panels.entry(name).or_default();
                 panel.collapsed = !panel.collapsed;
                 return vec![Action::Layout(self.layout_value())];
@@ -371,6 +378,18 @@ impl Gui {
             }
             Hit::Expand(id) => self.expand(id),
             Hit::Favorite(id) => return vec![Action::Favorite(id)],
+            Hit::EditHidden if button == "MouseLeft" => {
+                // `refreshModuleCategoryHeaders` collapses every module.
+                self.edit_hidden = !self.edit_hidden;
+                self.selected = None;
+                self.editor = None;
+            }
+            Hit::Visibility(id) if button == "MouseLeft" => {
+                if self.selected.as_ref() == Some(&id) {
+                    self.selected = None;
+                }
+                return vec![Action::Visibility(id)];
+            }
             Hit::Focus(id, rect) => {
                 if self.focus.as_deref() != Some(&id) {
                     self.cursor = TextCursor::default();
@@ -575,7 +594,7 @@ impl Gui {
                 })
             }
             Hit::ToggleMacroDouble => self.macro_double_click = !self.macro_double_click,
-            Hit::Panel | Hit::Popup | Hit::Drag(_) => {}
+            Hit::Panel | Hit::Popup | Hit::Drag(_) | Hit::EditHidden | Hit::Visibility(_) => {}
         }
         Vec::new()
     }

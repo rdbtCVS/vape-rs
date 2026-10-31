@@ -26,6 +26,7 @@ The manifest is authoritative for exact targets and bindings. All targets resolv
 | `session-remote-dimension` | `horizon_client::game::remote::Game<'_>::enter_remote_dimension` | Session invalidation before the native world/connection/dimension/respawn boundary. |
 | `no-hurt-camera` | `horizon_client::game::fov::Game<'_>::bob_matrix` | Cancellable HEAD. Cancellable render-only copied camera state, preserving view bob/death roll. |
 | `inventory-blur` | `horizon_client::game::Game<'_>::menu_blur` | Cancellable HEAD. Inventory Blur returns the menu blur radius (or 5 when the setting is off) for the survival/container and creative screens, which 26.3 leaves unblurred. |
+| `gui-blur` | `horizon_client::game::Game<'_>::menu_blur` | Cancellable HEAD. ClientSettings "Blur background": while the click GUI or HUD editor is open, it returns the menu blur radius (or 5 when that setting is off), or no blur when the setting is off. |
 | `scoreboard-sidebar` | `horizon_client::game::scoreboard::Game<'_>::draw_scoreboard` | Cancellable HEAD. Scoreboard skips the vanilla sidebar while the module is on; the HUD panel paints the same `hud_overlays::sidebar` draws at its own position. |
 | `auto-tool-attack` | `horizon_client::game::Game<'_>::attack` | Instant weapon-swap dispatch before normal local attack. |
 | `fullbright-night-vision` | `horizon_client::game::sculk::Game<'_>::night_vision_intensity` | Cancellable HEAD. Cancellable render intensity override; real potion state remains intact. |
