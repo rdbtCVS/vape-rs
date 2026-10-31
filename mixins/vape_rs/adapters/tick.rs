@@ -37,6 +37,8 @@ fn tick(game: &mut crate::game::Game<'_>) {
     // Held packets are replayed and JumpReset sees the landed motion before
     // this tick's inputs are resolved, as packets precede the tick in vanilla.
     crate::game::remote::vape_packets::tick(game);
+    // Macros advance on the client tick, before the tick's input is resolved.
+    crate::game::remote::vape_macros::frame(game, true);
     crate::game::vape_inventory::auto_tool(game, false);
     crate::game::vape_fast_place::fast_place(game);
     crate::game::vape_input_delays::input_delays(game);

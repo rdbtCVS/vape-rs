@@ -4,9 +4,12 @@ fn hud(game: &mut crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBat
     if game.serving.is_some() || game.options.dedicated.is_some() {
         return;
     }
+    // The HUD stays drawn under the open click GUI, whose own hook draws
+    // the Text GUI, Target Info and the toasts over the GUI blur.
+    let under_gui = with_client(&client, |runtime| runtime.gui_shows_hud());
     let Some(mut snapshot) = crate::game::vape_hud::snapshot(
         game,
-        !game.ui.hide_gui && game.screen == crate::game::Screen::Playing,
+        !game.ui.hide_gui && (game.screen == crate::game::Screen::Playing || under_gui),
     ) else {
         return;
     };
@@ -19,7 +22,12 @@ fn hud(game: &mut crate::game::Game<'_>, batch: &mut horizon_client::hud::HudBat
         runtime.panels(snapshot.clone())
     });
     for panel in panels {
+        if under_gui && crate::game::vape_hud::GUI_OVERLAYS.contains(&panel.module) {
+            continue;
+        }
         crate::game::vape_hud::panel(game, batch, &panel);
     }
-    crate::game::vape_hud::notifications(game, batch);
+    if !under_gui {
+        crate::game::vape_hud::notifications(game, batch);
+    }
 }

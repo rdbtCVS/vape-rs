@@ -152,3 +152,24 @@ Movement-a worker (2026-10-31), no new hooks or support modules (still 44 hooks 
 - `vape_world_actions::tick` (client-tick HEAD) now runs the shared rotation manager (`Runtime::rotation_tick_at`, the RotationManager port in `src/core/rotation_runtime.rs`) for every visible owner: WindCharge, Scaffold Legit, GodBridge and TellyBridge. The old movement-only rotation is gone.
 - Before the rotation, `scaffold_bridge_tick` runs GodBridge/TellyBridge (`Runtime::scaffold_bridge_tick`). It reads the inventory, the crosshair block (`crosshair_block`, the 26.3 `normalReachRayTrace`), the right button, the accumulated mouse and the user's movement keys. Its effects go through host paths: `Game.selected`, and `vape_macros::use_once` for `useItemKey.onTick(1)`.
 - The bridge modes' movement keys (the movement-task port, `src/modules/movement/movement_task.rs`) and their movement-input and right-click locks go through the one movement writer (`vape_input_delays::movement`). Sprint reads the movement-input lock there.
+
+Client foundation worker (2026-10-31), round 3: one new hook (45 injections and 29 support modules in the manifest after merging main 97dbaa7).
+
+| ID | Exact target | Behavior |
+| --- | --- | --- |
+| `gui-no-pause` | `horizon_client::game::Game<'_>::pauses_game` | HEAD, cancellable. Returns `Break(false)` while the click GUI or the HUD editor owns the host's `Paused` screen (`Runtime::ui_screen_owned`) and the vanilla pause menu is not open. Otherwise it continues to the host's rule. |
+
+Changes to existing hooks and support modules:
+
+- `gui-render` (`adapters/gui_render.rs`), outside the HUD editor:
+  - it no longer clears the frame or draws a dim;
+  - it calls `vape_hud::drop_paused_title`, then clears the Text GUI row boxes for this frame;
+  - it draws the `vape_hud::GUI_OVERLAYS` panels (`hud.text-gui`, `hud.target-info`) over the GUI, and the notifications last.
+  - The HUD editor path keeps its clear, its 0x33000000 dim and its preview panels.
+- `client-hud` (`adapters/hud.rs`) takes a snapshot while playing and also while the GUI shows the HUD (`Runtime::gui_shows_hud`). In that state it skips the `GUI_OVERLAYS` panels and the notifications, which `gui-render` draws on top.
+- `vape_hud` (`hud_painter.rs`):
+  - new `GUI_OVERLAYS`;
+  - new `drop_paused_title`: removes the host's "Game Paused" title only when its vertices match a probe rendering byte for byte;
+  - `text_gui` returns its row boxes for Click disable.
+
+Mixin helper pitfall found during this round: in the staged `debug_keys.rs`, the helper's `.filter(|p| crate::game::vape_hud::GUI_OVERLAYS.contains(&p.module))` closure body had been wrapped in a block. The staged statement then no longer matched the statement the audit builds from the helper source, and the build failed with "unexpected transformed AST changes". The helper now uses a plain `for`/`if`.

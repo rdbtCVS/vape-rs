@@ -279,7 +279,12 @@ fn color(argb: u32, enabled: bool) -> u32 {
 pub(super) fn panel(game: &crate::game::Game<'_>, batch: &mut HudBatch, panel: &HudPanel) -> Rect {
     let atlas = &game.gui.atlas;
     if let crate::game::vape_rs::ui::hud::Content::TextGui(view) = &panel.content {
-        return text_gui(atlas, batch, panel, view);
+        let (rect, rows) = text_gui(atlas, batch, panel, view);
+        // Click disable hit-tests these boxes on the next GUI click.
+        crate::game::vape_rs::core::with_client(&game.__horizon_mixins_vape_rs_client().clone(), |r| {
+            r.set_text_gui_boxes(rows)
+        });
+        return rect;
     }
     if let crate::game::vape_rs::ui::hud::Content::TargetInfo(view) = &panel.content {
         return target_info(atlas, batch, panel, view);
@@ -455,7 +460,7 @@ fn text_gui(
     batch: &mut HudBatch,
     panel: &HudPanel,
     view: &crate::game::vape_rs::ui::text_gui::View,
-) -> Rect {
+) -> (Rect, Vec<(&'static str, [f32; 4])>) {
     use crate::game::vape_rs::ui::text_gui::{Draw, layout};
     const TEXT_EM: f32 = 9.0;
     let s = panel.scale;
@@ -474,6 +479,11 @@ fn text_gui(
     let out = layout(view, s, right, measure);
     let x = panel.x.clamp(0.0, (screen.0 - out.width).max(0.0));
     let y = panel.y.clamp(0.0, (screen.1 - out.height).max(0.0));
+    let rows = out
+        .rows
+        .iter()
+        .map(|&(id, [bx, by, w, h])| (id, [x + bx, y + by, w, h]))
+        .collect();
     for draw in out.draws {
         match draw {
             Draw::Fill {
@@ -519,7 +529,7 @@ fn text_gui(
     }
     ui.finish();
     batch.clip_since(start, 0.0, 0.0, batch.width, batch.height);
-    Rect(x, y, out.width, out.height)
+    (Rect(x, y, out.width, out.height), rows)
 }
 /// Target Info, drawn with the smooth GUI font at the panel's scale.
 fn target_info(
@@ -564,6 +574,44 @@ fn target_info(
     Rect(x, y, w, h)
 }
 /// The bottom-right notification stack (`NotificationManager.renderNotifications`).
+/// HUD panels the open click GUI draws itself, over the GUI blur.
+pub(super) const GUI_OVERLAYS: [&str; 2] = ["hud.text-gui", "hud.target-info"];
+
+/// Remove the host's `PauseScreen(false)` title from the owned Paused
+/// screen. It is the screen's only draw, at `blur_at`: drawn again at the
+/// end with the host's arguments, its vertices are matched byte for byte and
+/// then dropped from both places. Anything else there is left as drawn.
+pub(super) fn drop_paused_title(game: &crate::game::Game<'_>, batch: &mut HudBatch) {
+    if game.screen != crate::game::Screen::Paused
+        || game.pause_menu
+        || game.server_packs.prompt.is_some()
+    {
+        return;
+    }
+    let atlas = &game.gui.atlas;
+    let title = game.translate("menu.paused", "Game Paused");
+    let tw = HudBatch::text_width(atlas, &title);
+    let end = batch.vertices.len();
+    let x = ((batch.width / 2.0).floor() - (tw / 2.0).floor()).floor();
+    batch.text(atlas, &title, x, 10.0, u32::MAX, true);
+    let probe = batch.vertices.split_off(end);
+    let (at, n) = (batch.blur_at as usize, probe.len());
+    let same = batch.vertices.get(at..at + n).is_some_and(|drawn| {
+        bytemuck::cast_slice::<_, u8>(drawn) == bytemuck::cast_slice::<_, u8>(&probe)
+    });
+    let (lo, hi) = (at as u32, (at + n) as u32);
+    if n == 0 || !same || batch.blends.iter().any(|(r, _)| r.start < hi && r.end > lo) {
+        return;
+    }
+    batch.vertices.drain(at..at + n);
+    for (range, _) in &mut batch.blends {
+        if range.start >= hi {
+            range.start -= n as u32;
+            range.end -= n as u32;
+        }
+    }
+}
+
 pub(super) fn notifications(game: &crate::game::Game<'_>, batch: &mut HudBatch) {
     use crate::game::vape_rs::ui::text_gui::Draw;
     const TEXT_EM: f32 = 9.0;

@@ -1,7 +1,8 @@
 // `ClientSettings` (the "GUI" module) values beyond multi-binding and the
 // GUI bind, plus the `PublicProfileSettings` notification toggles.
 
-use super::super::core::settings::Definition;
+use super::super::core::settings::{Definition, Kind};
+use serde_json::json;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SearchStyle {
@@ -23,12 +24,23 @@ impl SearchStyle {
     }
 }
 
+/// `new Color(5, 134, 105)`, the reference's default Gui Color.
+pub const DEFAULT_ACCENT: u32 = 0xff05_8669;
+
 pub fn definitions() -> Vec<Definition> {
     let describe = |mut d: Definition, text: &str| {
         d.description = text.into();
         d
     };
     vec![
+        // `config.ClientSettings.guiColor`, the GUI Theme section's colour
+        // editor: the accent of the click GUI and the Text GUI.
+        Definition::new(
+            "client.gui-color",
+            "Gui Color",
+            Kind::Color,
+            json!(DEFAULT_ACCENT),
+        ),
         describe(
             Definition::boolean("client.blur-background", "Blur background", true),
             "Blur the background of the GUI",
@@ -68,6 +80,18 @@ pub fn definitions() -> Vec<Definition> {
             "Notifies you when you switch profiles",
         )
         .when("client.notifications", serde_json::json!(true)),
+        describe(
+            Definition::boolean("client.profile-auto-load", "Auto-load module states", true),
+            "Automatically enable saved module states upon loading, and when selecting profiles",
+        ),
+        describe(
+            Definition::boolean(
+                "client.profile-frames",
+                "Frame positions per profile",
+                false,
+            ),
+            "Saves the positions of your GUI frames per profile",
+        ),
     ]
 }
 

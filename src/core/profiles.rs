@@ -124,16 +124,9 @@ impl Profiles {
         &self.root
     }
     fn path(&self, name: &str) -> Result<PathBuf, String> {
-        if name.is_empty()
-            || name.len() > 64
-            || !name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
-        {
-            return Err("profile names use 1–64 letters, digits, - or _".into());
-        }
+        let stem = file_stem(name)?;
         reject_link(&self.root.join("profiles"))?;
-        Ok(self.root.join("profiles").join(format!("{name}.json")))
+        Ok(self.root.join("profiles").join(format!("{stem}.json")))
     }
     pub fn list(&self) -> Result<Vec<String>, String> {
         reject_link(&self.root.join("profiles"))?;
@@ -143,10 +136,12 @@ impl Profiles {
             let p = entry.path();
             if p.extension().is_some_and(|e| e == "json")
                 && entry.file_type().map_err(|e| e.to_string())?.is_file()
-                && let Some(name) = p.file_stem().and_then(|n| n.to_str())
-                && self.path(name).is_ok()
+                && let Some(name) = p
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .and_then(profile_name)
             {
-                result.push(name.into());
+                result.push(name);
             }
         }
         result.sort();
@@ -216,6 +211,50 @@ impl Profiles {
     pub fn save_current(&self, document: &Document) -> Result<(), String> {
         atomic_write(&self.root.join("current.json"), &document.bytes()?)
     }
+}
+/// A profile's file stem: letters, digits, `-` and `_` stay as they are
+/// (so older names keep their files) and every other UTF-8 byte becomes
+/// `%XX`, which lets names hold spaces like the reference's "Modern PVP".
+pub fn file_stem(name: &str) -> Result<String, String> {
+    if name.is_empty()
+        || name.chars().count() > 64
+        || name.trim() != name
+        || name.chars().any(char::is_control)
+    {
+        return Err(
+            "profile names use 1–64 characters without control characters or surrounding spaces"
+                .into(),
+        );
+    }
+    let mut stem = String::new();
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') {
+            stem.push(byte as char);
+        } else {
+            stem.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    if stem.len() > 200 {
+        return Err("profile name is too long for a file name".into());
+    }
+    Ok(stem)
+}
+/// The profile name a file stem encodes, if it is the canonical encoding.
+fn profile_name(stem: &str) -> Option<String> {
+    let mut bytes = Vec::new();
+    let mut rest = stem.as_bytes();
+    while let Some((&byte, tail)) = rest.split_first() {
+        if byte == b'%' {
+            let hex = std::str::from_utf8(tail.get(..2)?).ok()?;
+            bytes.push(u8::from_str_radix(hex, 16).ok()?);
+            rest = &tail[2..];
+        } else {
+            bytes.push(byte);
+            rest = tail;
+        }
+    }
+    let name = String::from_utf8(bytes).ok()?;
+    (file_stem(&name).ok()? == stem).then_some(name)
 }
 fn reject_link(path: &Path) -> Result<(), String> {
     if fs::symlink_metadata(path)
@@ -342,7 +381,8 @@ mod tests {
     fn invalid_paths_and_oversized_or_malformed_documents_fail_without_writes() {
         let scratch = Scratch::new();
         let store = Profiles::new(scratch.0.join("mod")).unwrap();
-        for name in ["../escape", "/tmp/escape", "", "a/b", "..", "a\\b"] {
+        let long = "x".repeat(65);
+        for name in ["", " padded", "padded ", "tab\tname", long.as_str()] {
             assert!(store.save(name, &Document::default()).is_err());
         }
         assert!(store.import("broken", b"{}").is_err());
@@ -352,6 +392,36 @@ mod tests {
                 .is_err()
         );
         assert!(store.list().unwrap().is_empty());
+    }
+    #[test]
+    fn names_are_percent_encoded_inside_the_profiles_directory() {
+        let scratch = Scratch::new();
+        let store = Profiles::new(scratch.0.join("mod")).unwrap();
+        let names = [
+            "Modern PVP",
+            "../escape",
+            "/tmp/escape",
+            "a/b",
+            "..",
+            "a\\b",
+            "Größe",
+        ];
+        for name in names {
+            store.save(name, &Document::default()).unwrap();
+        }
+        assert!(store.root().join("profiles/Modern%20PVP.json").is_file());
+        assert!(store.root().join("profiles/%2E%2E%2Fescape.json").is_file());
+        assert!(!scratch.0.join("escape.json").exists());
+        let mut expected = names.map(String::from).to_vec();
+        expected.sort();
+        assert_eq!(store.list().unwrap(), expected);
+        // Only canonical encodings are profiles: a lowercase escape, a raw
+        // space or a bad escape is someone else's file.
+        for stem in ["Modern%20pvp2", "lower%2e", "raw space", "bad%2", "bad%zz"] {
+            fs::write(store.root().join(format!("profiles/{stem}.json")), b"{}").unwrap();
+        }
+        assert_eq!(store.list().unwrap().len(), names.len() + 1);
+        assert!(store.list().unwrap().contains(&"Modern pvp2".to_string()));
     }
     #[test]
     fn schema_zero_migrates_and_wrong_field_types_are_rejected() {

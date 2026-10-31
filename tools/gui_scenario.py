@@ -25,12 +25,12 @@ FB = gui_layout.row('Render', 'render.fullbright')[1] - FIRST_ROW[1]
 FULLBRIGHT_ROW, FULLBRIGHT_DOTS = (160, 36 + FB), (221, 36 + FB)
 CREATE, IMPORT, PROFILE_FIELD, SUBMIT = (150, 36), (203, 36), (170, 54), (221, 54)
 # With the name entry closed, profile rows are 18 apart from y=47 and an open
-# row menu lists Save, Rename, Export and Delete under that row.
+# row menu lists Bind, Save, Rename, Export and Delete under that row.
 def profile_row(i):
     return 160, 55 + 18 * i
 def profile_dots(i):
     return 221, 55 + 18 * i
-MENU_RENAME, MENU_EXPORT, MENU_DELETE = (170, 83), (170, 96), (170, 109)
+MENU_RENAME, MENU_EXPORT, MENU_DELETE = (170, 96), (170, 109), (170, 122)
 CONFIRM_DELETE = (167, 161)
 PERSON, ALIAS, FRIEND, ENEMY = (175, 36), (175, 53), (150, 70), (203, 70)
 
@@ -95,15 +95,20 @@ def run(resources):
         click((26, 287))  # BACK
         assert session.call('state')['screen'] == 'paused'
 
-        # Profiles: create, export, rename, copy, delete, import and load.
+        # Profiles: create, export, rename, copy, switch, delete, import and
+        # load. A fresh install starts on the Modern PVP built-in.
         click(PROFILES)
         capture('profiles')
+        assert session.saved()['profile'] == 'Modern PVP'
+        assert (folder / 'profiles/Modern%20PVP.json').is_file()
+        assert (folder / 'profiles/Classic%20PVP.json').is_file()
         click(CREATE)
         type_text('one')
         click(SUBMIT)
         capture('profile-saved')
         assert (folder / 'profiles/one.json').is_file()
-        click(profile_dots(0))
+        assert session.saved()['profile'] == 'one'
+        click(profile_dots(0))  # a new profile goes first
         click(MENU_EXPORT)
         capture('profile-exported')
         assert (folder / 'exports/one.json').is_file()
@@ -113,18 +118,29 @@ def run(resources):
         capture('profile-renamed')
         assert (folder / 'profiles/two.json').is_file()
         assert not (folder / 'profiles/one.json').exists()
+        assert session.saved()['profile'] == 'two'
         click(CREATE)
         type_text('copy')
         click(SUBMIT)
         capture('profile-copy')
         assert (folder / 'profiles/copy.json').is_file()
-        click(profile_dots(0))  # copy sorts before two
+        assert session.saved()['profile_order'][:2] == ['copy', 'two']
+        click(profile_row(1))  # switch to two so copy can be deleted
+        assert session.saved()['profile'] == 'two'
+        click(profile_dots(0))
         click(MENU_DELETE)
         capture('delete-confirmation')
         assert (folder / 'profiles/copy.json').is_file()
         click(CONFIRM_DELETE)
         capture('profile-deleted')
         assert not (folder / 'profiles/copy.json').exists()
+        # The selected profile's Delete does nothing.
+        click(profile_dots(0))
+        click(MENU_DELETE)
+        capture('selected-profile-delete-ignored')
+        assert (folder / 'profiles/two.json').is_file()
+        assert session.saved()['profile'] == 'two'
+        click(profile_dots(0))
         (folder / 'imports').mkdir(exist_ok=True)
         (folder / 'imports/incoming.json').write_text(json.dumps({'schema': 1, 'modules': {'hud.fps': {'enabled': True}}, 'future': {'preserved': True}}))
         click(IMPORT)
@@ -134,7 +150,7 @@ def run(resources):
         imported = json.loads((folder / 'profiles/incoming.json').read_text())
         assert imported['modules']['hud.fps']['enabled'] is False
         assert imported['future']['preserved'] is True
-        click(profile_row(0))  # incoming sorts before two
+        click(profile_row(0))  # an import goes first too
         capture('profile-loaded')
         assert session.saved()['modules']['render.fullbright']['enabled'] is False
         assert session.saved()['modules']['hud.fps']['enabled'] is False
@@ -190,7 +206,7 @@ def run(resources):
         key('rshift')
         capture('after-profile')
         assert session.call('state')['screen'] == 'playing'
-        (session.root / 'assertions.json').write_text(json.dumps({'passed': True, 'checks': ['GUI opens/closes safely', 'category frame module toggle', 'inline choice setting', 'binding capture', 'header settings frame', 'HUD editor module frame', 'profile create/export/rename/delete/import/load', 'import does not enable modules', 'local friend/enemy edits', 'GUI captures movement/attack', 'profile restores module configuration']}, indent=2))
+        (session.root / 'assertions.json').write_text(json.dumps({'passed': True, 'checks': ['GUI opens/closes safely', 'category frame module toggle', 'inline choice setting', 'binding capture', 'header settings frame', 'HUD editor module frame', 'profile create/export/rename/switch/delete/import/load', 'selected profile cannot be deleted', 'import does not enable modules', 'local friend/enemy edits', 'GUI captures movement/attack', 'profile restores module configuration']}, indent=2))
 
 
 if __name__ == '__main__':

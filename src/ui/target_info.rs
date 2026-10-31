@@ -451,6 +451,7 @@ pub fn layout(view: &View, measure: impl Fn(&str, f32) -> f32) -> Layout {
         width,
         height: height + 2.0,
         draws,
+        rows: Vec::new(),
     }
 }
 
