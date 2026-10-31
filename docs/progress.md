@@ -1344,3 +1344,35 @@ Both perf scenarios now seed the scratch `options.txt` with `inactivityFpsLimit:
 - The game also took over 15 s to quit under that load (harness timeout after the results were written).
 
 Open: rerun `perf_scenario.py` on an idle machine after the round-2 merges. Performance stays unvalidated until then.
+
+## 2026-10-31: settings-parity audit (tools/settings_parity.py)
+
+`tests/settings_dump.rs` writes every setting definition (id, label, kind, default) to `$VAPE_RS_SETTINGS_DUMP`; it does nothing without that variable. `tools/settings_parity.py` parses the `*Value.create(...)` / `new *Value(...)` declarations from the ledger's `settings_and_defaults` text. It matches rows to our modules by display name through `src/core/registry.rs`, then compares labels, defaults and number ranges. 645 definitions were checked. Field-reference defaults (`this.analogMode`) and labels built at runtime are not compared.
+
+The audit found reference settings missing from seven modules that were marked `validated`. Those rows are now `integrated` (validated 64 → 57), each with a decision note listing what is missing:
+- KillAura: Show target, Attack Color.
+- SilentAura: Show target, Attack color, Render type, Break blocks, Break blocks whitelist, Block breaking items.
+- RightClicker: Hold to Click.
+- Text GUI: Click disable, Rescale, and the Scale range (0.1–2.0 step 0.1; ours 0.5–4.0 step 0.05).
+- ChestSteal: Check in menu, which defaults to false; ours defaults to true. Also best-only queueing of non-gear items with the player-inventory scan order, the grid-distance shuffle, and the slot travel delay.
+- Blink: Spawn fake.
+- Scoreboard: Replace scoreboard text.
+
+Integrated rows with gaps:
+- ESP: Enemy Only, Enemies List Only.
+- AutoHeal: Inventory Only.
+- AutoTotem: Silent open.
+- SpawnerFinder: "Spawners". Ours is labelled "Spanner names", probably the same list under another name; to check.
+
+Reach's Misplace and Disadvantage stay with the blocked Reach row. SilentAura's AI settings stay excluded.
+
+Routed to the running round-2 workers:
+- combat-a: KillAura and SilentAura.
+- render: ESP.
+- inventory: ChestSteal, AutoHeal, AutoTotem.
+- hud-client: Text GUI and Scoreboard.
+- movement-b: Blink's fake player (already in its brief).
+
+Unassigned, for round 3: RightClicker Hold to Click, and the SpawnerFinder label.
+
+Tests: `cargo fmt --check` and `cargo clippy --all-targets -D warnings` are clean; the dump test passes (1/1).
