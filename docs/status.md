@@ -13,23 +13,23 @@ or blocked.
 
 ## Ledger
 
-docs/features.csv holds 472 rows: **219 validated**, 42 integrated,
-37 implemented-core, 119 not-started, 9 blocked, 13 excluded-approved and
-33 not-applicable-reviewed. Helper classes take their status from their
+docs/features.csv holds 489 rows: **219 validated**, 42 integrated,
+40 implemented-core, 129 not-started, 9 blocked, 13 excluded-approved and
+37 not-applicable-reviewed. Helper classes take their status from their
 owning module ([decisions](decisions.md)); a review of all 97 helper rows
 moved 19 of them on 2026-10-31, and most of the remaining not-started rows
 are the 47 classes of the inventory-filter GUI editor, which is not ported. `validated` always means a
 passing fresh-home host scenario with evidence in docs/evidence;
 `integrated` means hooked and running in the host without a full scenario.
 
-Ledger gap: 37 category-level reference classes have no rows. Most are
-modules the reference's ModManager never registers (LongJump, AntiFall, Step,
-Strafe, Phase, Regen, OmniSprint, PotionSaver, AntiFML, DiscardedBlink,
-KnockbackTest, SelfDestruct, the debug modules); the rest are control-claim
-and macro support classes. The port nevertheless ships LongJump, AntiFall
-and Step (compile-only, see progress.md 2026-10-30), which the reference GUI
-never shows. Before release they need a ledger decision: keep them as
-tracked extras or drop them for fidelity. That decision is the user's.
+Scope (user decision, 2026-11-01): whether the reference's ModManager registers a
+module is not a scope criterion, and the interface is a design rebuilt from the
+source, not a clone of one image. The 17 module classes it never registers now
+have rows:
+- LongJump, AntiFall and Step are implemented-core (they exist, with no scenario yet).
+- Strafe, Regen, PotionSaver, Knockback Test, Phase, the older DiscardedBlink, Block-In's "Simulation" renderer, Benchmark, OutgoingPackets and the Render Test Module are not-started.
+- OmniSprint, CPSMod and SelfDestruct are not-applicable-reviewed: their reference bodies are empty, and SelfDestruct's unload is removed injection infrastructure.
+- Anti-FML is not-applicable-reviewed: Horizon sends no Forge handshake to cancel.
 
 Modules validated in a real game (83 module/client rows):
 - **Combat:** AutoClicker, RightClicker, TriggerBot, JumpReset, WTap, Sprint, KeepSprint, Velocity, HitBoxes, BlockHit, HitSelect, HitSwap, ShieldBreaker, TargetFilter, SilentAura clicker.

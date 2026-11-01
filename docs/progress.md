@@ -2419,3 +2419,15 @@ ScaffoldBridge's TellyBridge stays at 14/16 on main ("Y increase" left the bridg
 **Gates.** `gates.sh --host` with both fixes: fmt, Clippy `-D warnings`, **899 tests passed / 0 failed**, payload-test, stage/audit and host build.
 
 Plan §10 item 7 is now covered on main: mod disabled, runtime with every feature off, overlays, a dense entity scene, many modules, and the worst-case queue/planner loads. The bounds are the 1024-packet inbound limit with replay, a full replay inside one 60 Hz frame, and the per-frame CPU limits the checks enforce. The figures were taken under load from other sessions, so a quiet-machine rerun would make them tighter, not different in kind.
+
+## 2026-11-01: scope decision on unregistered reference modules; wrap-up
+
+- **User decision.** Whether the reference's ModManager registers a module is not a scope criterion, and there is no reference GUI image to clone (the interface is a design rebuilt from the source). This closes the open question from 2026-10-31.
+- **Ledger.** The 17 module classes the reference never registers now have rows (489 in total):
+  - LongJump, AntiFall and Step: implemented-core (they exist; no scenario yet).
+  - Strafe, Regen, PotionSaver, Knockback Test, Phase (with HypixelPhase), DiscardedBlink, Block-In's "Simulation" renderer, Benchmark, OutgoingPackets and the Render Test Module: not-started.
+  - OmniSprint, CPSMod and SelfDestruct: not-applicable-reviewed, because their reference bodies are empty. SelfDestruct's unload is also removed injection infrastructure.
+  - Anti-FML: not-applicable-reviewed, because Horizon sends no Forge handshake to cancel.
+  - The other 20 classes of the earlier "37" are control-claim and macro support classes, tracked under their owners.
+- **Wrap-up (user request).** The four round-6 workers were stopped minutes after they started, with nothing committed. Their briefs stay in target/worker-briefs/ (inventory-editor-r6, network-r6, invutil-r6, hud-gui-r6) for a later round. The round-5 workers (crystal-anchor, placement-r5, combat-targeting) were told to finish only their current item, run the gates, commit, write their ledger files and report. Their branches are merged one at a time as they report.
+- Tests: docs and the local ledger only; no code changed since `ea3bc95` (gates 899/0, see the entry above).
