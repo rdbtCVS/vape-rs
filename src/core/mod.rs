@@ -11,6 +11,7 @@ pub mod inventory_runtime;
 pub mod lifecycle;
 pub mod macro_runtime;
 pub mod modern_combat_runtime;
+pub mod motion_blur_runtime;
 pub mod movement_input;
 pub mod movement_runtime;
 pub mod pearl_runtime;
@@ -92,6 +93,7 @@ pub struct Runtime {
     pearls: pearl_runtime::Pearls,
     freecam: super::modules::render::freecam::Freecam,
     freelook: super::modules::render::freelook::Freelook,
+    motion_blur: super::modules::render::motion_blur::State,
     inventory_fill: inventory_fill::Fill,
     settings: Settings,
     document: Document,
@@ -425,6 +427,7 @@ impl Default for Runtime {
             .chain(super::modules::render::anti_debuff::definitions())
             .chain(super::modules::render::arrows::definitions())
             .chain(super::modules::render::explosions::definitions())
+            .chain(super::modules::render::motion_blur::definitions())
             .chain(super::modules::render::search::definitions())
             .chain(super::modules::render::spawner_finder::definitions())
             .chain(super::modules::render::murder_finder::definitions())
@@ -528,6 +531,7 @@ impl Default for Runtime {
             pearls: Default::default(),
             freecam: Default::default(),
             freelook: Default::default(),
+            motion_blur: Default::default(),
             inventory_fill: Default::default(),
             settings,
             document: Document::default(),
@@ -2460,7 +2464,8 @@ impl Runtime {
                 | ModuleId::HitSwap
                 | ModuleId::AutoMace
                 | ModuleId::ShieldBreaker
-                | ModuleId::AntiFireball => continue,
+                | ModuleId::AntiFireball
+                | ModuleId::MotionBlur => continue,
             };
             use super::ui::hud::Content;
             let (min_width, min_height) = match &content {

@@ -54,6 +54,31 @@ fn frame(game: &mut crate::game::Game<'_>) {
     let speed = crate::game::vape_rs::core::with_client(&client, |runtime| runtime.timer_speed());
     game.clock.vape_rs_set_timer_speed(speed);
     crate::game::remote::vape_transactions::dispatch(game);
+    // MotionBlur: this frame's blend, drawn after its HUD.
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let now_nanos = START.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64 + 1;
+    let view = crate::gizmos::vape_on_top::frame_camera().filter(|_| game.player.is_some() && game.title.is_none()).map(|(_, view)| {
+        let f = view.inverse().transform_vector3(glam::Vec3::NEG_Z);
+        [(-f.x).atan2(f.z).to_degrees(), (-f.y).clamp(-1.0, 1.0).asin().to_degrees()]
+    });
+    let blur = crate::game::vape_rs::core::with_client(&client, |runtime| {
+        let gui_screen = runtime.ui_screen_owned && game.screen == crate::game::Screen::Paused && !game.pause_menu;
+        runtime.motion_blur(crate::game::vape_rs::modules::render::motion_blur::Frame {
+            gui_open: runtime.gui.open,
+            screen_open: game.title.is_some() || game.dialog_open() || (game.screen != crate::game::Screen::Playing && !gui_screen),
+            view,
+            now_nanos,
+        })
+    });
+    {
+        use crate::game::vape_rs::modules::render::motion_blur::Request;
+        use horizon_client::gfx::vape_motion_blur as render;
+        render::request(match blur {
+            Request::Off => render::Request::Off,
+            Request::Skip => render::Request::Skip,
+            Request::Draw(p) => render::Request::Draw(render::Pass { blurriness: p.blurriness, velocity_factor: p.velocity_factor, smooth: p.smooth, rgb: p.rgb }),
+        });
+    }
     crate::game::fishing::vape_auto_fish::auto_fish(game);
     // Paused worlds and screens stop ticks; hand synthetic movement keys back
     // without waiting for the next tick.
