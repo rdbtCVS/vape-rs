@@ -1,11 +1,12 @@
-// AimAssist (reference `AimAssist` + `AimAssistRotationSubModule`, Simple mode).
+// AimAssist (reference `AimAssist` + `AimAssistRotationSubModule`, Simple
+// mode; Adaptive mode is `aim_assist_adaptive`).
 //
 // The reference runs its worker `tick()` on a thread roughly every
 // millisecond and applies the accumulated mouse steps at each render frame.
 // Here the host calls `frame` once per frame, before rendering, with the
 // elapsed monotonic time: the worker step runs once per elapsed millisecond
 // (capped), then the render-frame application returns mouse deltas for the
-// host's own `Entity.turn`. Adaptive mode is not ported yet.
+// host's own `Entity.turn`. The Kiss mode is not ported.
 use super::super::super::core::lifecycle::EntityHandle;
 use super::super::super::core::settings::{Definition, Kind, Settings};
 use super::super::super::inventory::item_limit::{self, HeldItem};
@@ -14,6 +15,7 @@ use super::super::super::targeting::entities::{
 };
 use super::super::super::targeting::filter::{self, People, TargetFilter};
 use super::super::super::targeting::{self, Candidate, SortMode};
+use super::aim_assist_adaptive::Adaptive;
 use serde_json::{Value, json};
 
 pub const ID: &str = "combat.aim-assist";
@@ -36,7 +38,7 @@ pub fn definitions() -> Vec<Definition> {
     let mut out = vec![Definition::choice(
         &key("mode"),
         "Mode",
-        &["Simple"],
+        &["Simple", "Adaptive"],
         "Simple",
     )];
     out.extend(filter::definitions(ID));
@@ -90,6 +92,8 @@ pub fn definitions() -> Vec<Definition> {
 
 #[derive(Clone, Debug)]
 pub struct Options {
+    /// Mode Adaptive (`AimAssistTargetingSubModule`) instead of Simple.
+    pub adaptive: bool,
     pub filter: TargetFilter,
     pub require_mouse: bool,
     pub strafe_increase: bool,
@@ -122,6 +126,7 @@ impl Options {
                 .collect()
         };
         Self {
+            adaptive: text("mode") == "Adaptive",
             filter: TargetFilter::read(settings, ID),
             require_mouse: boolean("require-mouse"),
             strafe_increase: boolean("strafe-increase"),
@@ -167,6 +172,11 @@ pub struct Frame {
     /// `Options.mouseSensitivity`, 0..=1.
     pub sensitivity: f32,
     pub elapsed_ms: u32,
+    /// The local player's motion per tick, ground state and eye height
+    /// (Adaptive's lead and airborne terms).
+    pub motion: [f64; 3],
+    pub on_ground: bool,
+    pub eye_height: f64,
 }
 
 #[derive(Debug)]
@@ -215,6 +225,7 @@ pub struct AimAssist {
     last_angle_diff: f64,
     random: Rng,
     shared_random: Rng,
+    adaptive: Adaptive,
 }
 
 impl Default for AimAssist {
@@ -247,15 +258,18 @@ impl AimAssist {
             last_angle_diff: 0.0,
             random: Rng(seed.max(1)),
             shared_random: Rng(seed.rotate_left(17).max(1)),
+            adaptive: Adaptive::new(seed.rotate_left(29)),
         }
     }
+    /// `getCurrentTarget`: the target of whichever mode last ran.
     pub fn target(&self) -> Option<EntityHandle> {
-        self.target
+        self.target.or(self.adaptive.target())
     }
     /// `onDisable` and session changes.
     pub fn reset(&mut self) {
         self.target = None;
         self.reset_rotation_state();
+        self.adaptive.clear();
     }
     fn reset_rotation_state(&mut self) {
         self.accumulator = (0.0, 0.0);
@@ -266,6 +280,21 @@ impl AimAssist {
     /// Run this frame's worker steps and return the `(x, y)` mouse delta for
     /// `Entity.turn` (0.15 degrees per unit; +y looks down).
     pub fn frame(&mut self, options: &Options, frame: &Frame, people: &impl People) -> (f64, f64) {
+        if options.adaptive {
+            if self.target.is_some() {
+                // The Simple submodule is no longer selected.
+                self.target = None;
+                self.reset_rotation_state();
+            }
+            for _ in 0..frame.elapsed_ms.min(MAX_STEPS) {
+                let can_aim = self.can_aim(options, frame);
+                self.adaptive.step(options, frame, people, can_aim);
+            }
+            return self.adaptive.render(options, frame);
+        }
+        if self.adaptive.target().is_some() {
+            self.adaptive.clear();
+        }
         for _ in 0..frame.elapsed_ms.min(MAX_STEPS) {
             self.tick(options, frame, people);
         }

@@ -1,5 +1,7 @@
 pub mod aim_assist;
+pub mod aim_assist_adaptive;
 pub mod anti_fireball;
+pub mod aura_render;
 pub mod auto_mace;
 pub mod block_hit;
 pub mod click_timing;
@@ -9,6 +11,7 @@ pub mod hit_select;
 pub mod hit_swap;
 pub mod keep_sprint;
 pub mod kill_aura;
+pub mod kiss_rotation;
 pub mod knockback;
 pub mod reach;
 pub mod rotation;

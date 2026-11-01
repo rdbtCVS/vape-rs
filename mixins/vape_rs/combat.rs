@@ -4,7 +4,9 @@
 use crate::game::vape_rs::core::{ModuleId, lifecycle::EntityHandle, with_client};
 use crate::game::vape_rs::inventory::item_limit::HeldItem;
 use crate::game::vape_rs::modules::combat::aim_assist::Frame;
-use crate::game::vape_rs::targeting::entities::{Bounds, EntityClass, EntityView, PlayerView};
+use crate::game::vape_rs::targeting::entities::{
+    Bounds, EntityClass, EntityView, PlayerView, threat_score,
+};
 use crate::game::{Game, Screen};
 
 fn lerp(previous: [f64; 3], current: [f64; 3], partial: f64) -> [f64; 3] {
@@ -83,11 +85,19 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
             holding: e.main_hand.is_some(),
             armored: worn.iter().any(Option::is_some),
             armor: worn.iter().map(|w| item_score(game, *w, true)).sum(),
-            threat: item_score(game, e.main_hand.as_deref(), false),
+            // A remote player's effects never reach a client; a mob's do.
+            threat: threat_score(
+                item_score(game, e.main_hand.as_deref(), false),
+                e.effects
+                    .iter()
+                    .find(|(id, _, _)| id.trim_start_matches("minecraft:") == "strength")
+                    .map(|(_, ticks, amplifier)| (*ticks, *amplifier)),
+            ),
             visible: visible(current, mob.kind.eye_height),
             vehicle: Some(mob.id) == game.riding,
             blocking: e.blocking,
             look: Some((mob.head_yaw, mob.head_pitch)),
+            motion: [mob.velocity.x, mob.velocity.y, mob.velocity.z],
         });
     }
     if let Some(host) = &game.lan {
@@ -107,12 +117,18 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
                 holding: held.is_some(),
                 armored: worn.iter().any(Option::is_some),
                 armor: worn.iter().map(|w| item_score(game, *w, true)).sum(),
-                threat: item_score(game, held.map(|s| &*s.item), false),
+                threat: threat_score(
+                    item_score(game, held.map(|s| &*s.item), false),
+                    guest.effects.get("strength").map(|e| (e.duration, e.amplifier)),
+                ),
                 visible: visible(guest.position, 1.62),
                 vehicle: false,
                 // The guest's model carries its raised shield (lan_update_models).
                 blocking: host.models.get(&guest.conn).is_some_and(|m| m.extra.blocking),
                 look: Some((guest.head_yaw, guest.pitch)),
+                // The host keeps no guest velocity; a remote player's motion
+                // only follows velocity packets in the reference too.
+                motion: [0.0; 3],
             });
         }
     }
@@ -172,6 +188,8 @@ pub(super) fn aim_assist(game: &mut Game<'_>) {
     let partial = game.clock.fraction();
     let current = [player.position.x, player.position.y, player.position.z];
     let previous = [game.previous_position.x, game.previous_position.y, game.previous_position.z];
+    let motion = [player.velocity.x, player.velocity.y, player.velocity.z];
+    let (on_ground, eye_height) = (player.ground.on_ground, f64::from(player.dimensions.eye_height));
     let strafe = f32::from(u8::from(game.keys.contains(&winit::keyboard::KeyCode::KeyA)))
         - f32::from(u8::from(game.keys.contains(&winit::keyboard::KeyCode::KeyD)));
     // The crosshair is on a block when the block hit is nearer than any mob.
@@ -196,6 +214,9 @@ pub(super) fn aim_assist(game: &mut Game<'_>) {
         movement_locked: with_client(&client, |runtime| runtime.movement_input_locked()),
         sensitivity: game.settings.sensitivity,
         elapsed_ms: 0,
+        motion,
+        on_ground,
+        eye_height,
     };
     let (x, y) = with_client(&client, |runtime| {
         if runtime.enabled(ModuleId::AimAssist) { runtime.aim_assist_frame(frame) } else { (0.0, 0.0) }

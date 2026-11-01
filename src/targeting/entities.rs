@@ -90,6 +90,8 @@ pub struct EntityView {
     pub blocking: bool,
     /// Head yaw and pitch, when the host tracks them.
     pub look: Option<(f32, f32)>,
+    /// Motion per tick (`motionX/Y/Z`); zero where the host keeps none.
+    pub motion: [f64; 3],
 }
 
 impl EntityView {
@@ -120,6 +122,17 @@ pub struct PlayerView {
 impl PlayerView {
     pub fn distance(&self, to: [f64; 3]) -> f64 {
         distance(self.tick_position, to)
+    }
+}
+
+/// `EntityArmorValueComparator.calculateArmorValue` (the "Threat" score): the
+/// held weapon's score, times `1.375 * amplifier` while a Strength effect
+/// (duration, amplifier) has ticks left, so Strength I scores 0 as in the
+/// reference.
+pub fn threat_score(held: f64, strength: Option<(i32, i32)>) -> f64 {
+    match strength {
+        Some((duration, amplifier)) if duration > 0 => held * (1.375 * f64::from(amplifier)),
+        _ => held,
     }
 }
 
@@ -237,6 +250,17 @@ mod tests {
         };
         assert_eq!(int_yaw_difference(&player, [-1.0, 0.0, -1.0]), 135);
     }
+    #[test]
+    fn threat_scales_by_strength_like_the_reference() {
+        assert_eq!(threat_score(7.0, None), 7.0);
+        // Strength I (amplifier 0) zeroes it, Strength II is 1.375 times.
+        assert_eq!(threat_score(7.0, Some((200, 0))), 0.0);
+        assert!((threat_score(8.0, Some((200, 1))) - 11.0).abs() < 1e-9);
+        // An infinite (-1) or spent effect counts as none.
+        assert_eq!(threat_score(7.0, Some((-1, 1))), 7.0);
+        assert_eq!(threat_score(7.0, Some((0, 1))), 7.0);
+    }
+
     #[test]
     fn closest_point_nudges_inside_axes() {
         let b = Bounds {

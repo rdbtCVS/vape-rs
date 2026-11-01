@@ -2,6 +2,7 @@
 // managed rotation, KillAura, SilentAura (with its clicker), HitFlick and
 // KeepSprint.
 use super::super::modules::combat::{
+    aura_render::{self, ShadedQuad, Shown},
     hit_flick::{self, HitFlick},
     keep_sprint::{self, KeepSprint},
     kill_aura::{self, KillAura},
@@ -9,6 +10,7 @@ use super::super::modules::combat::{
     rotation::{Claim, Claimant, Managed, UPDATES_PER_TICK},
     silent_aura::{self, Click, SilentAura},
 };
+use super::super::modules::render::world::Quad;
 use super::settings::Definition;
 use super::{ModuleId, Runtime};
 
@@ -41,6 +43,8 @@ pub struct Rotation {
     pub flick: hit_flick::Effects,
     /// HitFlick's forced forward and sprint keys changed.
     pub keys_changed: bool,
+    /// SilentAura's Break blocks holds the attack key for mining.
+    pub hold_attack: bool,
 }
 
 /// HitFlick's host inputs beyond SilentAura's tick.
@@ -72,6 +76,9 @@ impl Runtime {
         }
     }
     pub(super) fn combat_setting_changed(&mut self, id: &str) {
+        if id.ends_with("-range") && id.starts_with("combat.kill-aura.") {
+            self.couple_kill_aura_ranges(id);
+        }
         let c = &mut self.combat;
         if id.starts_with("combat.kill-aura.") {
             c.kill_aura.reset();
@@ -102,7 +109,29 @@ impl Runtime {
     pub fn kill_aura_active(&self) -> bool {
         self.enabled(ModuleId::KillAura) && self.session().in_world()
     }
+    /// KillAura's range listeners (`changed` is the range just set) and
+    /// `onAttackTick`'s check (any other id): the swing range stays above
+    /// the attack range.
+    fn couple_kill_aura_ranges(&mut self, changed: &str) {
+        let options = kill_aura::Options::read(&self.settings);
+        let Some((swing, attack)) =
+            kill_aura::couple_ranges(changed, options.swing_range, options.attack_range)
+        else {
+            return;
+        };
+        for (key, value) in [("swing-range", swing), ("attack-range", attack)] {
+            let id = format!("{}.{key}", kill_aura::ID);
+            if self
+                .settings
+                .set(&id, serde_json::json!(value))
+                .unwrap_or(false)
+            {
+                self.dirty = true;
+            }
+        }
+    }
     pub fn kill_aura_tick(&mut self, tick: &kill_aura::Tick) -> kill_aura::Effects {
+        self.couple_kill_aura_ranges("");
         let options = kill_aura::Options::read(&self.settings);
         let people = self.target_people();
         let effects = self.combat.kill_aura.tick(&options, tick, &people);
@@ -128,12 +157,12 @@ impl Runtime {
         let enabled = self.enabled(ModuleId::SilentAura) && in_world;
         let flicking = self.enabled(ModuleId::HitFlick) && in_world;
         let c = &mut self.combat;
-        let mut disable = false;
+        let (mut disable, mut hold_attack) = (false, false);
         if enabled {
-            disable = c
+            let e = c
                 .silent_aura
-                .tick(&options, tick, &people, &mut c.claim, &mut c.managed)
-                .disable;
+                .tick(&options, tick, &people, &mut c.claim, &mut c.managed);
+            (disable, hold_attack) = (e.disable, e.hold_attack);
         }
         // SilentAura's controller replaced HitFlick's way back to the view.
         if c.silent_aura.controlling() {
@@ -180,6 +209,10 @@ impl Runtime {
         } else {
             Click::None
         };
+        if enabled {
+            c.silent_aura
+                .update_looking(&options, tick, &c.managed, silent_aura::BASE_RANGE);
+        }
         let sent = c.managed.sent();
         let keys_changed = keys != c.hit_flick.forcing_keys();
         if disable {
@@ -190,7 +223,72 @@ impl Runtime {
             sent,
             flick: effects,
             keys_changed,
+            hold_attack,
         }
+    }
+
+    /// The entity ids Show target draws this frame: KillAura's targets,
+    /// then SilentAura's target (with no screen open).
+    pub fn aura_render_ids(&self, no_screen: bool) -> Vec<i32> {
+        let mut out = Vec::new();
+        if self.kill_aura_active() && kill_aura::Options::read(&self.settings).show_target {
+            out.extend_from_slice(self.combat.kill_aura.shown());
+        }
+        if self.silent_aura_shows(no_screen) {
+            out.extend(self.combat.silent_aura.target());
+        }
+        out
+    }
+    fn silent_aura_shows(&self, no_screen: bool) -> bool {
+        no_screen
+            && self.enabled(ModuleId::SilentAura)
+            && self.session().in_world()
+            && silent_aura::Options::read(&self.settings).show_target
+    }
+    /// Show target's quads for the entities found from `aura_render_ids`:
+    /// the through-wall boxes and SilentAura's depth-tested ring.
+    /// Each comes with its tick distance to the player, for KillAura's colour.
+    pub fn aura_quads(
+        &self,
+        shown: &[(Shown, f64)],
+        no_screen: bool,
+    ) -> (Vec<Quad>, Vec<ShadedQuad>) {
+        let (mut boxes, mut rings) = (Vec::new(), Vec::new());
+        if self.kill_aura_active() {
+            let o = kill_aura::Options::read(&self.settings);
+            if o.show_target {
+                for id in self.combat.kill_aura.shown() {
+                    if let Some((s, distance)) = shown.iter().find(|(s, _)| s.id == *id) {
+                        let color = if *distance <= o.attack_range {
+                            o.attack_color
+                        } else {
+                            o.target_color
+                        };
+                        aura_render::target_box(&mut boxes, s, color);
+                    }
+                }
+            }
+        }
+        if self.silent_aura_shows(no_screen) {
+            let o = silent_aura::Options::read(&self.settings);
+            let aura = &self.combat.silent_aura;
+            let target = aura
+                .target()
+                .and_then(|id| shown.iter().find(|(s, _)| s.id == id));
+            if let Some((s, _)) = target {
+                let color = if aura.looking() {
+                    o.attack_color
+                } else {
+                    o.target_color
+                };
+                if o.ring {
+                    aura_render::ring(&mut rings, s, color);
+                } else {
+                    aura_render::target_box(&mut boxes, s, color);
+                }
+            }
+        }
+        (boxes, rings)
     }
 
     fn hit_flick_on(&self) -> bool {

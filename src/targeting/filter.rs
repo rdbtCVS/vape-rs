@@ -202,6 +202,7 @@ pub(crate) mod tests {
             vehicle: false,
             blocking: false,
             look: None,
+            motion: [0.0; 3],
         }
     }
 
