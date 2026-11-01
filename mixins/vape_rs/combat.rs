@@ -4,7 +4,9 @@
 use crate::game::vape_rs::core::{ModuleId, lifecycle::EntityHandle, with_client};
 use crate::game::vape_rs::inventory::item_limit::HeldItem;
 use crate::game::vape_rs::modules::combat::aim_assist::Frame;
-use crate::game::vape_rs::targeting::entities::{Bounds, EntityClass, EntityView, PlayerView};
+use crate::game::vape_rs::targeting::entities::{
+    Bounds, EntityClass, EntityView, PlayerView, threat_score,
+};
 use crate::game::{Game, Screen};
 
 fn lerp(previous: [f64; 3], current: [f64; 3], partial: f64) -> [f64; 3] {
@@ -83,7 +85,14 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
             holding: e.main_hand.is_some(),
             armored: worn.iter().any(Option::is_some),
             armor: worn.iter().map(|w| item_score(game, *w, true)).sum(),
-            threat: item_score(game, e.main_hand.as_deref(), false),
+            // A remote player's effects never reach a client; a mob's do.
+            threat: threat_score(
+                item_score(game, e.main_hand.as_deref(), false),
+                e.effects
+                    .iter()
+                    .find(|(id, _, _)| id.trim_start_matches("minecraft:") == "strength")
+                    .map(|(_, ticks, amplifier)| (*ticks, *amplifier)),
+            ),
             visible: visible(current, mob.kind.eye_height),
             vehicle: Some(mob.id) == game.riding,
             blocking: e.blocking,
@@ -108,7 +117,10 @@ pub(super) fn snapshot(game: &Game<'_>, epoch: crate::game::vape_rs::core::lifec
                 holding: held.is_some(),
                 armored: worn.iter().any(Option::is_some),
                 armor: worn.iter().map(|w| item_score(game, *w, true)).sum(),
-                threat: item_score(game, held.map(|s| &*s.item), false),
+                threat: threat_score(
+                    item_score(game, held.map(|s| &*s.item), false),
+                    guest.effects.get("strength").map(|e| (e.duration, e.amplifier)),
+                ),
                 visible: visible(guest.position, 1.62),
                 vehicle: false,
                 // The guest's model carries its raised shield (lan_update_models).

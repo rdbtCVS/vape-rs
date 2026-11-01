@@ -2,6 +2,7 @@
 // at the attacker's extra-knockback cut, and the managed rotation in the
 // motion packet.
 use super::super::Game;
+use super::super::lan_pvp::Victim;
 use crate::game::vape_rs::core::{ModuleId, with_client};
 use crate::game::vape_rs::modules::combat::keep_sprint::Hit;
 use horizon_protocol::packets::{Empty, play::{self, Serverbound as S}};
@@ -25,10 +26,11 @@ pub fn rotation(value: (f32, f32)) -> (f32, f32) {
 
 /// Attack the mob with this entity id the way the host's own attack does
 /// after its pick: `MultiPlayerGameMode.attack` + swing on a server, or the
-/// integrated attack locally. False when there is no such living mob.
+/// integrated attack locally; a LAN guest with this id takes the host's
+/// player attack. False when there is no such living mob or guest.
 pub fn attack(game: &mut Game<'_>, id: i32) -> bool {
     let Some(index) = game.mobs.iter().position(|m| m.alive() && m.id as i32 == id) else {
-        return false;
+        return attack_guest(game, id);
     };
     let client = game.__horizon_mixins_vape_rs_client().clone();
     let player = game.remote_player_names().iter().any(|(mob, _)| *mob as i32 == id);
@@ -50,6 +52,44 @@ pub fn attack(game: &mut Game<'_>, id: i32) -> bool {
         game.attack_mob(index);
         game.swing_arm();
     }
+    if wtap {
+        crate::game::vape_input_delays::movement_again(game);
+    }
+    true
+}
+
+/// The LAN host's `attack_guest` on the guest with this entity id rather
+/// than the one under the crosshair: the strike (with its swing), its
+/// landing on the guest, the weapon's effects, the exhaustion and the
+/// sprint stop.
+fn attack_guest(game: &mut Game<'_>, id: i32) -> bool {
+    let Some(conn) = game.lan.as_ref().and_then(|host| {
+        host.hub
+            .guests
+            .iter()
+            .find(|g| g.entity_id == id && host.hub.here(g) && g.loaded && !g.dead && !g.spectator())
+            .map(|g| g.conn)
+    }) else {
+        return false;
+    };
+    let Some(mut host) = game.lan.take() else {
+        return false;
+    };
+    let client = game.__horizon_mixins_vape_rs_client().clone();
+    let wtap = with_client(&client, |runtime| {
+        runtime.wtap_attack(true, 0);
+        runtime.enabled(ModuleId::WTap)
+    });
+    if let Some(strike) = game.pvp_strike()
+        && game.pvp_land(&mut host, Victim::Guest(conn), &strike)
+    {
+        game.weapon_hit_player(Game::pvp_victim_on_ground(&host, Victim::Guest(conn), None));
+        game.pvp_exhaustion();
+        if strike.stops_sprint() {
+            game.stop_sprint_after_extra_knockback();
+        }
+    }
+    game.lan = Some(host);
     if wtap {
         crate::game::vape_input_delays::movement_again(game);
     }
