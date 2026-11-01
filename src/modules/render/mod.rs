@@ -14,6 +14,7 @@ pub mod freelook;
 pub mod health;
 pub mod indicators;
 pub mod item_esp;
+pub mod motion_blur;
 pub mod murder_finder;
 pub mod name_tags;
 pub mod overlay;
