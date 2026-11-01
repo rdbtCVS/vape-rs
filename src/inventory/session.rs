@@ -36,6 +36,10 @@ pub struct Policy {
     pub open_wait: Duration,
     /// Wait after the last click before closing (the reference's close timer).
     pub close_wait: Duration,
+    /// Click the player's menu (window 0) while no screen is shown, as the
+    /// reference's direct window clicks do; the host sends them with no
+    /// screen.
+    pub screenless: bool,
 }
 impl Default for Policy {
     fn default() -> Self {
@@ -44,6 +48,7 @@ impl Default for Policy {
             close: true,
             open_wait: Duration::ZERO,
             close_wait: Duration::ZERO,
+            screenless: false,
         }
     }
 }
@@ -103,7 +108,8 @@ impl Session {
         if self.failed || self.gate.stalled(snapshot) || next.is_none() {
             return self.finish(snapshot, policy, now);
         }
-        if !snapshot.is_player_inventory {
+        let screenless = policy.screenless && !snapshot.screen_open && snapshot.container_id == 0;
+        if !snapshot.is_player_inventory && !screenless {
             if policy.open && !snapshot.screen_open {
                 self.opened = Some(now);
                 return Step::Effect(Effect::OpenInventory);
@@ -231,5 +237,30 @@ pub(crate) mod tests {
             ),
             Step::Blocked
         );
+    }
+    #[test]
+    fn screenless_clicks_the_player_menu_and_never_opens() {
+        let t = Instant::now();
+        let mut s = Session::default();
+        let policy = Policy {
+            open: false,
+            screenless: true,
+            ..Policy::default()
+        };
+        let plan = Some((20, Click::ThrowStack));
+        let Step::Effect(Effect::Request(request)) = s.step(&snapshot(false, t), policy, plan)
+        else {
+            panic!("a screenless click");
+        };
+        assert_eq!((request.slot, request.click), (20, Click::ThrowStack));
+        assert!(!s.opened());
+        let mut done = snapshot(false, t + Duration::from_millis(10));
+        done.slots[20].item = None;
+        done.revision = 2;
+        assert_eq!(s.step(&done, policy, None), Step::Done);
+        // A foreign container is still not the player's menu.
+        let mut chest = snapshot(false, t);
+        chest.container_id = 3;
+        assert_eq!(s.step(&chest, policy, plan), Step::Blocked);
     }
 }

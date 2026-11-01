@@ -540,6 +540,7 @@ impl Runtime {
 fn armor_effect(effect: auto_armor::Effect) -> Option<InventoryEffect> {
     match effect {
         auto_armor::Effect::Request(r) => Some(InventoryEffect::Request(r)),
+        auto_armor::Effect::SilentRequest(r) => Some(InventoryEffect::SilentRequest(r)),
         auto_armor::Effect::OpenInventory => Some(InventoryEffect::OpenInventory),
         auto_armor::Effect::CloseInventory => Some(InventoryEffect::CloseInventory),
     }

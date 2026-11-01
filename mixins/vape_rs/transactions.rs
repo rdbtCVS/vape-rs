@@ -395,25 +395,26 @@ pub fn submit(game: &mut Game<'_>, request: &Request) -> bool {
     if !current_matches(&current, request) {
         return false;
     }
-    let input = match request.click {
-        Click::Pickup | Click::Outside => Input::Pickup,
-        Click::SwapOffhand => Input::Swap,
-        Click::QuickMove => Input::QuickMove,
-        Click::Throw | Click::ThrowStack => Input::Throw,
-        Click::SwapHotbar(_) => Input::Swap,
-    };
-    let button = match request.click {
-        Click::SwapOffhand => 40,
-        Click::ThrowStack => 1,
-        Click::SwapHotbar(n) if n < 9 => i32::from(n),
-        Click::SwapHotbar(_) => return false,
-        _ => 0,
+    let Some((button, input)) = click_input(request.click) else {
+        return false;
     };
     // Game slot ids are intentionally preserved: menu_ops translates them to
     // each concrete local/remote menu's authoritative menu index, predicts
     // only through Horizon's verified engine, and serializes state/changed
     // slots/carried stack for remote ContainerClick packets.
     game.menu_ops(&[(Some(usize::from(request.slot)), button, input)])
+}
+/// The button and click type of a planned click on a slot.
+fn click_input(click: Click) -> Option<(i32, Input)> {
+    Some(match click {
+        Click::Pickup | Click::Outside => (0, Input::Pickup),
+        Click::SwapOffhand => (40, Input::Swap),
+        Click::QuickMove => (0, Input::QuickMove),
+        Click::Throw => (0, Input::Throw),
+        Click::ThrowStack => (1, Input::Throw),
+        Click::SwapHotbar(n) if n < 9 => (i32::from(n), Input::Swap),
+        Click::SwapHotbar(_) => return None,
+    })
 }
 /// The request still names this session, menu, revision and slot contents.
 fn current_matches(current: &Snapshot, request: &Request) -> bool {
@@ -425,10 +426,13 @@ fn current_matches(current: &Snapshot, request: &Request) -> bool {
             .is_some_and(|slot| slot.item.as_ref().map(|i| &i.fingerprint) == request.expected.as_ref())
         && current.carried.as_ref().map(|i| &i.fingerprint) == request.expected_carried.as_ref()
 }
-/// AutoTotem's silent swap: with no screen the click goes to the player
-/// menu (window 0) through the remote menu engine, which predicts it and
-/// sends the ordinary `ContainerClick`; the server's player menu needs no
-/// open screen. A shown inventory screen takes the ordinary path.
+/// A player-menu click with no screen shown: AutoTotem's silent swap,
+/// AutoArmor's clicks with both of its screen settings off and AutoHeal's
+/// "Bowl Mode" throws and stacking. The click goes
+/// to the player menu (window 0) through the remote menu engine, which
+/// predicts it and sends the ordinary `ContainerClick`; the server's player
+/// menu needs no open screen. A shown inventory screen takes the ordinary
+/// path.
 fn submit_silent(game: &mut Game<'_>, request: &Request) -> bool {
     if game.screen == Screen::Inventory {
         return submit(game, request);
@@ -436,19 +440,29 @@ fn submit_silent(game: &mut Game<'_>, request: &Request) -> bool {
     let Some(current) = snapshot(game) else {
         return false;
     };
-    if current.screen_open
-        || current.container_id != 0
-        || request.click != Click::SwapOffhand
-        || !current_matches(&current, request)
-    {
+    if current.screen_open || current.container_id != 0 || game.remote.is_none() {
         return false;
     }
-    let ops = [(Some(usize::from(request.slot)), 40, Input::Swap)];
-    if game.remote.is_some() {
-        game.remote_menu_ops(&ops)
-    } else {
-        false
-    }
+    let op = match request.click {
+        // Slot -999: only the carried stack the planner saw may be dropped.
+        Click::Outside => {
+            let carried = current.carried.as_ref().map(|i| &i.fingerprint);
+            if current.session != request.session
+                || current.revision != request.revision
+                || request.expected_carried.is_none()
+                || carried != request.expected_carried.as_ref()
+            {
+                return false;
+            }
+            (None, 0, Input::Pickup)
+        }
+        _ if !current_matches(&current, request) => return false,
+        click => match click_input(click) {
+            Some((button, input)) => (Some(usize::from(request.slot)), button, input),
+            None => return false,
+        },
+    };
+    game.remote_menu_ops(&[op])
 }
 /// `closeInventory` of a silent session (`closeScreen`): the player menu's
 /// `ContainerClose`, or the player's own inventory screen if one was shown
