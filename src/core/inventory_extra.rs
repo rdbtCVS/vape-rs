@@ -217,6 +217,7 @@ impl Runtime {
                     close: true,
                     open_wait: jitter,
                     close_wait: jitter,
+                    screenless: false,
                 };
                 (
                     self.inventory_extra
@@ -285,11 +286,9 @@ impl Runtime {
             }
             ModuleId::AutoHeal => {
                 // The use sequence holds the container claim while it runs.
+                // One click per tick, as the reference's PostPlayerTick.
                 let options = self.heal_options();
-                (
-                    self.inventory_extra.heal.step(snapshot, &options),
-                    self.inventory_delay("inventory.auto-heal.swap-delay", (75, 125)),
-                )
+                (self.inventory_extra.heal.step(snapshot, &options), (50, 50))
             }
             _ => unreachable!("extra inventory module"),
         };
@@ -298,7 +297,7 @@ impl Runtime {
                 if matches!(effect, Effect::Request(_)) {
                     self.inventory_extra.worked = true;
                 }
-                (Some(session_effect(effect)), delay, true)
+                (Some(session_effect(effect, snapshot)), delay, true)
             }
             Step::Wait => (None, delay, true),
             Step::Blocked => (None, delay, false),
@@ -317,8 +316,11 @@ impl Runtime {
         }
     }
 }
-fn session_effect(effect: Effect) -> InventoryEffect {
+/// A click planned with no screen shown (AutoHeal's bowls) goes to the
+/// player's menu as a silent request.
+fn session_effect(effect: Effect, snapshot: &Snapshot) -> InventoryEffect {
     match effect {
+        Effect::Request(r) if !snapshot.screen_open => InventoryEffect::SilentRequest(r),
         Effect::Request(r) => InventoryEffect::Request(r),
         Effect::OpenInventory => InventoryEffect::OpenInventory,
         Effect::CloseInventory => InventoryEffect::CloseInventory,

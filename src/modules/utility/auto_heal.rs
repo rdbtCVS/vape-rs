@@ -3,8 +3,9 @@
 // sequencer; Silent uses it with a server-only held-item change. Silent's
 // "Potions" throws a splash potion from "Slot" at PreMotion/PostMotion. The
 // inventory side handles empty bowls ("Bowl Mode" Throw or Stack into slot
-// 17) and "Replace" (moves healing items from the main inventory into empty
-// hotbar slots) one gated click at a time.
+// 17, clicked on the player's menu with no screen as the reference does) and
+// "Replace" (opens the inventory and moves healing items from the main
+// inventory into empty hotbar slots) one gated click at a time.
 use super::super::super::inventory::{
     arrange::place_carried,
     session::{Policy, Session, Step},
@@ -124,7 +125,7 @@ pub fn potion_slot(snapshot: &Snapshot, potions: &Potions) -> Option<PotionPick>
 }
 
 /// Next inventory click and whether it may open the inventory (only
-/// Replace does, as in the reference).
+/// Replace does, as in the reference; the bowl clicks need no screen).
 pub fn next_click(
     snapshot: &Snapshot,
     options: &Options,
@@ -149,7 +150,10 @@ pub fn next_click(
     if options.soup && options.bowl_mode != BowlMode::None {
         let bowl_slot = snapshot.slot(BOWL_SLOT);
         let stacked = bowl_slot.and_then(|s| s.item.as_ref()).is_some_and(is_bowl);
-        for slot in snapshot.slots(|r| matches!(r, SlotRole::Main | SlotRole::Hotbar(_))) {
+        // Player-menu order, as the reference's slots 9..44: the main rows,
+        // then the hotbar.
+        let main = snapshot.slots(|r| r == SlotRole::Main);
+        for slot in main.chain(snapshot.slots(|r| matches!(r, SlotRole::Hotbar(_)))) {
             let Some(item) = slot.item.as_ref().filter(|i| is_bowl(i)) else {
                 continue;
             };
@@ -214,6 +218,7 @@ impl AutoHeal {
         let next = next_click(snapshot, options, &mut self.origin);
         let policy = Policy {
             open: next.is_some_and(|(_, open)| open),
+            screenless: next.is_some_and(|(_, open)| !open),
             ..Policy::default()
         };
         let step = self.session.step(snapshot, policy, next.map(|(c, _)| c));
@@ -227,7 +232,11 @@ impl AutoHeal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inventory::{rules::tests::item, session::tests::snapshot, types::ItemClass};
+    use crate::inventory::{
+        rules::tests::item,
+        session::{Effect, tests::snapshot},
+        types::ItemClass,
+    };
 
     fn options() -> Options {
         Options {
@@ -414,5 +423,51 @@ mod tests {
             next_click(&s, &options(), &mut None),
             Some(((30, Click::SwapHotbar(4)), true))
         );
+    }
+    #[test]
+    fn bowls_are_handled_with_no_screen_main_rows_first() {
+        let mut s = snapshot(false, std::time::Instant::now());
+        s.slots[20].item = None;
+        s.slots[2].item = Some(bowl(1));
+        s.slots[30].item = Some(bowl(3));
+        let throw = Options {
+            bowl_mode: BowlMode::Throw,
+            ..options()
+        };
+        assert_eq!(
+            next_click(&s, &throw, &mut None),
+            Some(((30, Click::ThrowStack), false))
+        );
+        let mut heal = AutoHeal::default();
+        let Step::Effect(Effect::Request(r)) = heal.step(&s, &throw) else {
+            panic!("a screenless throw");
+        };
+        assert_eq!((r.slot, r.click), (30, Click::ThrowStack));
+        assert!(!heal.opened());
+        // Stack: the main-row bowl is picked up first, then placed on 17.
+        let mut origin = None;
+        assert_eq!(
+            next_click(&s, &options(), &mut origin),
+            Some(((30, Click::Pickup), false))
+        );
+        let none = Options {
+            bowl_mode: BowlMode::None,
+            replace: false,
+            ..options()
+        };
+        assert_eq!(next_click(&s, &none, &mut None), None);
+        // Replace still opens the inventory.
+        s.slots[2].item = None;
+        s.slots[30].item = Some(item("mushroom_stew", ItemClass::Other, 0.0));
+        assert_eq!(
+            AutoHeal::default().step(&s, &none_with_replace()),
+            Step::Effect(Effect::OpenInventory)
+        );
+    }
+    fn none_with_replace() -> Options {
+        Options {
+            bowl_mode: BowlMode::None,
+            ..options()
+        }
     }
 }

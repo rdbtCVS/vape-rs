@@ -6,6 +6,8 @@
 // the screen changes, while in combat and before closing an inventory this
 // planner opened. Clicks resolve through the planner gate, so a click is
 // only followed up once a snapshot shows its (possibly predicted) effect.
+// With "Open inventory" and "Inventory only" both off and no screen shown,
+// the clicks go to the player's menu (window 0) as the reference's do.
 use super::super::super::inventory::{
     planner::{Gate, Outcome},
     types::{ArmorSlot, Click, Item, Request, Slot, SlotRole, Snapshot},
@@ -40,6 +42,8 @@ impl Default for Options {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Effect {
     Request(Request),
+    /// A click on the player's menu (window 0) while no screen is shown.
+    SilentRequest(Request),
     OpenInventory,
     CloseInventory,
 }
@@ -149,7 +153,8 @@ impl AutoArmor {
                     .map(|slot| Request::for_slot(snapshot, slot, click)),
             };
             return match request.and_then(|r| self.gate.issue(snapshot, r)) {
-                Some(request) => vec![Effect::Request(request)],
+                Some(request) if snapshot.screen_open => vec![Effect::Request(request)],
+                Some(request) => vec![Effect::SilentRequest(request)],
                 None => {
                     self.queue.clear();
                     Vec::new()
@@ -172,13 +177,6 @@ impl AutoArmor {
             self.reset_open(now, options.delay);
             return Vec::new();
         }
-        // Without a screen the reference clicks the player's window 0
-        // directly. The pinned host sends container clicks only from the
-        // inventory screen, so that combination ("Open inventory" and
-        // "Inventory only" both off) is blocked (docs/decisions.md).
-        if !inventory && !options.open_inventory {
-            return Vec::new();
-        }
         // A stalled gate means the last click changed nothing; planning the
         // same clicks again would only repeat it.
         let stalled = self.gate.stalled(snapshot);
@@ -194,7 +192,7 @@ impl AutoArmor {
             let Some(candidate) = best(snapshot, armor, options.check_durability) else {
                 continue;
             };
-            if !inventory {
+            if !inventory && options.open_inventory {
                 if elapsed(self.opened_at, now, self.press_ms) {
                     self.pressed = true;
                     return vec![Effect::OpenInventory];
@@ -456,14 +454,19 @@ mod tests {
         };
         assert_eq!(armor.step(&s, open, false), vec![Effect::OpenInventory]);
         assert!(armor.opened());
-        // Both off would click window 0 without a screen: blocked.
+        // Both off: the clicks go to window 0 without a screen.
         let mut screenless = AutoArmor::default();
         let off = Options {
             open_inventory: false,
             ..open
         };
         assert!(screenless.step(&s, off, false).is_empty());
-        assert!(!screenless.active());
+        assert_eq!(screenless.queue, [(Target::Slot(9), Click::QuickMove)]);
+        let Effect::SilentRequest(click) = &screenless.step(&s, off, false)[0] else {
+            panic!("screenless click");
+        };
+        assert_eq!((click.slot, click.click), (9, Click::QuickMove));
+        assert!(screenless.active() && !screenless.opened());
     }
 
     #[test]
