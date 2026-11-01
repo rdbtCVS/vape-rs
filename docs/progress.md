@@ -2431,3 +2431,44 @@ Plan §10 item 7 is now covered on main: mod disabled, runtime with every featur
   - The other 20 classes of the earlier "37" are control-claim and macro support classes, tracked under their owners.
 - **Wrap-up (user request).** The four round-6 workers were stopped minutes after they started, with nothing committed. Their briefs stay in target/worker-briefs/ (inventory-editor-r6, network-r6, invutil-r6, hud-gui-r6) for a later round. The round-5 workers (crystal-anchor, placement-r5, combat-targeting) were told to finish only their current item, run the gates, commit, write their ledger files and report. Their branches are merged one at a time as they report.
 - Tests: docs and the local ledger only; no code changed since `ea3bc95` (gates 899/0, see the entry above).
+
+## 2026-10-31: placement (worker round 5)
+
+Worker placement-r5, branch `t3/dd5bd8a1` from main 4c8d6e6 (one commit, this entry). No new hooks or support modules.
+
+Done:
+- **Scaffold GodBridge and TellyBridge validated.** The round-2 failures (GodBridge 23/24 on the post-release hand-off, TellyBridge 14/16 falling after two in-air placements) came from three differences with the reference, all fixed in reference terms (docs/decisions.md, "placement (worker round 5)"), not by test tuning:
+  - `mixins/vape_rs/world_actions.rs`: the bridge tick runs **after** the shared rotation tick. The reference bus dispatches LOWEST (`RotationManager.onTick`) before NORMAL, so the bridge reads the crosshair of the turned view. The old order used the previous tick's hit.
+  - `src/modules/combat/rotation.rs`, `src/core/rotation_runtime.rs`: `updates_per_tick(sensitivity)` = `round(50 / ((s×0.6+0.2)³×8))` replaces the constant 50 (unit test added).
+  - `mixins/vape_rs/adapters/input.rs`, `mixins/vape_rs/input_delays.rs`: a control-socket key release is taken from the key's Release event. The old `physical_keys` inference could leave S held after the socket released it.
+  - Scenarios (tools/scaffold_bridge_scenario.py, now with `--only god|telly`), all in fresh isolated homes:
+    - final build (exe 8ac08cad0c0a): GodBridge `scaffold-god-nnz8c_i0` **24/24**, TellyBridge `scaffold-telly-0gqn5fbq` **16/16**;
+    - the build just before the FastPlace gate change (exe ec8b1e2de92a, same bridge code): `scaffold-god-n2gi4uww` 24/24, `scaffold-telly-dmw768co` 16/16, `scaffold-telly-nbb98qbg` 16/16.
+  - Evidence: docs/evidence/placement-r5-scaffold-bridge/ (results, build identities, screenshots, logs).
+- **FastPlace Held Item validated** (All / Blocks / Projectiles, setting `world.fast-place.held-item`).
+  - `src/modules/world/fast_place.rs`: the Projectiles class is the reference's `ItemStackScoreUtil.Z` (snowball, egg, blue/brown egg, ender pearl, eye of ender, fire charge), with a unit test.
+  - `mixins/vape_rs/fast_place.rs` drops its focus and open-screen gates; `FastPlace.onTick` checks only the player and the right-click use claim.
+  - New tools/fast_place_scenario.py: off, All, then relaunched with Blocks and Projectiles. Each probe is a 20-tick held use (snowball, experience bottle, stone in the main hand with bottles in the off hand) plus a tick-exact wall placement burst.
+  - `fast-place-bsgu6qt8` **26/26** on the final build. Off: 5 uses and a wall span of 8 ticks. A matching item: 16–20 uses and a span of 2 ticks. A non-matching item keeps 5 uses and 8 ticks.
+  - The earlier run `fast-place-tdn0viq2` (25/26) failed only because a poll skipped ticks. The probe now repeats such a poll instead of timing it.
+  - Evidence: docs/evidence/placement-r5-fast-place/.
+
+Gates on this tree (target/r5-gates.sh; the coordinator re-runs `gates.sh --host` after the merge):
+- `cargo fmt --all --check`: ok.
+- Clippy `--workspace --all-targets -D warnings`: ok.
+- `cargo test --workspace --locked --offline`: 447 + 1 + 4 + 0 passed, 0 failed.
+- payload-test: 447 + 0 passed.
+- stage and audit: 64 hooks and 35 support modules, original AST restored.
+- host check: ok.
+- host build (`fast`): ok, 149 warning lines.
+- The only later change is tools/fast_place_scenario.py: the rewrite had dropped its `probes` helper, which is now restored.
+
+Ledger: target/ledger-updates/placement-r5.json.
+- **validated:** module.scaffold, its GodBridge/TellyBridge/mode/4/5/6 rows, module.blatantscaffoldmode, module.tellybridgescaffoldmode and module.scaffoldpointrotationcontroller (this scenario exercises all of them), module.fastplace.mode.all/blocks/projectiles, and module.fastplace (re-evidenced).
+- **blocked:** module.clutch, module.mlg, module.mlgplacementcontroller and module.autoladder. They need a side-effect-free physics step on a copy of the local player (`BlockPathPlanner.simulateTick`). Horizon's `PlayerMotion` is not `Clone`, and `MotionWorld` mutates the live `World` (docs/decisions.md).
+
+Unfinished (wound down at the coordinator's request):
+- **Block-In** (module.blockin, Lowest cost / Hardest and its helpers): not started. It does not use the planner simulation, so it is not blocked on it; it needs the placement-path search, the movement task and the rotation claim.
+- **BedBreaker** (Normal / Hypixel, module.bedtargetrenderstate): not started in code. A design was drafted from the reference, covering the bed scan, reticle selection, the indicator geometry, the mouse-over claim through a `Game::pick` HEAD hook and the entity-pick suppression. Hypixel also needs the cover selector, the server rotation and the movement fix.
+- Clutch, MLG and AutoLadder helper rows are left as they were; only the module rows above are marked blocked.
+- **Open check:** docs/hooks.md's BlockHit Lag note treats LOWEST as "after NORMAL", which conflicts with the reference bus order recorded here.

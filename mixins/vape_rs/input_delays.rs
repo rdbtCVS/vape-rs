@@ -96,15 +96,7 @@ pub(crate) fn host_view(game: &crate::game::Game<'_>) -> HostView {
 
 fn resolve_movement(game: &mut crate::game::Game<'_>, requests: bool, again: bool) {
     let client = game.__horizon_mixins_vape_rs_client().clone();
-    // A socket key's release takes the key out of both key sets directly,
-    // past `mapped_key`: a socket key no longer physically held was let go.
-    with_client(&client, |runtime| {
-        for (axis, key) in KEYS {
-            if runtime.movement().socket_held(axis) && !game.physical_keys.contains(&key) {
-                runtime.movement().socket_released(axis);
-            }
-        }
-    });
+    // A socket key's release is seen at its release event (adapters/input.rs).
     let view = host_view(game);
     let active = requests && playing(game);
     let invisible = game.potions.effects.list.iter().any(|effect| effect.id == "invisibility");

@@ -5,17 +5,9 @@ use crate::game::vape_rs::{
     modules::world::fast_place::{applies, clamp_delay, HeldItem, Options},
 };
 pub(super) fn fast_place(game: &mut crate::game::Game<'_>) {
-    if game.serving.is_some()
-        || game.options.dedicated.is_some()
-        || game.player.is_none()
-        || !game.focused
-        || game.screen != crate::game::Screen::Playing
-        || game.title.is_some()
-        || game.sleeping.is_some()
-        || game.dialog_open()
-        || game.server_packs.prompt.is_some()
-        || game.spectator()
-    {
+    // `FastPlace.onTick` checks only the player and the right-click claim; the
+    // host reads use_delay only when it processes the use key.
+    if game.serving.is_some() || game.options.dedicated.is_some() || game.player.is_none() {
         return;
     }
     let client = game.__horizon_mixins_vape_rs_client().clone();

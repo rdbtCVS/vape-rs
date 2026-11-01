@@ -8,6 +8,21 @@ fn input(
     if game.serving.is_some() || game.options.dedicated.is_some() {
         return;
     }
+    // A control-socket key's release takes the key out of both key sets
+    // directly, past `mapped_key`; this release event is its only sign (a
+    // focus loss also empties the physical key set while the key stays held).
+    if matches!(action, horizon_client::debug_keys::KeyAction::Release) {
+        let released: Vec<_> = game.settings.keys.translate_all(key).into_iter()
+            .filter_map(|mapped| mapped.ok().and_then(crate::game::vape_input_delays::axis))
+            .collect();
+        with_client(&client, |runtime| {
+            for axis in released {
+                if runtime.movement().socket_held(axis) {
+                    runtime.movement().socket_released(axis);
+                }
+            }
+        });
+    }
     let accepts_input = game.focused
         && game.player.is_some()
         && game.screen == crate::game::Screen::Playing
