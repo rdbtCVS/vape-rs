@@ -11,7 +11,8 @@
 // new position is farther from us along the line of sight than the last one
 // (`rayIntersectionDistance`), otherwise it flushes; packets that carry no
 // position keep the last decision. Held packets are due Latency ms after
-// their arrival, never earlier than the one before them.
+// their arrival; one that would be due before the last one held is due just
+// after it instead.
 //
 // Differences: due packets also go at the client tick, not only when the
 // next packet arrives; the server-position box is a fixed player size.
@@ -283,7 +284,12 @@ impl Backtrack {
             .and_then(|a| Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?)))
             .unwrap_or((50.0, 100.0));
         let wait = self.random.range(range).max(0.0) as u64;
-        let due = (ctx.now_ms + wait).max(self.last_due + u64::from(self.held > 0));
+        // `queuePacket`: only a release time before the last one queued
+        // moves, to just after it; packets of the same millisecond share one.
+        let mut due = ctx.now_ms + wait;
+        if self.held > 0 && due < self.last_due {
+            due = self.last_due + 1;
+        }
         self.last_due = due;
         Verdict::Hold { due }
     }
@@ -354,6 +360,36 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_in_one_millisecond_shares_its_release_time() {
+        // 300 pushing cows send thousands of packets a second: their release
+        // times must not run ahead of the clock (`queuePacket` only moves a
+        // time that is before the last one).
+        let mut s = settings();
+        s.set(&format!("{BACKTRACK}.latency"), json!([500.0, 500.0]))
+            .unwrap();
+        let mut b = Backtrack::new(7);
+        b.attack(5);
+        b.packet(&s, &ctx(0), &Packet::Other);
+        b.packet(&s, &ctx(10), &step(5, 0));
+        assert!(matches!(
+            b.packet(&s, &ctx(20), &step(5, 2000)),
+            Verdict::Hold { due: 520 }
+        ));
+        b.held(1);
+        for i in 0..1000 {
+            assert_eq!(
+                b.packet(&s, &ctx(20), &Packet::Other),
+                Verdict::Hold { due: 520 }
+            );
+            b.held(i + 2);
+        }
+        assert_eq!(
+            b.packet(&s, &ctx(21), &Packet::Other),
+            Verdict::Hold { due: 521 }
+        );
+    }
+
+    #[test]
     fn farther_target_positions_are_held_in_order_and_nearer_ones_flush() {
         let s = settings();
         let mut b = Backtrack::new(7);
@@ -371,7 +407,7 @@ mod tests {
             dues.push(due);
             b.held(i + 1);
         }
-        assert!(dues.windows(2).all(|w| w[0] < w[1]), "{dues:?}");
+        assert!(dues.windows(2).all(|w| w[0] <= w[1]), "{dues:?}");
         assert!(dues.iter().all(|d| (70..=122).contains(d)), "{dues:?}");
         // A packet without a position keeps the decision: held behind them.
         assert!(matches!(

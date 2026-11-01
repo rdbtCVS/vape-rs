@@ -1,8 +1,10 @@
 # Current implementation handoff
 
-Updated 2026-10-31 on main `3ad3e2a`, after the round 2–4 worker merges
-(combat-a, combat-b, inventory, render, inventory-utility-debt, movement-a,
-movement-b, client-foundation, hud-client-debt) and their ledger updates.
+Updated 2026-11-01 on main, after the worst-case load runs and the BackTrack
+release-time and TargetInfo preview fixes (bundle `692a0f79`; progress.md 2026-11-01).
+The round 2–4 workers (combat-a, combat-b, inventory, render,
+inventory-utility-debt, movement-a, movement-b, client-foundation,
+hud-client-debt) are merged with their ledger updates; round 5 is in progress.
 Single player is tested on Horizon's integrated server thread; LAN host/guest
 scenarios cover the packet, combat and movement paths that differ there.
 **The full plan is not complete.** AI behavior and the online product are
@@ -11,7 +13,7 @@ or blocked.
 
 ## Ledger
 
-docs/features.csv holds 472 rows: **218 validated**, 43 integrated,
+docs/features.csv holds 472 rows: **219 validated**, 42 integrated,
 37 implemented-core, 119 not-started, 9 blocked, 13 excluded-approved and
 33 not-applicable-reviewed. Helper classes take their status from their
 owning module ([decisions](decisions.md)); a review of all 97 helper rows
@@ -29,21 +31,21 @@ and Step (compile-only, see progress.md 2026-10-30), which the reference GUI
 never shows. Before release they need a ledger decision: keep them as
 tracked extras or drop them for fidelity. That decision is the user's.
 
-Modules validated in a real game (82 module/client rows):
+Modules validated in a real game (83 module/client rows):
 - **Combat:** AutoClicker, RightClicker, TriggerBot, JumpReset, WTap, Sprint, KeepSprint, Velocity, HitBoxes, BlockHit, HitSelect, HitSwap, ShieldBreaker, TargetFilter, SilentAura clicker.
 - **Movement:** NoSlowdown, Speed, Fly, NoFall, InvWalk, Timer, SafeWalk, NoItemRelease, WindCharge, Freecam.
 - **World / utility:** Anti-AFK, AutoFish, FastPlace, BackTrack, KnockbackDelay, Panic, AutoPearl, PearlCatch, AutoTool.
 - **Inventory:** Refill, Throwpot, ThrowDebuff, AutoHeal, AutoTotem, ChestSteal, InventoryManager, InvCleaner, AutoHotbar, ArmorSwitch.
 - **Render:** Fullbright, Clear Water, Time Changer, Weather, AntiDebuff, ItemESP, NoHurtCam, NoClickDelay, NoJumpDelay, Inventory Blur, ESP, Tracers, NameTags, Search, SpawnerFinder, StorageESP, Trajectories, Projectiles, Arrows, Health, Explosions, Indicators, BedPlates, Block Overlay, PropHunt, MurdererFinder.
-- **HUD / client:** Armor Status, Potion Status, Coords, FPS, Compass, Clock, Keystrokes, Reach Display, local toggle notifications, the GUI and config settings modules.
+- **HUD / client:** Armor Status, Potion Status, Coords, FPS, Compass, Clock, Keystrokes, Reach Display, Target Info, local toggle notifications, the GUI and config settings modules.
 
 Integrated, waiting for a full scenario on main: AimAssist, KillAura,
 SilentAura, AutoArmor, AutoMace (Manual/Auto/Density/Breach modes
 validated), InventoryFill, Parkour, Blink, FakeLag, Scaffold (Legit
 validated; GodBridge 23/24 and TellyBridge 14/16 on the worker branch),
 Freelook, Scoreboard (text replacement), Text GUI, the click GUI
-layout/search/favorites, friends/enemies, local profiles, macros, binds,
-Target Info and the deterministic timing.
+layout/search/favorites, friends/enemies, local profiles, macros, binds
+and the deterministic timing.
 
 Implemented core (logic and tests, host path incomplete): AntiFireball,
 HitFlick, the shared claim owners, session lifecycle, HUD drag/snap/scale and
@@ -69,11 +71,19 @@ decision column and decisions.md):
 ## Evidence on merged main
 
 - `gates.sh --host` on `d90e860` (all nine workers merged): fmt, Clippy `-D warnings` (all targets), **895 tests passed / 0 failed**, payload-test, stage/audit with **64 hooks and 35 support modules** on horizon-mixins `0e9229d`, host check and host build.
-- Scenarios: each worker's scenarios passed on its branch in fresh homes (progress.md lists the instance names). The rerun on merged main was cut short by a reboot and is going again one scenario at a time under `target/scenario.lock`; render (single player and LAN), legit render and the AutoTool LAN guard pass on main so far, and the results go into progress.md as they finish.
+- `gates.sh --host` with the BackTrack and TargetInfo fixes: fmt, Clippy, **899 tests passed / 0 failed**, payload-test, stage/audit and host build.
+- Scenarios: each worker's scenarios passed on its branch in fresh homes (progress.md lists the instance names). On merged main (bundle `692a0f79`), these pass: bindings, macros, profile switch, the GUI, text editor and HUD editor (after a scenario-side triage for the moved layout), the inbound hold, both Target Info scenarios and the BackTrack/Blink/planner/disabled load parts. Also passing, on earlier main builds: pearl, render (single player and LAN), legit render and the AutoTool LAN guard. TellyBridge is 14/16 and is with worker placement-r5.
 - Settings parity (`tools/settings_parity.py`): no default or range differences remain. It now honours the reference's version-gated registrations (`U(value, ForgeVersion…)`, target 26.3). The remaining "missing setting" entries are all on integrated or blocked rows: Blink "Spawn fake", KillAura "Show target" and its colours, Reach "Misplace"/"Disadvantage", SilentAura's Break blocks, render and colour settings, and SilentAura's AI settings (excluded).
 - AntiBot's 16 "Your team color" options are not-applicable-reviewed: the reference registers that setting only below 1.21.11 and uses the player-list colour on 26.3, which the port detects.
 - Online removal (Phase 7): the pack-time capability audit rejects `unsafe`, sockets, processes, FFI, `include_*!`, the host HTTP client, telemetry/friends crates and URL literals in shipped code; no Java/C/C++ or binaries are tracked.
-- Performance: `tools/perf_scenario.py` on main, near-idle machine (load ~6 of 12 cores): 67/67. Each render/HUD module alone adds under 0.5 ms of CPU per frame, all twelve together 0.296 ms, at a steady 119 fps, and nothing is left once off (docs/evidence/perf-idle-main, progress.md 2026-10-31). Still to measure: a host build without the mod, a dense entity scene and the worst-case queue/planner loads.
+- Performance (plan §10 item 7, all on main in fresh homes):
+  - Per-module frame cost, `tools/perf_scenario.py`, near-idle machine (load ~6 of 12 cores): 67/67. Each render/HUD module alone adds under 0.5 ms of CPU per frame, all twelve together 0.296 ms, at a steady 119 fps, and nothing is left once off (docs/evidence/perf-idle-main, progress.md 2026-10-31).
+  - Worst-case loads, `tools/perf_load_scenario.py` against the pinned host built without vape-rs (`tools/plain_build.sh`), progress.md 2026-11-01:
+    - With every module off, vape-rs adds +0.032 ms of CPU per frame in a 24-cow scene and −0.262 ms in a 300-cow scene (within the noise). ESP, Tracers and NameTags on 300 cows add 2.349 ms.
+    - Three inventory planners on a full inventory add 0.026 ms to the frame tick.
+    - Blink holds 45 s of moves (unbounded, as in the reference; keep-alives bypass it, so the guest stays connected) and sends them with a 3.066 ms slow-frame tick.
+    - BackTrack holds 300 cows' traffic up to the 1024-packet inbound limit and replays a full queue inside a 0.234 ms slow-frame tick.
+  - These figures were taken while other sessions compiled (load 2–15), so they bound the cost rather than measure it precisely.
 - Not covered: remote/third-party servers, window focus loss, switching between two worlds.
 - [hooks.md](hooks.md) lists every target and module.
 

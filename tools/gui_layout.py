@@ -7,7 +7,9 @@ the body starts at y=26 with 20-unit rows; the row centre is x=160 and its
 settings dots are at x=221. The navigation frame lists CATEGORIES in order
 from y=28, rows centred 10 below their top. Modules hidden by default
 (src/core/visibility.rs, DEFAULT_HIDDEN) leave their frame, so they take no
-row until a scenario unhides them.
+row until a scenario unhides them. The HUD editor's centred frame puts a
+16-unit Favorite/All/HUD tab bar over its list (render.rs, hud_body), so its
+rows start at y=42; the row centre is x=190 and its dots are at x=247.
 """
 import re
 from pathlib import Path
@@ -55,3 +57,12 @@ def row(category_name, module, x=160, shown=()):
 
 def dots(category_name, module, shown=()):
     return row(category_name, module, 221, shown)
+
+
+def hud_row(module, x=190):
+    """Centre of a HUD module's row in the HUD editor's frame, All tab."""
+    return x, 52 + 20 * modules('HUD').index(module)
+
+
+def hud_dots(module):
+    return hud_row(module, 247)

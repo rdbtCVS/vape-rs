@@ -68,13 +68,15 @@ def run(resources):
 
         # No bind activates while a screen is open.
         # The scenario world is creative, so E opens the creative inventory.
+        # The host hands mouse buttons to play_mouse (the mouse-bind hook)
+        # only on the playing screen, and its agent refuses `mouse` behind a
+        # screen, so only keys are pressed here.
         for opener, name in (('e', 'creative'), ('t', 'chat')):
             session.call('key', opener, 'tap')
             session.call('wait', '2')
             assert screen() == name, screen()
             session.call('key', 'g', 'tap')
             session.call('key', 'f9', 'down')
-            session.call('mouse', 'middle', 'click')
             session.call('wait', '2')
             session.capture(f'{name}-blocks-binds')
             session.call('key', 'f9', 'up')
@@ -127,7 +129,7 @@ def run(resources):
         session.capture('after-restart')
         (session.root / 'assertions.json').write_text(json.dumps({'passed': True, 'checks': [
             'toggle bind', 'hold bind releases', 'chord needs every key in any order',
-            'mouse button bind', 'inventory and chat block key and mouse binds',
+            'mouse button bind', 'inventory and chat block key binds',
             'click GUI blocks binds and takes Escape', 'Ctrl + Home opens the GUI',
             'GUI rebinding captures a multi-key chord', 'Escape and left click clear a bind',
             'shift click switches toggle and hold', 'mouse button captured from the GUI and held',
@@ -224,8 +226,9 @@ def rebind(session, enabled):
     session.capture('shift-click-hold')
 
     click(BIND_ROW)
-    session.call('mouse', 'right', 'down')
-    session.call('mouse', 'right', 'up')
+    # The open GUI is the pause screen, so the right button goes through the
+    # window (the GUI's event hook), not the agent's `mouse`.
+    session.call('click-at', str(BIND_ROW[0]), str(BIND_ROW[1]), 'right')
     session.call('wait', '2')
     assert binds() == ['MouseRight'], binds()
     session.capture('mouse-captured')

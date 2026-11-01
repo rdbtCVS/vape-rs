@@ -2368,3 +2368,54 @@ Result **67/67**, every bench at the same frame cap (119 fps; vanilla's AFK limi
 - All twelve together add **0.296 ms** (CPU p99 2.17 ms). ItemESP's and Fullbright's single benches also had a higher frame p99 (9.46 ms against 8.44) that the all-on bench does not show, so those two figures likely include the workers' compile load.
 
 Covered of plan §10 item 7: runtime enabled with all features off, representative overlays, many enabled modules, a 24-cow, 8-chest scene. Not yet covered: a host build without the mod (mod disabled), a dense entity scene and the worst-case queue/planner loads (InventoryManager sort of a full inventory, the Blink/FakeLag/BackTrack queues at their limits). Performance stays partially validated until those run.
+
+## 2026-11-01: worst-case loads, BackTrack release-time fix, TargetInfo preview fix, GUI scenario triage
+
+**Worst-case loads (plan §10 item 7).** `tools/perf_load_scenario.py` is new on main. It covers the items the 2026-10-31 run left open. A pinned host built without vape-rs (`tools/plain_build.sh`, `target/plain-cargo/fast`, used through `NativeSession(plain=True)`) is the baseline. Every part runs in fresh isolated homes under `target/scenario.lock`, at a 119 fps frame cap, and compares `horizon-ctl stats` over paced benches. Other sessions were compiling throughout (load 2–15 on 12 cores), so each check bounds a difference and does not try to measure it precisely. Evidence: docs/evidence/perf-load-main/.
+- **Mod disabled, 16/16** (`perf-load-u1mekekq`, host-only runs `perf-plain-a-ux667e5e`/`perf-plain-b-n1t9qdkf`, load 2.1–7.3):
+  - With every module off, vape-rs adds **+0.032 ms** of CPU per frame in the 24-cow scene and **−0.262 ms** in the 300-cow scene (between-run noise 0.441 and 0.986 ms).
+  - ESP, Tracers and NameTags on 300 cows add **2.349 ms** (CPU p99 13.0 ms).
+- **Planners, 9/9** (`perf-planners-3h51vl4l`, load 9.9–11.5):
+  - InventoryManager, InvCleaner and AutoHotbar on a full 36-slot inventory add **0.026 ms** to the frame tick while working and 0.018 ms once arranged.
+  - The CPU figure (2.451 ms against 1.669 ms) includes the open inventory screen.
+  - The planners did their work: the best sword in slot 1, the rotten flesh dropped and the best armor worn.
+- **Blink, 21/21** (`perf-blink-guest-31ulng3t` + `perf-blink-host-dwvvo9r4`, LAN, load 11.8 → 9.7):
+  - Blink holds 10 s and 45 s of walking. The host saw the guest stand still through each hold and 0.254 blocks from its client position after the release.
+  - The guest stays connected through the 45 s hold: keep-alives are answered on the network reader (net.rs), as the reference answers them on netty, so the queue is unbounded as in the reference without a timeout.
+  - CPU added while holding: −0.088 ms (10 s) and −0.206 ms (45 s).
+  - Sending the queue: a slow-frame tick of 1.296 ms (10 s) and 3.066 ms (45 s). The slow frames' phase sums were 9.41 and 22.04 ms, against 17.34 ms for a toggle that holds nothing. The max frame was 22.7 and 49.9 ms, against 24.4 ms for the control.
+- **BackTrack, 14/14** (`perf-backtrack-guest-0widiye6`, LAN, 300 pushing cows beside the target, load 9.1–9.7, bundle `692a0f79`):
+  - The inbound queue holds up to its 1024-packet limit (mixins/vape_rs/packets.rs). The reference's queue has no limit. Past the limit and on every turn back, the queue replays at once.
+  - Holding the pen's traffic adds **−0.773 ms** of CPU per frame.
+  - The slow frames' tick is **0.234 ms** while full-queue replays happen (0.141 plain, 0.398 sparse; max frame 11.2 ms), well inside one 60 Hz frame.
+  - With the pen emptied, the host shows **500 ms** behind: a 2.74-block max lag against a 0.43 plain median.
+  - The guest stays connected.
+
+**BackTrack release-time drift (product bug, fixed).** The first runs measured a 5.6-block sparse lag (about 1.3 s, not 500 ms).
+- **Cause:** `due = max(now + wait, last_due + 1)` added 1 ms per held packet. With hundreds of packets per second, the release times ran ahead of the clock.
+- **Fix:** the reference rule (`queuePacket`, Backtrack.java:291-306) moves only a release time before the last one, to just after it. Packets of the same millisecond now share one release time.
+- New test: `a_burst_in_one_millisecond_shares_its_release_time`. The hold order test now asserts non-decreasing due times.
+- Re-validated on main: `tools/inbound_hold_scenario.py` **27/27** (`hold-host-m96ngxvf`/`hold-guest-uq7_k3kh`, docs/evidence/hold-main/).
+
+**TargetInfo GUI preview (product bug, fixed).** In the reference, `TargetInfoPreviewComponent.isPreviewMode` is `!ClientSettings.inputEnabled`, which is false while the click GUI is open, so the live panel shows the local player there. The port showed nothing until a target was hit.
+- `target_info_content` now treats an open GUI as preview.
+- New test: `target_info_shows_the_local_player_while_the_gui_is_open`.
+- Host scenarios on bundle `692a0f79`: `tools/target_info_extras_scenario.py` **10/10** (`hud-target-info-extras-ujy5n9b1`; was 9/10, failing only the GUI preview face) and `tools/target_info_scenario.py` **9/9** (`hud-target-info-ewln0teq`).
+- client.target-info is now **validated** (docs/evidence/target-info-main/).
+
+**Scenario triage on merged main.** After the round 2–4 merges, several GUI scenarios failed because the layout and screens had moved, not because of product bugs. A triage worker fixed the scenarios:
+- `tools/gui_layout.py`: `hud_row`/`hud_dots` helpers for the HUD category rows.
+- gui and hud_editor: use those helpers; gui's multi-bind click moves to (170,131).
+- bindings: no mouse press behind screens; the right-click capture goes through `click-at … right`.
+- macro: polls `status`.
+- profile_switch: E opens the creative inventory.
+- target_info_extras: a dispenser with a healing pot as "someone else's" pot, plus measured crop boxes.
+- pearl: the slot check accepts a drop in the pearl count (5/5).
+
+Rerun on bundle `692a0f79` (both fixes), fresh homes, all exit 0: bindings (`bindings-lnehy7xn`, `bindings-empty-gui-uhit2_z_`), macros (`macros-d38yy4eo`), profile switch (`profile-switch-0sz7vwpl`, `profile-autoload-off-ncgh3kaq`), GUI (`gui-coshsf4k`), text editor (`text-editor-2pgncr7u`) and HUD editor (`hud-editor-fnslin5_`, `binding-capture-nswdctar`); logs in docs/evidence/gui-triage-main/. Pearl passed 5/5 on the previous main bundle `134e21cb` (`pearl-on-bind-lan-*`); only its check changed.
+
+ScaffoldBridge's TellyBridge stays at 14/16 on main ("Y increase" left the bridge at the runway level, and the player missed the catch floor). The trace (`scaffold-telly-trace-ny6fh0rq`) was handed to worker placement-r5, which owns Scaffold.
+
+**Gates.** `gates.sh --host` with both fixes: fmt, Clippy `-D warnings`, **899 tests passed / 0 failed**, payload-test, stage/audit and host build.
+
+Plan §10 item 7 is now covered on main: mod disabled, runtime with every feature off, overlays, a dense entity scene, many modules, and the worst-case queue/planner loads. The bounds are the 1024-packet inbound limit with replay, a full replay inside one 60 Hz frame, and the per-frame CPU limits the checks enforce. The figures were taken under load from other sessions, so a quiet-machine rerun would make them tighter, not different in kind.

@@ -3,7 +3,11 @@
 import argparse
 import json
 from pathlib import Path
+import gui_layout
 from native_session import NativeSession
+
+COORDS_DOTS = gui_layout.hud_dots('hud.coordinates')
+FPS_ROW = gui_layout.hud_row('hud.fps')
 
 
 def run(resources):
@@ -26,12 +30,12 @@ def run(resources):
         assert session.saved()['settings']['hud.coordinates.scale'] > 1.0
         session.call('click-at', str(x + 10), str(y + 10), 'right')
         session.capture('widget-settings')  # expands inline in the HUD frame
-        # The centred HUD frame lists modules by name: Coords fifth, FPS sixth.
-        session.call('click-at', '247', '116')  # Coords dots collapse its settings
-        session.call('click-at', '190', '136')
+        # The centred HUD frame lists modules by name under its tab bar.
+        session.call('click-at', *map(str, COORDS_DOTS))  # collapse Coords' settings
+        session.call('click-at', *map(str, FPS_ROW))
         session.capture('fps-enabled-preview')
         assert session.saved()['modules']['hud.fps']['enabled'] is True
-        session.call('click-at', '190', '136')
+        session.call('click-at', *map(str, FPS_ROW))
         session.capture('fps-disabled-preview')
         assert session.saved()['modules']['hud.fps']['enabled'] is False
         session.call('drag-at', str(x + 15), str(y + 15), '16', '180')

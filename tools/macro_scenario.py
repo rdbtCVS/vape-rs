@@ -138,8 +138,9 @@ def run(resources):
         session.call('key', 'z', 'tap')
         start = time.monotonic()
         while time.monotonic() - start < 3.0:
-            state = session.call('state')
-            trace.append((round(time.monotonic() - start, 3), state['selected'], state['fishing'] is not None))
+            # The pinned host reports the hook in `status`, not `state`.
+            status = session.call('status')
+            trace.append((round(time.monotonic() - start, 3), status['selected'], status['fishing'] is not None))
         cast = [i for i, (_, slot, hook) in enumerate(trace) if slot == 3 and hook]
         assert cast, trace
         reeled = [t for t in trace[cast[0]:] if t[1] == 3 and not t[2]]

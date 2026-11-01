@@ -80,8 +80,9 @@ def run(resources):
         key('rshift')
         assert session.call('state')['screen'] == 'playing'
 
+        # The scenario world is creative, so E opens the creative inventory.
         key('e')
-        assert session.call('state')['screen'] == 'inventory'
+        assert session.call('state')['screen'] == 'creative', session.call('state')['screen']
         key('k')
         assert session.saved()['profile'] == 'legacy'
         key('esc')

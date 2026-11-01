@@ -147,8 +147,14 @@ impl Runtime {
             combo: flag("combo-counter"),
             damage: flag("damage-comparator"),
         };
+        // `TargetInfoPreviewComponent.isPreviewMode`: input is off while the
+        // click GUI is open, so the live panel shows the local player too.
         self.target_info
-            .view(snapshot.target.own.as_ref(), preview, shown)
+            .view(
+                snapshot.target.own.as_ref(),
+                preview || self.gui.open,
+                shown,
+            )
             .map(Content::TargetInfo)
     }
     /// `ReachDisplayHudModule.onPostAttack`: the eye-to-hitbox distance of
@@ -710,5 +716,30 @@ mod tests {
             std::time::Instant::now() - std::time::Duration::from_secs(6),
         ));
         assert_eq!(r.reach_display_text(), "0.00 blocks");
+    }
+
+    #[test]
+    fn target_info_shows_the_local_player_while_the_gui_is_open() {
+        let mut r = Runtime::default();
+        let mut snapshot = Snapshot {
+            in_world: true,
+            ..Snapshot::default()
+        };
+        snapshot.target.own = Some(crate::ui::target_info::Seen {
+            name: "Me".into(),
+            player: true,
+            ..Default::default()
+        });
+        // No target: nothing in play, the local player behind the GUI
+        // (`TargetInfoPreviewComponent.isPreviewMode`).
+        assert!(r.target_info_content(&snapshot, false).is_none());
+        r.gui.open = true;
+        match r.target_info_content(&snapshot, false) {
+            Some(Content::TargetInfo(view)) => {
+                assert_eq!(view.name, "Me");
+                assert!((view.fraction - 0.6).abs() < 1e-6);
+            }
+            _ => panic!("no preview with the GUI open"),
+        }
     }
 }

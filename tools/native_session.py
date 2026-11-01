@@ -19,6 +19,9 @@ else:
     BUILD_MANIFEST = ROOT / 'target/host-cargo/fast/vape-rs-build.json'
 # The launcher builds only the client; horizon-ctl is not modded.
 CTL = ROOT / 'target/host-cargo/fast/horizon-ctl'
+# The same pinned host without vape-rs (tools/plain_build.sh):
+# the "mod disabled" baseline for performance runs.
+PLAIN = ROOT / 'target/plain-cargo/fast'
 # Fields that must match the current sources; commit/dirty are informational.
 IDENTITY_KEYS = ('bundle_sha256', 'horizon_revision', 'horizon_mixins_revision') + (
     () if LAUNCHER else ('horizon_mixins_patches', 'profile', 'features'))
@@ -61,8 +64,14 @@ def verify_build(allow_stale=False):
 
 
 class NativeSession:
-    def __init__(self, resources, prefix='scenario-', allow_stale=False):
-        self.build = verify_build(allow_stale)
+    def __init__(self, resources, prefix='scenario-', allow_stale=False, plain=False):
+        if plain:
+            # No vape-rs: the pristine pinned host, built with the same profile.
+            self.binary, self.ctl = PLAIN / 'horizon-client', PLAIN / 'horizon-ctl'
+            self.build = json.loads((PLAIN / 'plain-build.json').read_text())
+        else:
+            self.binary, self.ctl = BINARY, CTL
+            self.build = verify_build(allow_stale)
         self.resources = Path(resources).resolve(strict=True)
         if json.loads((self.resources / 'horizon-resources.json').read_text()).get('minecraft') != '26.3':
             raise ValueError('prepared Minecraft 26.3 resources required')
@@ -98,7 +107,7 @@ class NativeSession:
                 raise
 
     def call(self, *args, timeout=45):
-        result = subprocess.run([str(CTL), '--socket', str(self.socket), *args],
+        result = subprocess.run([str(self.ctl), '--socket', str(self.socket), *args],
                                 cwd=self.root / 'game', env=self.env, text=True,
                                 capture_output=True, timeout=timeout)
         self.commands.append({'args': args, 'code': result.returncode,
@@ -111,7 +120,7 @@ class NativeSession:
     def launch(self, creative=True, world='NativeScenario', extra=()):
         if self.process is not None:
             raise RuntimeError('close the owned process before restarting')
-        args = [str(BINARY), '--resources', str(self.resources),
+        args = [str(self.binary), '--resources', str(self.resources),
                 *(('--world', world) if world else ()), '--offscreen', '--width', '800', '--height', '600',
                 '--render-distance', '2', '--no-pause', '--control-socket', str(self.socket),
                 *extra]

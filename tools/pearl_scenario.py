@@ -113,8 +113,10 @@ def pearl_catch(resources, allow_stale, name, extra_settings, look):
         # Each throw's slot is held for a tick or two, between samples at
         # times; only slot 2 holds pearls and slot 3 charges (the offhand is
         # empty), so each leaving the inventory is the evidence of its slot.
+        thrown = [x['pearls'] for x in samples]
         checks.check('PearlCatch selected the pearl slot, ended on slot 1',
-                     order[0] == 1 and 2 in order and order[-1] == 1, order)
+                     order[0] == 1 and order[-1] == 1 and (2 in order or min(thrown) < thrown[0]),
+                     {'order': order, 'pearls': sorted(set(thrown), reverse=True)})
         checks.check('PearlCatch threw one pearl and one wind charge',
                      after.get('minecraft:ender_pearl') == 3 and after.get('minecraft:wind_charge') == 3,
                      after)

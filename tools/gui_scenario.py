@@ -81,7 +81,7 @@ def run(resources):
         # The header gear opens the client settings frame.
         click(GEAR)
         capture('global-settings')
-        click((170, 113))  # Settings sort by id: blur background, bind indicator, GUI scale (24 high), GUI binding, multi-bind.
+        click((170, 131))  # Settings sort by id: blur background, bind indicator, Gui Color, GUI scale (24 high), GUI binding, multi-bind.
         capture('multi-bind')
         assert session.saved()['settings']['client.multi-bind'] is True
         click(GEAR)
@@ -89,7 +89,7 @@ def run(resources):
         # Legit and HUD modules live in the HUD editor's frame.
         click(HUD_EDITOR)
         capture('hud-editor')
-        click((190, 116))  # Coords, fifth by name.
+        click(gui_layout.hud_row('hud.coordinates'))
         capture('hud-module-enabled')
         assert session.saved()['modules']['hud.coordinates']['enabled'] is True
         click((26, 287))  # BACK
