@@ -142,7 +142,6 @@ registry! {
     PearlCatch => "utility.pearl-catch", "PearlCatch", "Utility", None, [];
     Freecam => "render.freecam", "Freecam", "World", None, [];
     Freelook => "render.freelook", "Freelook", "Render", None, [];
-    MotionBlur => "render.motion-blur", "MotionBlur", "Render", None, [];
 }
 
 impl ModuleId {

@@ -886,26 +886,3 @@ bindings = [
   { name = "id", ty = "i32", value = "id" },
   { name = "values", ty = "&[(u8, i32, horizon_protocol::entity_data::Value)]", value = "values" },
 ]
-
-[[module]]
-id = "motion-blur"
-file = "crates/horizon-client-render/src/gfx.rs"
-name = "vape_motion_blur"
-source = "motion_blur.rs"
-visibility = "pub"
-
-[[injection]]
-id = "motion-blur-present"
-target = "horizon_client_render::gfx::Renderer::draw_frame"
-kind = "AFTER_CALL"
-helper = "adapters/motion_blur.rs"
-selector = "self.hud.draw_range"
-require = 2
-ordinal = 1
-result = "()"
-bindings = [
-  { name = "renderer", ty = "&crate::gfx::Renderer", value = "&*self" },
-  { name = "encoder", ty = "&mut wgpu::CommandEncoder", value = "$local_mut:encoder:0" },
-  { name = "target", ty = "&wgpu::Texture", value = "$local_ref:target_texture:0" },
-  { name = "view", ty = "&wgpu::TextureView", value = "$local_ref:view_target:0" },
-]
