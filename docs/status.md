@@ -1,10 +1,15 @@
 # Current implementation handoff
 
-Updated 2026-11-01 on main, after the worst-case load runs and the BackTrack
-release-time and TargetInfo preview fixes (bundle `692a0f79`; progress.md 2026-11-01).
+Updated 2026-11-01 on main, after the worst-case load runs, the BackTrack
+release-time and TargetInfo preview fixes (bundle `692a0f79`) and the wind-down
+merge of the round 5/6 worker branches (progress.md 2026-11-01).
 The round 2–4 workers (combat-a, combat-b, inventory, render,
 inventory-utility-debt, movement-a, movement-b, client-foundation,
-hud-client-debt) are merged with their ledger updates; round 5 is in progress.
+hud-client-debt) are merged with their ledger updates. The round 5
+(combat-targeting, placement) and round 6 (invutil) worker edits are merged
+unvalidated: they pass the gates but no host scenario was run, and the
+ledger rows stay as they were. Round 6 Motion Blur stays on branch
+`t3/9b567e4d` because its injection does not resolve against the pin.
 Single player is tested on Horizon's integrated server thread; LAN host/guest
 scenarios cover the packet, combat and movement paths that differ there.
 **The full plan is not complete.** AI behavior and the online product are

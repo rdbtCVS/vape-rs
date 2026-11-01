@@ -2472,3 +2472,34 @@ Unfinished (wound down at the coordinator's request):
 - **BedBreaker** (Normal / Hypixel, module.bedtargetrenderstate): not started in code. A design was drafted from the reference, covering the bed scan, reticle selection, the indicator geometry, the mouse-over claim through a `Game::pick` HEAD hook and the entity-pick suppression. Hypixel also needs the cover selector, the server rotation and the movement fix.
 - Clutch, MLG and AutoLadder helper rows are left as they were; only the module rows above are marked blocked.
 - **Open check:** docs/hooks.md's BlockHit Lag note treats LOWEST as "after NORMAL", which conflicts with the reference bus order recorded here.
+
+## 2026-11-01: wind-down merge of the round 5/6 worker branches
+
+The round 5 workers (combat-targeting, placement, crystal-anchor) stopped on an
+API authentication error (403); the round 6 workers were cancelled at the
+wind-down. Each worktree's uncommitted state was committed as a WIP commit on
+its branch and merged into main:
+
+- `t3/f390c2b1` combat-targeting r5: AimAssist Adaptive mode, the Auras Show
+  target / SilentAura Kiss / Break-blocks host feed, plus uncommitted
+  targeting and scenario-tool edits. Merged.
+- `t3/dd5bd8a1` placement r5: FastPlace, rotation and input-delay edits and a
+  new fast_place scenario tool. Merged; the conflicts were append-only in
+  decisions.md and progress.md, and both sides were kept.
+- `t3/c60a48d4` invutil r6: AutoArmor/AutoHeal inventory transaction edits.
+  Merged.
+- `t3/9b567e4d` hud-gui r6: Motion Blur. Merged and then reverted: its
+  `motion-blur-present` injection (`Renderer::draw_frame`,
+  `self.hud.draw_range`) fails `horizon-mixins plan` against the pin, so stage
+  failed. The work stays on that branch.
+- crystal-anchor r5 left no edits.
+
+Gates (`target/agent-tools/gates.sh --host`, after `rm -rf target/bundle` to
+drop a stale Motion Blur adapter): pass. That covers fmt, clippy -D warnings,
+469 unit tests, settings_dump, xtask tests, payload-test, stage and the host
+build.
+
+No host scenarios were run for the merged worker edits, so none of their
+ledger rows changed. The new scenario tools (aura_lan, targeting_modes,
+fast_place, invutil_r6) are unrun. Their claims need a scenario pass in a later
+round before any row moves to validated.
