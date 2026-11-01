@@ -722,13 +722,38 @@ impl Fixed {
     }
 }
 
-/// The reference's 50 controller updates per tick
-/// (`Math.round(50 * getSensitivityTimeScale())` with a unit scale).
+/// The reference's 50 controller updates per tick at the reference
+/// sensitivity (0.5, a unit time scale).
 pub const UPDATES_PER_TICK: u32 = 50;
+
+/// `Math.round(50 * getSensitivityTimeScale())`: the controller updates of
+/// one tick, scaled so a turn takes the same time at any sensitivity (a
+/// count turns the view by `getMouseScale() * 0.15`).
+pub fn updates_per_tick(sensitivity: f64) -> u32 {
+    let base = sensitivity as f32 * 0.6 + 0.2;
+    let scale = 1.0 / (base * base * base * 8.0);
+    let updates = (50.0 * scale).round();
+    if updates.is_finite() && updates >= 0.0 {
+        updates as u32
+    } else {
+        UPDATES_PER_TICK
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn updates_follow_the_sensitivity_time_scale() {
+        assert_eq!(updates_per_tick(0.5), UPDATES_PER_TICK);
+        // 50 / (0.8^3 * 8) and 50 / (0.2^3 * 8).
+        assert_eq!(updates_per_tick(1.0), 12);
+        assert_eq!(updates_per_tick(0.0), 781);
+        // A tick's turn barely depends on the sensitivity.
+        let turn = |s: f64| updates_per_tick(s) as f32 * degrees_per_count(s);
+        assert!((turn(1.0) - turn(0.5)).abs() < 0.03 * turn(0.5));
+    }
 
     #[test]
     fn higher_priority_preempts_and_lower_waits() {

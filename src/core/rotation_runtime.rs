@@ -8,7 +8,7 @@
 // visible `Fixed` controller that turns the view. SilentAura steps the
 // managed rotation itself; this driver steps it for the other owners.
 use super::super::modules::combat::rotation::{
-    Claim, Claimant, Fixed, Managed, Step, UPDATES_PER_TICK,
+    Claim, Claimant, Fixed, Managed, Step, updates_per_tick,
 };
 use super::super::modules::movement::movement_task::Body;
 use super::super::modules::movement::scaffold_bridge::ScaffoldPoint;
@@ -225,11 +225,20 @@ impl<'a> Shared<'a> {
                 if let Some(eye) = eye {
                     fixed.set_eye(eye);
                 }
-                no_screen.then(|| fixed.tick([view.0, view.1], sensitivity, UPDATES_PER_TICK))
+                no_screen.then(|| {
+                    fixed.tick([view.0, view.1], sensitivity, updates_per_tick(sensitivity))
+                })
             }
             Controller::Point(point) => {
                 let body = body?;
-                no_screen.then(|| point.tick([view.0, view.1], sensitivity, UPDATES_PER_TICK, body))
+                no_screen.then(|| {
+                    point.tick(
+                        [view.0, view.1],
+                        sensitivity,
+                        updates_per_tick(sensitivity),
+                        body,
+                    )
+                })
             }
             Controller::Silent(step) => {
                 let step = *step;
@@ -242,7 +251,7 @@ impl<'a> Shared<'a> {
                 if let Some(eye) = eye {
                     m.aim(eye);
                 }
-                if m.tick(view, sensitivity, UPDATES_PER_TICK, || step) {
+                if m.tick(view, sensitivity, updates_per_tick(sensitivity), || step) {
                     self.rotations.drive = None;
                 }
                 None

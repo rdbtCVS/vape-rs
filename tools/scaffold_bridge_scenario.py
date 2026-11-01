@@ -25,15 +25,13 @@ import math
 import os
 
 from native_session import NativeSession
-from smoke_scenario import Checks, poll
+# smoke_scenario.state merges the control status' canonical key set into
+# the agent state, which has none of its own.
+from smoke_scenario import Checks, poll, state
 
 BINDS = {'blatant.scaffold': 'KeyJ', 'combat.sprint': 'KeyP'}
 FLOOR = (-12, 88, -40, 12, 88, 12)
 RUNWAY = (-1, 99, -3, 1, 99, 20)
-
-
-def state(session):
-    return session.call('state')
 
 
 def player(session):

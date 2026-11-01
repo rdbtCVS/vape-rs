@@ -177,3 +177,10 @@ Changes to existing hooks and support modules:
   - `text_gui` returns its row boxes for Click disable.
 
 Mixin helper pitfall found during this round: in the staged `debug_keys.rs`, the helper's `.filter(|p| crate::game::vape_hud::GUI_OVERLAYS.contains(&p.module))` closure body had been wrapped in a block. The staged statement then no longer matched the statement the audit builds from the helper source, and the build failed with "unexpected transformed AST changes". The helper now uses a plain `for`/`if`.
+
+Placement worker (2026-10-31, worker round 5), no new hooks or support modules (64 hooks and 35 support modules, as on main 4c8d6e6):
+
+- `vape_world_actions::tick` (client-tick HEAD) now runs `scaffold_bridge_tick` **after** the shared rotation tick (`Runtime::rotation_tick_at`), with the body and the crosshair block (`crosshair_block`) read after the view turned. This replaces "Before the rotation" in the movement-a notes above. The reference bus dispatches LOWEST (`RotationManager.onTick`) before NORMAL (the bridge modes).
+- The rotation driver advances `rotation::updates_per_tick(sensitivity)` controller updates per tick (the reference's sensitivity time scale) instead of a fixed 50.
+- `client-input` (`adapters/input.rs`) releases a socket-held movement axis on the key's Release event. The movement writer no longer infers a socket release from `physical_keys`; this replaces the `socket_held`/`socket_released` note in the movement B section.
+- `vape_fast_place::fast_place` (`fast_place.rs`) gates on what `FastPlace.onTick` gates on: the local player and the right-click use claim (plus the port's own server-thread and dedicated guards). The earlier window-focus and open-screen gates are gone; the host reads `use_delay` only when it handles the use key.

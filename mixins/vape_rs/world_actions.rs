@@ -97,8 +97,10 @@ fn inventory(game: &Game<'_>) -> Inventory {
 }
 
 /// `normalReachRayTrace` (`rayTraceUsingManagedRotation(3.0, 0, false)`, the
-/// 1.20.6+ mouse-over of RayTraceUtil): the block along the block reach the
-/// host's own pick uses (4.5, 5 in creative); the 3.0 only bounds entities.
+/// 1.20.6+ mouse-over of RayTraceUtil), as `RotationManager.onTick` leaves
+/// it once it has turned the view, before the player moves. The block along
+/// the block reach the host's own pick uses (4.5, 5 in creative); the 3.0
+/// only bounds entities.
 /// An entity on the ray before the block leaves no block hit (an entity hit
 /// within 3, a miss past it). LAN guests count within the host's guest pick.
 fn crosshair_block(game: &Game<'_>) -> Option<Hit> {
@@ -217,7 +219,6 @@ pub(crate) fn tick(game: &mut Game<'_>) {
     let no_screen = matches!(game.screen, crate::game::Screen::Playing) && !gui_open;
     let sensitivity = f64::from(game.settings.sensitivity);
     let body = body(game);
-    scaffold_bridge_tick(game, &client, no_screen, body);
     let view = (game.yaw, game.pitch);
     if let Some(p) = game.player.as_ref() { let eye = [p.position.x, p.position.y + f64::from(p.dimensions.eye_height), p.position.z]; with_client(&client, |runtime| runtime.rotation_eye(eye)); }
     let rotated = with_client(&client, |runtime| match &body {
@@ -228,6 +229,11 @@ pub(crate) fn tick(game: &mut Game<'_>) {
         game.yaw = yaw;
         game.pitch = pitch;
     }
+    // The reference's bus dispatches `EventPriority.values()` from LOWEREST
+    // up, so `RotationManager.onTick` (LOWEST) turns the view and refreshes
+    // `normalReachRayTrace` before the bridge modes' pre-tick reads it.
+    let body = self::body(game);
+    scaffold_bridge_tick(game, &client, no_screen, body);
     // InvWalk.
     let screen = inv_walk_screen(game, gui_open, capturing);
     let options = with_client(&client, |runtime| runtime.inv_walk(screen));
