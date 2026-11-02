@@ -886,3 +886,57 @@ bindings = [
   { name = "id", ty = "i32", value = "id" },
   { name = "values", ty = "&[(u8, i32, horizon_protocol::entity_data::Value)]", value = "values" },
 ]
+
+# Guest snapshots are immutable before enqueue; the single writer owns all IO.
+[[module]]
+id = "player-file-worker"
+file = "crates/horizon-client/src/lan/playerdata.rs"
+name = "vape_save_worker"
+source = "save_worker.rs"
+
+[[module]]
+id = "player-file-saves"
+file = "crates/horizon-client/src/lan/playerdata.rs"
+name = "vape_player_saves"
+source = "player_saves.rs"
+visibility = "pub"
+
+[[injection]]
+id = "player-file-save"
+target = "horizon_client::lan::playerdata::save"
+kind = "HEAD"
+cancellable = true
+helper = "adapters/player_save.rs"
+bindings = [
+  { name = "guest", ty = "&crate::lan::guest::Guest", value = "guest" },
+  { name = "world", ty = "&std::path::Path", value = "world" },
+  { name = "vehicle", ty = "Option<[i32; 4]>", value = "vehicle" },
+]
+
+[[injection]]
+id = "player-file-load-barrier"
+target = "horizon_client::lan::playerdata::load"
+kind = "HEAD"
+helper = "adapters/player_read.rs"
+bindings = []
+
+[[injection]]
+id = "player-file-exists-barrier"
+target = "horizon_client::lan::playerdata::exists"
+kind = "HEAD"
+helper = "adapters/player_read.rs"
+bindings = []
+
+[[injection]]
+id = "player-file-save-barrier"
+target = "horizon_client::game::Game<'_>::save_game"
+kind = "RETURN"
+helper = "adapters/player_save_barrier.rs"
+bindings = [{ name = "result", ty = "Result<()>", value = "$value" }]
+
+[[injection]]
+id = "player-file-close-barrier"
+target = "horizon_client::game::lan::Game<'_>::lan_close"
+kind = "RETURN"
+helper = "adapters/player_close.rs"
+bindings = [{ name = "result", ty = "()", value = "$value" }]

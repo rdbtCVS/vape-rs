@@ -2503,3 +2503,54 @@ No host scenarios were run for the merged worker edits, so none of their
 ledger rows changed. The new scenario tools (aura_lan, targeting_modes,
 fast_place, invutil_r6) are unrun. Their claims need a scenario pass in a later
 round before any row moves to validated.
+
+## 2026-11-02: player `.dat` writes off the tick thread
+
+The starting tree was clean at `d6e48b1`; Horizon remains pinned to
+`8f91f896a5d47d034318569940e775d8bd854bd6`. The requested `game.rs:14897`
+location differs from this pin: guest player-file writes converge at
+`lan::playerdata::save`. The native hook now snapshots the guest into its
+existing `Level::player_tag()` on the caller and queues owned NBT plus the file
+path. One named worker performs directory creation, NBT encoding, gzip and
+`write_dat`'s existing temporary/backup replacement. Pending snapshots coalesce
+by path; an in-flight older save always finishes before the newer replacement.
+No detached thread per player and no disk work under the queue lock.
+
+`exists`/`load` wait before consulting disk, explicit `save_game` waits and
+returns write errors, and LAN close waits after saving departing guests.
+Background failures are logged with the file path. Autosave continues without
+a disk barrier. This changes the shared guest-file path and preserves the pin's
+save cadence; it does not add guest enumeration to `save_game_with(false)` or
+move world metadata, stats, advancements or owner `Level::write` off-thread.
+The reference checkout and Horizon checkout remain unchanged.
+
+The source audit now recognizes single-value RETURN hooks, unwraps every exit
+and restores bare unit returns before comparing ASTs. Two newly targeted host
+files have hashes from the committed pin. Feature-ledger rows are unchanged.
+
+Validation:
+- Workspace fmt and clippy (`--all-targets -D warnings`): pass.
+- Offline locked workspace tests: 469 runtime + 3 writer + 1 settings + 5 xtask,
+  all pass. Writer tests hold physical I/O blocked while submitting 150 players,
+  check coalescing/order, error reporting/recovery and 150 actual isolated files.
+- Payload tests: 469 passed.
+- Native plan/apply and audit: 69 hooks, 37 support modules; original AST restored.
+- Pinned staged host binary check (`fast`, no default features): pass (150 warning
+  reports from the existing host/payload).
+- Host-library executable probe (`tools/player_save_probe.rs`, copied only into
+  the staged export's examples): pass in fresh isolated HORIZON/XDG homes. It
+  wrote 150 files over two generations, read gzip NBT and `.dat_old` backups,
+  exercised `exists`' barrier, and saved/reloaded a real `Guest` through the
+  injected public API after mutating its live position. This is storage evidence,
+  not a 150-client gameplay latency benchmark.
+
+Reproduction note: a repeated `xtask stage` encounters the existing pinned
+`CLAUDE.md` symlink rejection while comparing exports. The first export was
+moved aside under target/, then the pinned tool's plan/apply commands and
+`xtask audit` were run directly; no source or symlink in the pin was edited.
+The probe builds with `cargo build --locked --offline -p horizon-client
+--example player_save_probe --no-default-features --profile fast` in the staged
+export, and must run with fresh isolated homes as required by Horizon.
+- Full staged `horizon-client` executable build (`fast`, no default features):
+  pass. Fresh-home `--launch-api` executable smoke test: pass. No rendered game
+  session or connected-client performance benchmark was run for this storage change.

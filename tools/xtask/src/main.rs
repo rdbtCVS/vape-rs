@@ -839,7 +839,7 @@ fn audit(root: &Path, directory: &Path, bundle: &Path, pinned: bool) -> Result<(
                     == declaration.get("require").and_then(toml::Value::as_integer)
                 && injection["ordinal"].as_i64()
                     == declaration.get("ordinal").and_then(toml::Value::as_integer));
-        if !matches!(kind, "HEAD" | "MODIFY_ARG")
+        if !matches!(kind, "HEAD" | "MODIFY_ARG" | "RETURN")
             || injection["kind"].as_str() != Some(kind)
             || !argument_matches
             || injection["target"].as_str() != declaration["target"].as_str()
@@ -863,7 +863,13 @@ fn audit(root: &Path, directory: &Path, bundle: &Path, pinned: bool) -> Result<(
             return Err(format!("helper source differs from plan: {id}").into());
         }
         let name = &helper.sig.ident;
-        if kind == "MODIFY_ARG" {
+        if matches!(kind, "MODIFY_ARG" | "RETURN") {
+            if kind == "RETURN"
+                && (bindings.as_array().is_none_or(|b| b.len() != 1)
+                    || bindings[0]["value"] != "$value")
+            {
+                return Err("audit supports only single-value RETURN hooks".into());
+            }
             expected_args.push((
                 string(injection, "file")?.to_owned(),
                 string(injection, "target")?
@@ -938,8 +944,10 @@ fn audit(root: &Path, directory: &Path, bundle: &Path, pinned: bool) -> Result<(
         stripper.visit_file_mut(&mut modified);
         removals += stripper.removed;
         // Normalize token formatting inside macro token streams, as the transformer does.
-        let original = syn::parse_file(&prettyplease::unparse(&original))?;
-        let modified = syn::parse_file(&prettyplease::unparse(&modified))?;
+        let mut original = syn::parse_file(&prettyplease::unparse(&original))?;
+        let mut modified = syn::parse_file(&prettyplease::unparse(&modified))?;
+        BareReturns.visit_file_mut(&mut original);
+        BareReturns.visit_file_mut(&mut modified);
         if original != modified {
             fs::write(
                 root.join("target/audit-original.rs"),
@@ -984,15 +992,31 @@ fn canonical_statement(statement: &syn::Stmt) -> String {
     prettyplease::unparse(&file)
 }
 
+// A unit RETURN hook expands `return;` to `return helper(())`.
+struct BareReturns;
+impl VisitMut for BareReturns {
+    fn visit_expr_return_mut(&mut self, expr: &mut syn::ExprReturn) {
+        syn::visit_mut::visit_expr_return_mut(self, expr);
+        if expr.expr.as_deref().is_some_and(|value| {
+            matches!(value,
+            syn::Expr::Tuple(tuple) if tuple.elems.is_empty())
+        }) {
+            expr.expr = None;
+        }
+    }
+}
+
 struct Strip {
     removed: usize,
     expected: Vec<(String, syn::Stmt)>,
     arguments: Vec<(String, syn::Expr)>,
 }
-/// Unwraps `({ helper; name })(original)` argument modifiers back to `original`.
+/// Unwraps argument and RETURN modifiers back to their original expressions.
+/// Count each hook once even when RETURN wraps several exits.
 struct StripArguments<'a> {
     callees: Vec<String>,
     removed: &'a mut usize,
+    seen: Vec<String>,
 }
 impl VisitMut for StripArguments<'_> {
     fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
@@ -1001,8 +1025,12 @@ impl VisitMut for StripArguments<'_> {
             && call.args.len() == 1
             && self.callees.contains(&canonical_expr(&call.func))
         {
+            let callee = canonical_expr(&call.func);
             *expr = call.args[0].clone();
-            *self.removed += 1;
+            if !self.seen.contains(&callee) {
+                self.seen.push(callee);
+                *self.removed += 1;
+            }
         }
     }
 }
@@ -1021,6 +1049,7 @@ impl Strip {
             StripArguments {
                 callees,
                 removed: &mut self.removed,
+                seen: Vec::new(),
             }
             .visit_block_mut(block);
         }
@@ -1343,5 +1372,34 @@ mod tests {
         strip.visit_file_mut(&mut file);
         assert_eq!(strip.removed, 0);
         assert_eq!(file, before);
+    }
+    #[test]
+    fn audit_unwraps_every_return_but_keeps_other_code() {
+        let callee: syn::Expr = syn::parse_quote!(
+            ({
+                fn hook(value: ()) {
+                    observe();
+                }
+                hook
+            })
+        );
+        let mut file: syn::File = syn::parse_quote! {
+            fn close(flag: bool) {
+                if flag { return ({ fn hook(value: ()) { observe(); } hook })(()); }
+                ({ fn hook(value: ()) { observe(); } hook })(persist())
+            }
+        };
+        let mut strip = Strip {
+            removed: 0,
+            expected: Vec::new(),
+            arguments: vec![("close".into(), callee)],
+        };
+        strip.visit_file_mut(&mut file);
+        BareReturns.visit_file_mut(&mut file);
+        let expected: syn::File = syn::parse_quote! {
+            fn close(flag: bool) { if flag { return; } persist() }
+        };
+        assert_eq!(strip.removed, 1);
+        assert_eq!(file, expected);
     }
 }

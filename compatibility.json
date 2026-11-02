@@ -32,7 +32,9 @@
     "crates/horizon-client/src/game/native_hooks.rs": "b639f3d3b5fc7b9520006892ed78de0aaba5175f2e96b3656d7e67c473edbc55",
     "crates/horizon-client/src/game/perspective.rs": "883041f8350ce8e12d026d19a522d7f64ce8fd52cafac9e89bec8d889d2e8389",
     "crates/horizon-client/src/game/potions.rs": "c4ef0a58dbf9467a5e3080c15ecf31cbc6049122a1aa5300d0bb5816c4288933",
-    "crates/horizon-client/src/game/remote_projectiles.rs": "9905f7b77ff8a4a40a254cb55b5796bbe9c097cc5be354e5b0d34dcd082b4bc6"
+    "crates/horizon-client/src/game/remote_projectiles.rs": "9905f7b77ff8a4a40a254cb55b5796bbe9c097cc5be354e5b0d34dcd082b4bc6",
+    "crates/horizon-client/src/lan/playerdata.rs": "647e1496f3f5d72a22dc50026322ede8c59ea5b443de54551237064f140ebbee",
+    "crates/horizon-client/src/game/lan.rs": "5d6456ae63f4f80edb7097616cfd80d3d8c54ee529d55dd46341302cab2e9690"
   },
   "reference_revision": "3d600a48106822755cea2d633062e5ab1f383d48",
   "validated_platforms": [],
